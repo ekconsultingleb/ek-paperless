@@ -8,6 +8,16 @@ from datetime import datetime
 MASTER_HUB_URL = "https://docs.google.com/spreadsheets/d/1Bwk2UYwtLrg5bOzAbzF834aIlnCPBVYU4hAiaW26Fec"
 
 st.set_page_config(page_title="EK Consulting Portal", layout="wide")
+# --- HIDE STREAMLIT BRANDING & MENU ---
+hide_st_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
+            [data-testid="stToolbar"] {visibility: hidden;}
+            </style>
+            """
+st.markdown(hide_st_style, unsafe_allow_html=True)
 # --- DIAGNOSTIC TEST ---
 if not st.secrets:
     st.error("🚨 STREAMLIT CANNOT FIND SECRETS.TOML!")
