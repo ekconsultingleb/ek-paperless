@@ -13,7 +13,6 @@ hide_st_style = """
             <style>
             #MainMenu {visibility: hidden;}
             footer {visibility: hidden;}
-            header {visibility: hidden;}
             [data-testid="stToolbar"] {visibility: hidden;}
             </style>
             """
@@ -239,4 +238,5 @@ else:
     elif st.session_state['role'] == "admin":
         st.title("👑 Master Admin Dashboard")
         st.write("Overview of all connected client sheets will appear here.")
+
         # We can build a global summary table here later.
