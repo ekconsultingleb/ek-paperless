@@ -142,13 +142,15 @@ else:
             
             # Filters to handle the 400+ items
             
-    # --- NEW FILTERS & SEARCH ---
+# --- NEW FILTERS & SEARCH ---
             st.sidebar.divider()
             st.sidebar.subheader("🔍 Filter & Search")
             
-            # 1. Create dropdown lists with "All" as the very first option
-            locations = ["All"] + list(df_inv['Location'].dropna().unique())
-            categories = ["All"] + list(df_inv['Category'].dropna().unique())
+            # 1. Create dropdown lists (Removed "All" from Location and Category)
+            locations = list(df_inv['Location'].dropna().unique())
+            categories = list(df_inv['Category'].dropna().unique())
+            
+            # We will keep "All" for the Group filter, just in case they want to see a whole category at once
             groups = ["All"] + list(df_inv['Group'].dropna().unique())
             
             # 2. Show the dropdowns in the sidebar
@@ -162,19 +164,16 @@ else:
             # 4. Start with the full list of items
             filtered_df = df_inv.copy()
             
-            # 5. Apply the filters ONLY if they didn't select "All"
-            if loc_filter != "All":
-                filtered_df = filtered_df[filtered_df['Location'] == loc_filter]
+            # 5. Apply the strict filters automatically
+            filtered_df = filtered_df[filtered_df['Location'] == loc_filter]
+            filtered_df = filtered_df[filtered_df['Category'] == cat_filter]
                 
-            if cat_filter != "All":
-                filtered_df = filtered_df[filtered_df['Category'] == cat_filter]
-                
+            # Apply the Group filter ONLY if they didn't select "All"
             if grp_filter != "All":
                 filtered_df = filtered_df[filtered_df['Group'] == grp_filter]
                 
-            # 6. Apply the Search filter (Looks inside the 'Product Description' column)
+            # 6. Apply the Search filter
             if search_query:
-                # We make both lowercase so "Beef" and "beef" match perfectly
                 filtered_df = filtered_df[filtered_df['Product Description'].astype(str).str.lower().str.contains(search_query.lower(), na=False)]
             
             st.info(f"Showing {len(filtered_df)} matching items.")
