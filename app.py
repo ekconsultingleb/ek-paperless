@@ -138,7 +138,7 @@ else:
         
         try:
             # Load the 'inventory' tab
-            df_inv = conn.read(spreadsheet=st.session_state['link'])
+            df_inv = conn.read(spreadsheet=st.session_state['link'], worksheet="inventory")
             
             # Filters to handle the 400+ items
             
@@ -164,13 +164,18 @@ else:
             # 4. Start with the full list of items
             filtered_df = df_inv.copy()
             
-            # 5. Apply the strict filters automatically
-            filtered_df = filtered_df[filtered_df['Location'] == loc_filter]
-            filtered_df = filtered_df[filtered_df['Category'] == cat_filter]
-                
-            # Apply the Group filter ONLY if they didn't select "All"
-            if grp_filter != "All":
-                filtered_df = filtered_df[filtered_df['Group'] == grp_filter]
+            # 5. Apply filters OR Global Search
+            if search_query:
+                # GLOBAL SEARCH: Ignore dropdowns, search the whole restaurant!
+                filtered_df = filtered_df[filtered_df['Product Description'].astype(str).str.lower().str.contains(search_query.lower(), na=False)]
+            else:
+                # REGULAR NAVIGATION: Apply the strict filters automatically
+                filtered_df = filtered_df[filtered_df['Location'] == loc_filter]
+                filtered_df = filtered_df[filtered_df['Category'] == cat_filter]
+                    
+                # Apply the Group filter ONLY if they didn't select "All"
+                if grp_filter != "All":
+                    filtered_df = filtered_df[filtered_df['Group'] == grp_filter]
                 
             # 6. Apply the Search filter
             if search_query:
@@ -184,6 +189,7 @@ else:
             
             # We wrap the whole list in a form so they can hit Save once at the very bottom
             with st.form("mobile_inventory_form"):
+                st.warning("⚠️ **IMPORTANT:** You MUST click the 'Save All Changes' button below BEFORE changing the Location or Category, or your typed numbers will be lost!")
                 
                 # We will store all their new typed numbers in this hidden dictionary
                 new_quantities = {}
@@ -191,30 +197,28 @@ else:
                 # Loop through every item in their filtered list and draw a "Card"
                 for index, row in filtered_df.iterrows():
                     with st.container(border=True):
-                        # Item Name in bold
-                        st.markdown(f"**{row['Product Description']}**")
                         
-                        # Split the card into two columns: Details on left, Input on right
-                        col1, col2 = st.columns([3, 2], vertical_alignment="center")
+                        # 1. We change the ratio to [1, 1] so the right side gets 50% of the screen.
+                        # This makes the + and - buttons much wider and easier to tap!
+                        col1, col2 = st.columns([1, 1], vertical_alignment="center")
                         
                         with col1:
-                            # 🎯 UPDATED: Shows only the Unit, Product Code is completely hidden!
+                            # 2. We moved the Product Name INSIDE the left column.
+                            # This completely removes that empty top space and cuts the card height in half!
+                            st.markdown(f"**{row['Product Description']}**")
                             st.caption(f"📦 Unit: {row['Unit']}")
                             
                         with col2:
-                            # Pre-fill with the existing quantity if there is one
                             current_qty = float(row['Qty']) if pd.notna(row['Qty']) and str(row['Qty']).strip() != "" else 0.0
                             
-                            # The big, touch-friendly number input
                             new_quantities[index] = st.number_input(
                                 "Qty", 
                                 value=current_qty, 
                                 min_value=0.0, 
                                 step=1.0,
                                 key=f"qty_{index}",
-                                label_visibility="collapsed" # Hides the word "Qty" to save screen space
+                                label_visibility="collapsed" 
                             )
-
                 # The massive save button at the bottom of the feed
                 submit_button = st.form_submit_button("💾 Save All Changes to Cloud", use_container_width=True)
                 
