@@ -170,22 +170,54 @@ else:
             st.info(f"Showing {len(filtered_df)} matching items.")
             
             # Interactive Data Editor
-            edited_df = st.data_editor(
-                filtered_df,
-                column_config={
-                    "Qty": st.column_config.NumberColumn("Physical Count", min_value=0, required=True)
-                },
-                disabled=["Location", "Category", "Group", "Product Code", "Product Description", "Unit"],
-                use_container_width=True,
-                height=500
-            )
+            # --- MOBILE-FIRST UI (CARDS) ---
+            st.write("### 📝 Enter Quantities")
             
-            if st.button("💾 Save All Changes to Cloud"):
-                # Update the main dataframe with the edited values
-                df_inv.update(edited_df)
-                conn.update(spreadsheet=st.session_state['link'], worksheet="inventory", data=df_inv)
-                st.balloons()
-                st.success(f"Inventory for {loc_filter} updated!")
+            # We wrap the whole list in a form so they can hit Save once at the very bottom
+            with st.form("mobile_inventory_form"):
+                
+                # We will store all their new typed numbers in this hidden dictionary
+                new_quantities = {}
+                
+                # Loop through every item in their filtered list and draw a "Card"
+                for index, row in filtered_df.iterrows():
+                    with st.container(border=True):
+                        # Item Name in bold
+                        st.markdown(f"**{row['Product Description']}**")
+                        
+                        # Split the card into two columns: Details on left, Input on right
+                        col1, col2 = st.columns([3, 2], vertical_alignment="center")
+                        
+                        with col1:
+                            # 🎯 UPDATED: Shows only the Unit, Product Code is completely hidden!
+                            st.caption(f"📦 Unit: {row['Unit']}")
+                            
+                        with col2:
+                            # Pre-fill with the existing quantity if there is one
+                            current_qty = float(row['Qty']) if pd.notna(row['Qty']) and str(row['Qty']).strip() != "" else 0.0
+                            
+                            # The big, touch-friendly number input
+                            new_quantities[index] = st.number_input(
+                                "Qty", 
+                                value=current_qty, 
+                                min_value=0.0, 
+                                step=1.0,
+                                key=f"qty_{index}",
+                                label_visibility="collapsed" # Hides the word "Qty" to save screen space
+                            )
+
+                # The massive save button at the bottom of the feed
+                submit_button = st.form_submit_button("💾 Save All Changes to Cloud", use_container_width=True)
+                
+                if submit_button:
+                    # 1. Update our master dataframe with the new numbers ONLY
+                    for idx, new_val in new_quantities.items():
+                        df_inv.at[idx, 'Qty'] = new_val
+                    
+                    # 2. Shoot the updated data straight to Google Sheets
+                    conn.update(spreadsheet=st.session_state['link'], worksheet="inventory", data=df_inv)
+                    st.balloons()
+                    st.success("✅ Inventory successfully updated!")
 
         except Exception as e:
             st.error(f"Error loading Inventory Sheet: {e}")
