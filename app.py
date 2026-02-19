@@ -19,11 +19,11 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 # --- DIAGNOSTIC TEST ---
-if not st.secrets:
-    st.error("🚨 STREAMLIT CANNOT FIND SECRETS.TOML!")
-else:
-    st.success("✅ Secrets loaded successfully!")
-conn = st.connection("gsheets", type=GSheetsConnection)
+#if not st.secrets:
+   # st.error("🚨 STREAMLIT CANNOT FIND SECRETS.TOML!")
+#else:
+   # st.success("✅ Secrets loaded successfully!")
+#conn = st.connection("gsheets", type=GSheetsConnection)
 
 # Initialize Session State
 if 'logged_in' not in st.session_state:
@@ -126,8 +126,8 @@ else:
                     st.success(f"✅ Data saved! Variance: {over_short:,.2f}")
                     st.rerun()
 
-            st.subheader("Previous 5 Days History")
-            st.dataframe(df_cash.tail(5), use_container_width=True)
+            st.subheader("Month History")
+            st.dataframe(df_cash.tail(31), use_container_width=True)
 
         except Exception as e:
             st.error(f"Error: {e}")
@@ -146,12 +146,10 @@ else:
             st.sidebar.divider()
             st.sidebar.subheader("🔍 Filter & Search")
             
-            # 1. Create dropdown lists (Removed "All" from Location and Category)
+            # 1. Create dropdown lists
             locations = list(df_inv['Location'].dropna().unique())
             categories = list(df_inv['Category'].dropna().unique())
-            
-            # We will keep "All" for the Group filter, just in case they want to see a whole category at once
-            groups = ["All"] + list(df_inv['Group'].dropna().unique())
+            groups = list(df_inv['Group'].dropna().unique())
             
             # 2. Show the dropdowns in the sidebar
             loc_filter = st.sidebar.selectbox("Location", locations)
@@ -172,10 +170,7 @@ else:
                 # REGULAR NAVIGATION: Apply the strict filters automatically
                 filtered_df = filtered_df[filtered_df['Location'] == loc_filter]
                 filtered_df = filtered_df[filtered_df['Category'] == cat_filter]
-                    
-                # Apply the Group filter ONLY if they didn't select "All"
-                if grp_filter != "All":
-                    filtered_df = filtered_df[filtered_df['Group'] == grp_filter]
+                filtered_df = filtered_df[filtered_df['Group'] == grp_filter]
                 
             # 6. Apply the Search filter
             if search_query:
@@ -241,4 +236,5 @@ else:
         st.write("Overview of all connected client sheets will appear here.")
 
         # We can build a global summary table here later.
+
 
