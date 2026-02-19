@@ -23,7 +23,7 @@ st.markdown(hide_st_style, unsafe_allow_html=True)
    # st.error("🚨 STREAMLIT CANNOT FIND SECRETS.TOML!")
 #else:
    # st.success("✅ Secrets loaded successfully!")
-#conn = st.connection("gsheets", type=GSheetsConnection)
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 # Initialize Session State
 if 'logged_in' not in st.session_state:
@@ -236,5 +236,6 @@ else:
         st.write("Overview of all connected client sheets will appear here.")
 
         # We can build a global summary table here later.
+
 
 
