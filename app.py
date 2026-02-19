@@ -11,9 +11,10 @@ st.set_page_config(page_title="EK Consulting Portal", layout="wide")
 # --- HIDE STREAMLIT BRANDING & MENU ---
 hide_st_style = """
             <style>
-            #MainMenu {visibility: hidden;}
-            footer {visibility: hidden;}
-            [data-testid="stToolbar"] {visibility: hidden;}
+            #MainMenu {visibility: visible;}
+            header {visibility: visible;}
+            footer {visibility: visible;}
+            [data-testid="stToolbar"] {visibility: visible;}
             </style>
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
@@ -240,3 +241,4 @@ else:
         st.write("Overview of all connected client sheets will appear here.")
 
         # We can build a global summary table here later.
+
