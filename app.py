@@ -9,16 +9,20 @@ MASTER_HUB_URL = "https://docs.google.com/spreadsheets/d/1Bwk2UYwtLrg5bOzAbzF834
 
 st.set_page_config(page_title="EK Consulting Portal", layout="wide")
 
-# --- HIDE STREAMLIT BRANDING & MENU ---
-hide_st_style = """
+# --- CUSTOM CSS: REDUCE TOP PADDING & HIDE BRANDING ---
+custom_css = """
             <style>
-            #MainMenu {visibility: visible;}
-            header {visibility: visible;}
-            footer {visibility: visible;}
-            [data-testid="stToolbar"] {visibility: visible;}
+            /* 1. Shrink the massive empty space at the very top of the page */
+            .block-container {
+                padding-top: 2rem !important;
+                padding-bottom: 1rem !important;
+            }
+            
+            /* 2. Hide the default Streamlit footer */
+            footer {visibility: hidden;}
             </style>
             """
-st.markdown(hide_st_style, unsafe_allow_html=True)
+st.markdown(custom_css, unsafe_allow_html=True)
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
