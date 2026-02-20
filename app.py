@@ -8,21 +8,22 @@ from datetime import datetime
 MASTER_HUB_URL = "https://docs.google.com/spreadsheets/d/1Bwk2UYwtLrg5bOzAbzF834aIlnCPBVYU4hAiaW26Fec"
 
 st.set_page_config(page_title="EK Consulting Portal", layout="wide")
-# --- HIDE STREAMLIT BRANDING & MENU ---
-hide_st_style = """
+
+# --- CUSTOM CSS: REDUCE TOP PADDING & HIDE BRANDING ---
+custom_css = """
             <style>
-            #MainMenu {visibility: visible;}
-            header {visibility: visible;}
-            footer {visibility: visible;}
-            [data-testid="stToolbar"] {visibility: visible;}
+            /* 1. Shrink the massive empty space at the very top of the page */
+            .block-container {
+                padding-top: 2rem !important;
+                padding-bottom: 1rem !important;
+            }
+            
+            /* 2. Hide the default Streamlit footer */
+            footer {visibility: hidden;}
             </style>
             """
-st.markdown(hide_st_style, unsafe_allow_html=True)
-# --- DIAGNOSTIC TEST ---
-#if not st.secrets:
-   # st.error("🚨 STREAMLIT CANNOT FIND SECRETS.TOML!")
-#else:
-   # st.success("✅ Secrets loaded successfully!")
+st.markdown(custom_css, unsafe_allow_html=True)
+
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # Initialize Session State
@@ -44,17 +45,11 @@ if not st.session_state['logged_in']:
         
         if st.button("Sign In", use_container_width=True):
             try:
-                # 1. Read the sheet
                 users_df = conn.read(spreadsheet=MASTER_HUB_URL,ttl=0)
-                
-                # 2. CLEANING: Remove spaces and make headers lowercase
                 users_df.columns = [str(c).strip().lower() for c in users_df.columns]
-                
-                # 3. CLEANING: Remove spaces from the data itself
                 users_df['username'] = users_df['username'].astype(str).str.strip().str.lower()
                 users_df['password'] = users_df['password'].astype(str).str.strip()
 
-                # 4. Check for match
                 match = users_df[(users_df['username'] == u_input) & (users_df['password'] == p_input)]
                 
                 if not match.empty:
@@ -99,11 +94,9 @@ else:
                     on_acc_val = st.number_input("On Account", min_value=0.0, step=0.1)
                     entry_date = st.date_input("Report Date", datetime.now())
 
-                # --- LIVE CALCULATIONS ---
                 revenue = cash_val + visa_val + exp_val + on_acc_val
                 over_short = revenue - m_reading
                 
-                # Show results in a nice box
                 c1, c2 = st.columns(2)
                 c1.metric("Total Revenue", f"{revenue:,.2f}")
                 c2.metric("Over / Short", f"{over_short:,.2f}", delta=over_short)
@@ -132,100 +125,139 @@ else:
         except Exception as e:
             st.error(f"Error: {e}")
 
-    # --- MODULE: INVENTORY
+    # --- MODULE: INVENTORY ---
     elif st.session_state['module'] == "inventory":
         st.title(f"📦 Inventory Count: {st.session_state['user'].capitalize()}")
         
         try:
-            # Load the 'inventory' tab
-            df_inv = conn.read(spreadsheet=st.session_state['link'], worksheet="inventory")
+            df_inv = conn.read(spreadsheet=st.session_state['link'], worksheet="inventory", ttl=0)
             
-            # Filters to handle the 400+ items
-            
-# --- NEW FILTERS & SEARCH ---
+            # --- NEW FILTERS & SEARCH ---
             st.sidebar.divider()
             st.sidebar.subheader("🔍 Filter & Search")
             
-            # 1. Create dropdown lists
             locations = list(df_inv['Location'].dropna().unique())
             categories = list(df_inv['Category'].dropna().unique())
             groups = list(df_inv['Group'].dropna().unique())
             
-            # 2. Show the dropdowns in the sidebar
             loc_filter = st.sidebar.selectbox("Location", locations)
             cat_filter = st.sidebar.selectbox("Category", categories)
             grp_filter = st.sidebar.selectbox("Group", groups)
             
-            # 3. Add a search box for mobile users
             search_query = st.sidebar.text_input("Search Item (e.g. tomato, beef)", "")
             
-            # 4. Start with the full list of items
             filtered_df = df_inv.copy()
             
-            # 5. Apply filters OR Global Search
             if search_query:
-                # GLOBAL SEARCH: Ignore dropdowns, search the whole restaurant!
                 filtered_df = filtered_df[filtered_df['Product Description'].astype(str).str.lower().str.contains(search_query.lower(), na=False)]
             else:
-                # REGULAR NAVIGATION: Apply the strict filters automatically
                 filtered_df = filtered_df[filtered_df['Location'] == loc_filter]
                 filtered_df = filtered_df[filtered_df['Category'] == cat_filter]
                 filtered_df = filtered_df[filtered_df['Group'] == grp_filter]
                 
-            # 6. Apply the Search filter
-            if search_query:
-                filtered_df = filtered_df[filtered_df['Product Description'].astype(str).str.lower().str.contains(search_query.lower(), na=False)]
-            
             st.info(f"Showing {len(filtered_df)} matching items.")
+
+            # --- END OF MONTH ARCHIVE BUTTON ---
+            st.sidebar.divider()
+            st.sidebar.subheader("📅 End of Month")
+            with st.sidebar.expander("Submit Monthly Count"):
+                st.warning("⚠️ Only click this when the ENTIRE count is 100% finished!")
+                archive_date = st.date_input("Select Month/Date", datetime.today())
+                
+                if st.button("🚨 Archive & Reset to Zero", type="primary", use_container_width=True):
+                    # 1. Pull the historical archive
+                    df_archive = conn.read(spreadsheet=st.session_state['link'], worksheet="archive", ttl=0)
+                    
+                    # 2. Take a snapshot of current inventory and stamp it
+                    df_snapshot = df_inv.copy()
+                    df_snapshot['Archive Date'] = archive_date.strftime("%Y-%m-%d")
+                    
+                    # 3. Save to archive tab
+                    updated_archive = pd.concat([df_archive, df_snapshot], ignore_index=True)
+                    conn.update(spreadsheet=st.session_state['link'], worksheet="archive", data=updated_archive)
+                    
+                    # 4. Wipe the live inventory Qty to 0 and save
+                    df_inv['Qty'] = 0.0
+                    conn.update(spreadsheet=st.session_state['link'], worksheet="inventory", data=df_inv)
+                    
+                    st.success("✅ Month archived and board wiped clean!")
+                    st.rerun()
             
-            # Interactive Data Editor
             # --- MOBILE-FIRST UI (CARDS) ---
             st.write("### 📝 Enter Quantities")
             
-            # We wrap the whole list in a form so they can hit Save once at the very bottom
             with st.form("mobile_inventory_form"):
-                st.warning("⚠️ **IMPORTANT:** You MUST click the 'Save All Changes' button below BEFORE changing the Location or Category, or your typed numbers will be lost!")
-                
-                # We will store all their new typed numbers in this hidden dictionary
+                st.warning("⚠️ **IMPORTANT:** You MUST click the 'Save All Changes' button below BEFORE changing the Location or Category!")
                 new_quantities = {}
                 
-                # Loop through every item in their filtered list and draw a "Card"
                 for index, row in filtered_df.iterrows():
                     with st.container(border=True):
-                        
-                        # 1. We change the ratio to [1, 1] so the right side gets 50% of the screen.
-                        # This makes the + and - buttons much wider and easier to tap!
                         col1, col2 = st.columns([1, 1], vertical_alignment="center")
-                        
                         with col1:
-                            # 2. We moved the Product Name INSIDE the left column.
-                            # This completely removes that empty top space and cuts the card height in half!
                             st.markdown(f"**{row['Product Description']}**")
                             st.caption(f"📦 Unit: {row['Unit']}")
-                            
                         with col2:
                             current_qty = float(row['Qty']) if pd.notna(row['Qty']) and str(row['Qty']).strip() != "" else 0.0
-                            
                             new_quantities[index] = st.number_input(
-                                "Qty", 
-                                value=current_qty, 
-                                min_value=0.0, 
-                                step=1.0,
-                                key=f"qty_{index}",
-                                label_visibility="collapsed" 
+                                "Qty", value=current_qty, min_value=0.0, step=1.0,
+                                key=f"qty_{index}", label_visibility="collapsed" 
                             )
-                # The massive save button at the bottom of the feed
+                            
                 submit_button = st.form_submit_button("💾 Save All Changes to Cloud", use_container_width=True)
                 
                 if submit_button:
-                    # 1. Update our master dataframe with the new numbers ONLY
                     for idx, new_val in new_quantities.items():
                         df_inv.at[idx, 'Qty'] = new_val
                     
-                    # 2. Shoot the updated data straight to Google Sheets
                     conn.update(spreadsheet=st.session_state['link'], worksheet="inventory", data=df_inv)
-                    st.balloons()
                     st.success("✅ Inventory successfully updated!")
+                    st.rerun()
+
+            # --- ADD MISSING ITEM FORM ---
+            st.divider()
+            with st.expander("➕ Item Not Found? Add it here"):
+                with st.form("add_new_item_form", clear_on_submit=True):
+                    st.write("Fill out the details to add a new item to the master list.")
+                    new_desc = st.text_input("Product Description (e.g. Red Bull)")
+                    
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        new_loc = st.selectbox("Location", locations)
+                        new_cat = st.selectbox("Category", categories)
+                    with c2:
+                        new_grp = st.selectbox("Group", groups)
+                        new_unit = st.text_input("Unit (e.g. Btl, Kg, Box)")
+                    
+                    if st.form_submit_button("Add Item to Database"):
+                        if new_desc and new_unit:
+                            
+                            # --- THE DUPLICATE CHECKER ---
+                            # Make a hidden list of all existing items in lowercase
+                            existing_items = df_inv['Product Description'].astype(str).str.lower().str.strip().tolist()
+                            
+                            # If their new item is already in the list, stop and show an error!
+                            if new_desc.lower().strip() in existing_items:
+                                st.error(f"🛑 Hold on! '{new_desc}' is already somewhere in the database. Try using the Global Search bar to find it!")
+                            
+                            # If it's truly a new item, proceed with saving it
+                            else:
+                                new_item_row = pd.DataFrame([{
+                                    "Location": new_loc,
+                                    "Category": new_cat,
+                                    "Group": new_grp,
+                                    "Product Description": new_desc,
+                                    "Unit": new_unit,
+                                    "Qty": 0.0
+                                }])
+                                
+                                updated_inv = pd.concat([df_inv, new_item_row], ignore_index=True)
+                                conn.update(spreadsheet=st.session_state['link'], worksheet="inventory", data=updated_inv)
+                                
+                                st.success(f"✅ {new_desc} added to the database!")
+                                st.rerun()
+                                
+                        else:
+                            st.error("Please fill in the Product Description and Unit.")
 
         except Exception as e:
             st.error(f"Error loading Inventory Sheet: {e}")
@@ -234,8 +266,3 @@ else:
     elif st.session_state['role'] == "admin":
         st.title("👑 Master Admin Dashboard")
         st.write("Overview of all connected client sheets will appear here.")
-
-        # We can build a global summary table here later.
-
-
-
