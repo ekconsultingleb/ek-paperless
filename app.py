@@ -266,3 +266,117 @@ else:
     elif st.session_state['role'] == "admin":
         st.title("👑 Master Admin Dashboard")
         st.write("Overview of all connected client sheets will appear here.")
+
+        # --- MODULE: WASTE TRACKER ---
+    elif st.session_state['module'] == "waste":
+        st.markdown(f"## 🗑️ Daily Waste Tracker: {st.session_state['user'].capitalize()}")
+        
+        try:
+            # Load the 'waste' tab live
+            df_waste = conn.read(spreadsheet=st.session_state['link'], worksheet="waste", ttl=0)
+            
+          # --- SIDEBAR FILTERS (SMART CASCADING DROPDOWNS) ---
+            st.sidebar.divider()
+            st.sidebar.subheader("🔍 Filter & Search")
+            
+            # 1. Get the Statuses and create the first dropdown
+            statuses = list(df_waste['Status'].dropna().unique())
+            stat_filter = st.sidebar.selectbox("Status (Menu/Inventory)", statuses)
+            
+            # 2. Filter the data based on the Status BEFORE building the Category list
+            valid_categories = list(df_waste[df_waste['Status'] == stat_filter]['Category'].dropna().unique())
+            cat_filter = st.sidebar.selectbox("Category", valid_categories)
+            
+            # 3. Filter the data based on Status AND Category BEFORE building the Group list
+            valid_groups = list(df_waste[(df_waste['Status'] == stat_filter) & (df_waste['Category'] == cat_filter)]['Group'].dropna().unique())
+            grp_filter = st.sidebar.selectbox("Group", valid_groups)
+            
+            # 4. The Global Search Box
+            search_query = st.sidebar.text_input("Search Item (e.g. bread, salmon)", "")
+            
+            # Apply the final filters to the cards shown on screen
+            filtered_df = df_waste.copy()
+            
+            if search_query:
+                # Global search overrides dropdowns
+                filtered_df = filtered_df[filtered_df['Description'].astype(str).str.lower().str.contains(search_query.lower(), na=False)]
+            else:
+                filtered_df = filtered_df[filtered_df['Status'] == stat_filter]
+                filtered_df = filtered_df[filtered_df['Category'] == cat_filter]
+                filtered_df = filtered_df[filtered_df['Group'] == grp_filter]
+                
+            st.info(f"Showing {len(filtered_df)} matching items.")
+
+            # --- END OF DAY ARCHIVE BUTTON ---
+            st.sidebar.divider()
+            st.sidebar.subheader("📅 End of Day")
+            with st.sidebar.expander("Submit Daily Waste"):
+                st.warning("⚠️ Ready to close the day? This will save today's waste and reset the board.")
+                archive_date = st.date_input("Select Date", datetime.today(), key="waste_date")
+                
+                if st.button("🚨 Archive & Reset to Zero", type="primary", use_container_width=True):
+                    # 1. Pull the historical archive
+                    df_archive = conn.read(spreadsheet=st.session_state['link'], worksheet="archive", ttl=0)
+                    
+                    # 2. Take a snapshot of ONLY items that were actually wasted today (Qty > 0)
+                    df_snapshot = df_waste[df_waste['Qty'] > 0].copy()
+                    
+                    if not df_snapshot.empty:
+                        df_snapshot['Archive Date'] = archive_date.strftime("%Y-%m-%d")
+                        
+                        # 3. Save to archive tab
+                        updated_archive = pd.concat([df_archive, df_snapshot], ignore_index=True)
+                        conn.update(spreadsheet=st.session_state['link'], worksheet="archive", data=updated_archive)
+                    
+                    # 4. Wipe the live waste Qty to 0 and clear Remarks
+                    df_waste['Qty'] = 0.0
+                    df_waste['Remarks'] = ""
+                    conn.update(spreadsheet=st.session_state['link'], worksheet="waste", data=df_waste)
+                    
+                    st.success("✅ Daily waste archived and board wiped clean for tomorrow!")
+                    st.rerun()
+
+            # --- MOBILE UI (CARDS WITH REMARKS) ---
+            st.write("### 📝 Enter Waste Quantities")
+            
+            with st.form("mobile_waste_form"):
+                st.warning("⚠️ **IMPORTANT:** Hit 'Save' below before changing filters!")
+                new_quantities = {}
+                new_remarks = {}
+                
+                for index, row in filtered_df.iterrows():
+                    with st.container(border=True):
+                        # Top half: Info and Number Input
+                        col1, col2 = st.columns([1, 1], vertical_alignment="center")
+                        with col1:
+                            st.markdown(f"**{row['Description']}**")
+                            st.caption(f"📦 Unit: {row['Unit']}")
+                        with col2:
+                            current_qty = float(row['Qty']) if pd.notna(row['Qty']) and str(row['Qty']).strip() != "" else 0.0
+                            new_quantities[index] = st.number_input(
+                                "Qty", value=current_qty, min_value=0.0, step=1.0,
+                                key=f"w_qty_{index}", label_visibility="collapsed" 
+                            )
+                            
+                        # Bottom half: The Remark box
+                        current_remark = str(row.get('Remarks', ''))
+                        if current_remark == 'nan': current_remark = ""
+                        new_remarks[index] = st.text_input(
+                            "Remark", value=current_remark, key=f"w_rem_{index}",
+                            placeholder="Reason for waste...", label_visibility="collapsed"
+                        )
+                            
+                submit_button = st.form_submit_button("💾 Save All Changes to Cloud", use_container_width=True)
+                
+                if submit_button:
+                    # Update master dataframe with quantities AND remarks
+                    for idx, new_val in new_quantities.items():
+                        df_waste.at[idx, 'Qty'] = new_val
+                        df_waste.at[idx, 'Remarks'] = new_remarks[idx]
+                    
+                    conn.update(spreadsheet=st.session_state['link'], worksheet="waste", data=df_waste)
+                    st.success("✅ Waste successfully updated!")
+                    st.rerun()
+
+        except Exception as e:
+            st.error(f"Error loading Waste Sheet: {e}. Are you sure your headers match exactly?")
