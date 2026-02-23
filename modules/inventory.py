@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import zoneinfo
 
 def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_location):
     st.markdown(f"### 📦 Inventory Count")
@@ -113,13 +114,16 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
                         new_quantities[index] = st.number_input("Qty", value=0.0, min_value=0.0, step=0.1, key=f"qty_{index}", label_visibility="collapsed")
                         
             if st.form_submit_button("🚀 Submit Count Ticket", type="primary", use_container_width=True):
+                # Grab the exact time in Lebanon right now!
+                leb_tz = zoneinfo.ZoneInfo("Asia/Beirut")
+                leb_time = datetime.now(leb_tz)
                 records = []
                 for idx, row in filtered_df.iterrows():
                     qty = new_quantities[idx]
                     if qty > 0:
                         records.append({
-                            "Date": datetime.now().strftime("%Y-%m-%d"),
-                            "Time": datetime.now().strftime("%H:%M:%S"),
+                            "Date": leb_time.strftime("%Y-%m-%d"),
+                            "Time": leb_time.strftime("%H:%M:%S"),
                             "User": user,
                             "Outlet": outlet_filter,
                             "Location": loc_filter,
