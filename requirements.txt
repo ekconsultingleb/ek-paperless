@@ -1,3 +1,10 @@
+<<<<<<< HEAD
 streamlit
 st-gsheets-connection
 pandas
+=======
+streamlit
+pandas
+st-gsheets-connection
+gspread
+>>>>>>> 573ae8dc1db385d3bfccc0f49e22ec6bc862f935
