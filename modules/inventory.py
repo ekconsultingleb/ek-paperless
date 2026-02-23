@@ -53,13 +53,10 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
         # --- 🛒 THE DIGITAL SHOPPING CART UI (TOP OF SCREEN) ---
         cart_size = len(st.session_state['inv_notepad'])
         if cart_size > 0:
-            st.success(f"🛒 **{cart_size} items** ready to be saved to the database.")
+            st.success(f"🛒 **{cart_size} unique items** in your cart ready to be saved.")
             with st.expander("👀 Review & Submit Cart", expanded=False):
-                # Convert the dictionary into a clean pandas dataframe for display!
                 cart_list = list(st.session_state['inv_notepad'].values())
                 df_cart = pd.DataFrame(cart_list)
-                
-                # Show only the columns the chef cares about reviewing
                 st.dataframe(df_cart[['Location', 'Product Description', 'Qty', 'Unit']], use_container_width=True, hide_index=True)
                 
                 col1, col2 = st.columns(2)
@@ -98,7 +95,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
                         st.session_state['inv_notepad'] = {}
                         st.rerun()
         else:
-            st.info("💡 Your cart is empty. Filter below, enter quantities, and hit 'Add to Cart'.")
+            st.info("💡 Filter below, tap the box to type quantities, and hit 'Add to Cart'.")
 
         st.divider()
 
@@ -132,17 +129,31 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
             if cat_filter: filtered_df = filtered_df[filtered_df['Category'] == cat_filter]
             if grp_filter: filtered_df = filtered_df[filtered_df['Group'] == grp_filter]
             
-        # --- THE COUNT FORM ---
+        # --- THE COUNT FORM WITH VISUAL BADGES ---
         with st.form("mobile_inventory_form", clear_on_submit=True):
             new_quantities = {}
             for index, row in filtered_df.iterrows():
+                item_name = row.get('Product Description', 'Unknown Item')
+                dict_key = f"{outlet_filter}_{loc_filter}_{item_name}"
+                
+                # Check if this specific item is already sitting in the shopping cart!
+                in_cart_qty = 0
+                if dict_key in st.session_state['inv_notepad']:
+                    in_cart_qty = st.session_state['inv_notepad'][dict_key]['Qty']
+
                 with st.container(border=True):
                     col1, col2 = st.columns([1, 1], vertical_alignment="center")
                     with col1:
-                        st.markdown(f"**{row.get('Product Description', 'Unknown Item')}**")
-                        st.caption(f"📦 Unit: {row.get('Unit', '')}")
+                        # THE VISUAL BADGE LOGIC
+                        if in_cart_qty > 0:
+                            st.markdown(f"🟢 **{item_name}**")
+                            st.caption(f"📦 Unit: {row.get('Unit', '')} &nbsp;|&nbsp; ✅ **In Cart: {in_cart_qty}**")
+                        else:
+                            st.markdown(f"**{item_name}**")
+                            st.caption(f"📦 Unit: {row.get('Unit', '')}")
                     with col2:
-                        new_quantities[index] = st.number_input("Qty", value=0.0, min_value=0.0, step=0.1, key=f"qty_{index}", label_visibility="collapsed")
+                        # THE FIX: step=1.0 so the '+' button adds whole numbers, but format="%.1f" allows typing 2.5!
+                        new_quantities[index] = st.number_input("Qty", value=0.0, min_value=0.0, step=1.0, format="%.1f", key=f"qty_{index}", label_visibility="collapsed")
                         
             if st.form_submit_button("➕ Add to Cart", type="secondary", use_container_width=True):
                 items_added = 0
@@ -168,7 +179,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
                         items_added += 1
                 
                 if items_added > 0:
-                    st.rerun() # Instantly refreshes so the Cart Banner appears at the top!
+                    st.rerun() 
                 else:
                     st.warning("⚠️ No quantities entered.")
 
