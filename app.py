@@ -13,7 +13,9 @@ from modules.waste import render_waste
 MASTER_HUB_URL = "https://docs.google.com/spreadsheets/d/1Bwk2UYwtLrg5bOzAbzF834aIlnCPBVYU4hAiaW26Fec"
 
 st.set_page_config(page_title="EK Consulting Portal", layout="wide")
-
+# --- BRANDING & LOGO ---
+st.sidebar.image("ek_logo.png", use_container_width=True)
+st.sidebar.divider()
 custom_css = """
             <style>
             .block-container { padding-top: 2rem !important; padding-bottom: 1rem !important; }
