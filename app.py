@@ -40,7 +40,10 @@ if 'logged_in' not in st.session_state:
 # ==========================================
 
 if not st.session_state['logged_in']:
-    st.markdown("## 🛡️ EK Consulting Partner Portal")
+    st.markdown("""
+        <h1 style='text-align: center; margin-bottom: 0;'>🛡️ EK Consulting</h1>
+        <p style='text-align: center; color: gray; font-size: 18px; margin-top: 0;'>Partner Portal</p>
+    """, unsafe_allow_html=True)
     with st.container(border=True):
         u_input = st.text_input("Username").strip().lower()
         p_input = st.text_input("Password", type="password").strip()
