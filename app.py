@@ -14,7 +14,7 @@ MASTER_HUB_URL = "https://docs.google.com/spreadsheets/d/1Bwk2UYwtLrg5bOzAbzF834
 
 st.set_page_config(page_title="EK Consulting Portal", layout="wide")
 # --- BRANDING & LOGO ---
-st.sidebar.image("EK-logo.png", use_container_width=True)
+st.sidebar.image("EK-Logo.png", use_container_width=True)
 st.sidebar.divider()
 custom_css = """
             <style>
