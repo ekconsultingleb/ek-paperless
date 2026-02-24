@@ -3,11 +3,11 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 
 # --- IMPORT YOUR NEW MODULES ---
-# These will show an error in VS Code until we put code in those 4 empty files!
 from modules.dashboard import render_dashboard
 from modules.daily_cash import render_daily_cash
 from modules.inventory import render_inventory
 from modules.waste import render_waste
+from modules.transfers import render_transfers
 
 # --- CONFIGURATION ---
 MASTER_HUB_URL = "https://docs.google.com/spreadsheets/d/1Bwk2UYwtLrg5bOzAbzF834aIlnCPBVYU4hAiaW26Fec"
@@ -103,7 +103,7 @@ else:
     
     raw_modules = str(st.session_state['module']).lower().strip()
     if raw_modules == "all_modules" or role == "manager":
-        allowed_modules = ["dashboard", "daily_cash", "inventory", "waste"]
+        allowed_modules = ["dashboard", "daily_cash", "inventory", "waste", "transfers"]
     else:
         allowed_modules = [m.strip() for m in raw_modules.split(",")]
 
@@ -166,6 +166,14 @@ else:
                 if st.button("📦 Inventory Count", use_container_width=True):
                     st.session_state['current_page'] = 'inventory'
                     st.rerun()
+                st.write("")
+            
+            # --- THE NEW TRANSFERS BUTTON ---
+            if "transfers" in allowed_modules:
+                if st.button("🔄 Warehouse Transfers", use_container_width=True):
+                    st.session_state['current_page'] = 'transfers'
+                    st.rerun()
+                st.write("")
                     
         else:
             if len(allowed_modules) > 1:
@@ -175,7 +183,6 @@ else:
                 st.divider()
             
             # --- ROUTING TO THE NEW FILES ---
-            # Notice how clean this is now! We pass the connection, sheet link, and security rules.
             if st.session_state['current_page'] == 'dashboard':
                 render_dashboard(conn, sheet, outlet)
             elif st.session_state['current_page'] == 'daily_cash':
@@ -184,3 +191,5 @@ else:
                 render_inventory(conn, sheet, user, role, outlet, location)
             elif st.session_state['current_page'] == 'waste':
                 render_waste(conn, sheet, user, role, outlet, location)
+            elif st.session_state['current_page'] == 'transfers':
+                render_transfers(conn, sheet, user, role, outlet, location)
