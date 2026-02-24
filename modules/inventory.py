@@ -94,7 +94,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
         elif grp_filter:
             filtered_df = filtered_df[filtered_df['Group'] == grp_filter]
 
-        # --- 🚨 HISTORY ALERT ---
+               # --- 🚨 HISTORY ALERT ---
         leb_tz = zoneinfo.ZoneInfo("Asia/Beirut")
         today_str = datetime.now(leb_tz).strftime("%Y-%m-%d")
         df_logs = conn.read(spreadsheet=sheet_link, worksheet="inventory_logs", ttl=0)
@@ -106,6 +106,8 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
                                      (df_logs['Group'] == grp_filter)]
             if not already_logged.empty:
                 st.warning(f"⚠️ **Heads up!** '{grp_filter}' was already submitted today ({len(already_logged)} items logged).")
+                with st.expander("👁️ View logged items"):
+                    st.dataframe(already_logged[['Product Description', 'Qty', 'Unit']], use_container_width=True, hide_index=True)
 
         # --- 🟢 PROGRESS TRACKER ---
         total_items = len(filtered_df)
