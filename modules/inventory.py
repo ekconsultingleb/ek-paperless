@@ -3,6 +3,18 @@ import pandas as pd
 from datetime import datetime
 import zoneinfo
 
+# --- CALLBACK FUNCTION FOR LIVE AUTO-SAVE ---
+def update_cart_item(item_key, item_data, widget_key):
+    """Instantly updates the shopping cart the second a number changes."""
+    new_qty = st.session_state[widget_key]
+    if new_qty is not None and new_qty > 0:
+        item_data['Qty'] = new_qty
+        st.session_state['inv_notepad'][item_key] = item_data
+    else:
+        # If they delete the number or change it to 0, remove it from the cart
+        if item_key in st.session_state['inv_notepad']:
+            del st.session_state['inv_notepad'][item_key]
+
 def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_location):
     st.markdown(f"### 📦 Inventory Count")
     
@@ -95,7 +107,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
                         st.session_state['inv_notepad'] = {}
                         st.rerun()
         else:
-            st.info("💡 Filter below, tap the box to type quantities, and hit 'Add to Cart'.")
+            st.info("💡 Filter below and type quantities. Items save to your cart instantly!")
 
         st.divider()
 
@@ -119,8 +131,6 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
         
         # --- ⚡ QUICK FILTERS (MAIN SCREEN) ---
         col_f1, col_f2 = st.columns(2)
-        
-        # Grab groups but NO LONGER ADD "All"
         groups = list(df_inv[(df_inv.get('Outlet') == outlet_filter) & (df_inv.get('Location') == loc_filter) & (df_inv.get('Category') == cat_filter)]['Group'].dropna().unique()) if 'Group' in df_inv.columns else []
         
         with col_f1:
@@ -138,62 +148,60 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
         if 'Location' in filtered_df.columns and loc_filter: filtered_df = filtered_df[filtered_df['Location'] == loc_filter]
         if cat_filter: filtered_df = filtered_df[filtered_df['Category'] == cat_filter]
             
-        # If they type a search, it ignores the group. Otherwise, it strictly filters by the Group dropdown.
         if search_query:
             filtered_df = filtered_df[filtered_df['Product Description'].astype(str).str.lower().str.contains(search_query.lower(), na=False)]
         elif grp_filter:
             filtered_df = filtered_df[filtered_df['Group'] == grp_filter]
             
-        # --- THE COUNT FORM WITH VISUAL BADGES ---
-        with st.form("mobile_inventory_form", clear_on_submit=True):
-            new_quantities = {}
-            for index, row in filtered_df.iterrows():
-                item_name = row.get('Product Description', 'Unknown Item')
-                dict_key = f"{outlet_filter}_{loc_filter}_{item_name}"
-                
-                in_cart_qty = 0
-                if dict_key in st.session_state['inv_notepad']:
-                    in_cart_qty = st.session_state['inv_notepad'][dict_key]['Qty']
+        # --- THE LIVE COUNT FORM (NO BUTTON REQUIRED) ---
+        for index, row in filtered_df.iterrows():
+            item_name = row.get('Product Description', 'Unknown Item')
+            dict_key = f"{outlet_filter}_{loc_filter}_{item_name}"
+            
+            # Check if it's already in the cart so we can display it!
+            in_cart_qty = 0
+            if dict_key in st.session_state['inv_notepad']:
+                in_cart_qty = st.session_state['inv_notepad'][dict_key]['Qty']
 
-                with st.container(border=True):
-                    col1, col2 = st.columns([1, 1], vertical_alignment="center")
-                    with col1:
-                        if in_cart_qty > 0:
-                            st.markdown(f"🟢 **{item_name}**")
-                            st.caption(f"📦 Unit: {row.get('Unit', '')} &nbsp;|&nbsp; ✅ **In Cart: {in_cart_qty}**")
-                        else:
-                            st.markdown(f"**{item_name}**")
-                            st.caption(f"📦 Unit: {row.get('Unit', '')}")
-                    with col2:
-                        new_quantities[index] = st.number_input("Qty", value=None, min_value=0.0, step=1.0, format="%.1f", placeholder="0.0", key=f"qty_{index}", label_visibility="collapsed")
-                        
-            if st.form_submit_button("➕ Add to Cart", type="secondary", use_container_width=True):
-                items_added = 0
-                for idx, row in filtered_df.iterrows():
-                    qty = new_quantities[idx]
-                    if qty is not None and qty > 0:
-                        item_name = row.get('Product Description', 'Unknown Item')
-                        dict_key = f"{outlet_filter}_{loc_filter}_{item_name}"
-                        
-                        if dict_key in st.session_state['inv_notepad']:
-                            st.session_state['inv_notepad'][dict_key]['Qty'] += qty
-                        else:
-                            st.session_state['inv_notepad'][dict_key] = {
-                                "Outlet": outlet_filter,
-                                "Location": loc_filter,
-                                "Category": row.get('Category', ''),
-                                "Group": row.get('Group', ''),
-                                "Product Code": row.get('Product Code', ''),
-                                "Product Description": item_name,
-                                "Qty": qty,
-                                "Unit": row.get('Unit', '')
-                            }
-                        items_added += 1
-                
-                if items_added > 0:
-                    st.rerun() 
-                else:
-                    st.warning("⚠️ No quantities entered.")
+            with st.container(border=True):
+                col1, col2 = st.columns([1, 1], vertical_alignment="center")
+                with col1:
+                    if in_cart_qty > 0:
+                        st.markdown(f"🟢 **{item_name}**")
+                        st.caption(f"📦 Unit: {row.get('Unit', '')} &nbsp;|&nbsp; ✅ **In Cart: {in_cart_qty}**")
+                    else:
+                        st.markdown(f"**{item_name}**")
+                        st.caption(f"📦 Unit: {row.get('Unit', '')}")
+                with col2:
+                    current_val = in_cart_qty if in_cart_qty > 0 else None
+                    
+                    # Pre-package the data to send to the cart instantly
+                    item_data = {
+                        "Outlet": outlet_filter,
+                        "Location": loc_filter,
+                        "Category": row.get('Category', ''),
+                        "Group": row.get('Group', ''),
+                        "Product Code": row.get('Product Code', ''),
+                        "Product Description": item_name,
+                        "Qty": 0, # Placeholder, updated in callback
+                        "Unit": row.get('Unit', '')
+                    }
+                    
+                    widget_key = f"qty_{index}_{dict_key}"
+                    
+                    # The on_change triggers the instant save without a form button
+                    st.number_input(
+                        "Qty", 
+                        value=current_val, 
+                        min_value=0.0, 
+                        step=1.0, 
+                        format="%.1f", 
+                        placeholder="0.0", 
+                        key=widget_key, 
+                        label_visibility="collapsed",
+                        on_change=update_cart_item,
+                        args=(dict_key, item_data, widget_key)
+                    )
 
         # --- ADD MISSING ITEM TO MASTER DATABASE ---
         st.divider()
