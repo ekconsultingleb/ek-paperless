@@ -17,7 +17,6 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
                 df_archive = df_archive[df_archive['Outlet'] == assigned_outlet]
                 
             if assigned_location.lower() != 'all' and assigned_location != '' and 'Location' in df_archive.columns:
-                # Splits "Med, Warehouse" into a list the app can read perfectly
                 allowed_locs = [loc.strip().lower() for loc in assigned_location.split(',')]
                 df_archive = df_archive[df_archive['Location'].astype(str).str.lower().isin(allowed_locs)]
             
@@ -86,18 +85,27 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
 
         loc_filter = st.sidebar.selectbox("📍 Select Location", allowed_locs, key="w_loc") if allowed_locs else None
 
-        # --- 3. STANDARD FILTERS ---
+        # --- 3. STANDARD PERMANENT FILTERS ---
         statuses = list(df_waste[(df_waste.get('Outlet') == outlet_filter) & (df_waste.get('Location') == loc_filter)]['Status'].dropna().unique()) if 'Status' in df_waste.columns else []
         stat_filter = st.sidebar.selectbox("Status", statuses, key="w_stat") if statuses else None
         
         valid_cats = list(df_waste[(df_waste.get('Outlet') == outlet_filter) & (df_waste.get('Location') == loc_filter) & (df_waste.get('Status') == stat_filter)]['Category'].dropna().unique()) if 'Category' in df_waste.columns else []
         cat_filter = st.sidebar.selectbox("Category", valid_cats, key="w_cat") if valid_cats else None
         
+        # --- ⚡ QUICK FILTERS (MAIN SCREEN) ---
+        col_f1, col_f2 = st.columns(2)
+        
         valid_grps = list(df_waste[(df_waste.get('Outlet') == outlet_filter) & (df_waste.get('Location') == loc_filter) & (df_waste.get('Status') == stat_filter) & (df_waste.get('Category') == cat_filter)]['Group'].dropna().unique()) if 'Group' in df_waste.columns else []
-        grp_filter = st.sidebar.selectbox("Group", valid_grps, key="w_grp") if valid_grps else None
+        valid_grps.insert(0, "All")
         
-        search_query = st.sidebar.text_input("Search Item", "", key="w_search")
+        with col_f1:
+            grp_filter = st.selectbox("Group", valid_grps, key="w_main_grp", label_visibility="collapsed")
+            
+        with col_f2:
+            search_query = st.text_input("Search", "", placeholder="🔍 Search...", key="w_main_search", label_visibility="collapsed")
         
+        st.divider()
+
         # --- APPLY FILTERS ---
         filtered_df = df_waste.copy()
         if 'Outlet' in filtered_df.columns:
@@ -110,7 +118,7 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
         else:
             if stat_filter: filtered_df = filtered_df[filtered_df['Status'] == stat_filter]
             if cat_filter: filtered_df = filtered_df[filtered_df['Category'] == cat_filter]
-            if grp_filter: filtered_df = filtered_df[filtered_df['Group'] == grp_filter]
+            if grp_filter != "All": filtered_df = filtered_df[filtered_df['Group'] == grp_filter]
             
         # --- THE TICKET FORM ---
         with st.form("waste_ticket_form", clear_on_submit=True):
@@ -127,8 +135,10 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
                     st.markdown(f"{code_display}**{row.get('Description', 'Unknown')}** &nbsp;|&nbsp; 📦 {row.get('Unit', '')}")
                     col1, col2 = st.columns([1, 1.5], vertical_alignment="center")
                     with col1:
+                        # Reverted to value=0.0 so the + and - buttons work flawlessly!
                         new_quantities[index] = st.number_input("Qty", value=0.0, min_value=0.0, step=1.0, key=f"w_qty_{index}", label_visibility="collapsed")
                     with col2:
+                        # Added label_visibility="collapsed" here too to align perfectly with the quantity box
                         new_remarks[index] = st.text_input("Remark", value="", key=f"w_rem_{index}", placeholder="Optional remark...", label_visibility="collapsed")
                         
             if st.form_submit_button("🚀 Submit Ticket", type="primary", use_container_width=True):
