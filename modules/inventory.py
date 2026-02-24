@@ -99,8 +99,8 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
 
         st.divider()
 
-        # --- 🔍 SIDEBAR FILTERS ---
-        st.sidebar.subheader("🔍 Filter & Search")
+        # --- 🔍 PERMANENT SIDEBAR FILTERS ---
+        st.sidebar.subheader("🔍 Filter Location")
         all_outlets = list(df_inv['Outlet'].dropna().astype(str).unique()) if 'Outlet' in df_inv.columns else ["Main"]
         allowed_outlets = [assigned_outlet] if assigned_outlet.lower() != 'all' and assigned_outlet != '' else all_outlets
         outlet_filter = st.sidebar.selectbox("🏢 Select Outlet", allowed_outlets, key="inv_out")
@@ -113,21 +113,38 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
             allowed_locs = outlet_locs
 
         loc_filter = st.sidebar.selectbox("📍 Select Location", allowed_locs, key="inv_loc") if allowed_locs else None
+        
         categories = list(df_inv[(df_inv.get('Outlet') == outlet_filter) & (df_inv.get('Location') == loc_filter)]['Category'].dropna().unique()) if 'Category' in df_inv.columns else []
         cat_filter = st.sidebar.selectbox("Category", categories, key="inv_cat") if categories else None
+        
+        # --- ⚡ QUICK FILTERS (MAIN SCREEN) ---
+        col_f1, col_f2 = st.columns(2)
+        
+        # Grab the groups based on the sidebar filters, and add an "All" option
         groups = list(df_inv[(df_inv.get('Outlet') == outlet_filter) & (df_inv.get('Location') == loc_filter) & (df_inv.get('Category') == cat_filter)]['Group'].dropna().unique()) if 'Group' in df_inv.columns else []
-        grp_filter = st.sidebar.selectbox("Group", groups, key="inv_grp") if groups else None
-        search_query = st.sidebar.text_input("Search Item", "", key="inv_search")
+        groups.insert(0, "All") 
+        
+        with col_f1:
+            grp_filter = st.selectbox("Group", groups, key="main_grp", label_visibility="collapsed")
             
+        with col_f2:
+            search_query = st.text_input("Search", "", placeholder="🔍 Search...", key="main_search", label_visibility="collapsed")
+            
+        st.divider()
+        
+        # --- THE FILTERING ENGINE ---
         filtered_df = df_inv.copy()
+        
+        # Apply the permanent sidebar filters first
         if 'Outlet' in filtered_df.columns: filtered_df = filtered_df[filtered_df['Outlet'] == outlet_filter]
         if 'Location' in filtered_df.columns and loc_filter: filtered_df = filtered_df[filtered_df['Location'] == loc_filter]
+        if cat_filter: filtered_df = filtered_df[filtered_df['Category'] == cat_filter]
             
+        # Apply the Quick Filters (Search overrides Group)
         if search_query:
             filtered_df = filtered_df[filtered_df['Product Description'].astype(str).str.lower().str.contains(search_query.lower(), na=False)]
-        else:
-            if cat_filter: filtered_df = filtered_df[filtered_df['Category'] == cat_filter]
-            if grp_filter: filtered_df = filtered_df[filtered_df['Group'] == grp_filter]
+        elif grp_filter != "All":
+            filtered_df = filtered_df[filtered_df['Group'] == grp_filter]
             
         # --- THE COUNT FORM WITH VISUAL BADGES ---
         with st.form("mobile_inventory_form", clear_on_submit=True):
@@ -152,14 +169,14 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
                             st.markdown(f"**{item_name}**")
                             st.caption(f"📦 Unit: {row.get('Unit', '')}")
                     with col2:
-                        # THE FIX: step=1.0 so the '+' button adds whole numbers, but format="%.1f" allows typing 2.5!
-                        new_quantities[index] = st.number_input("Qty", value=0.0, min_value=0.0, step=1.0, format="%.1f", key=f"qty_{index}", label_visibility="collapsed")
+                        # Setting value=None makes it empty, and placeholder="0.0" shows a light gray hint!
+                        new_quantities[index] = st.number_input("Qty", value=None, min_value=0.0, step=1.0, format="%.1f", placeholder="0.0", key=f"qty_{index}", label_visibility="collapsed")
                         
             if st.form_submit_button("➕ Add to Cart", type="secondary", use_container_width=True):
                 items_added = 0
                 for idx, row in filtered_df.iterrows():
                     qty = new_quantities[idx]
-                    if qty > 0:
+                    if qty is not None and qty > 0:
                         item_name = row.get('Product Description', 'Unknown Item')
                         dict_key = f"{outlet_filter}_{loc_filter}_{item_name}"
                         
