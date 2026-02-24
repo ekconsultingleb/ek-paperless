@@ -1,0 +1,15 @@
+[theme]
+# The main accent color (The EK Consulting Tan/Beige)
+primaryColor = "#D4B89F"
+
+# The background color (Dark Charcoal to match your proposal aesthetic)
+backgroundColor = "#1E1E1E"
+
+# The secondary background for sidebars and input boxes
+secondaryBackgroundColor = "#2D2D2D"
+
+# Text color (White/Off-white for high contrast on dark backgrounds)
+textColor = "#F5F5F5"
+
+# Font family
+font = "sans serif"
