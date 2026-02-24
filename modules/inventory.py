@@ -158,7 +158,6 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
             item_name = row.get('Product Description', 'Unknown Item')
             dict_key = f"{outlet_filter}_{loc_filter}_{item_name}"
             
-            # Check if it's already in the cart so we can display it!
             in_cart_qty = 0
             if dict_key in st.session_state['inv_notepad']:
                 in_cart_qty = st.session_state['inv_notepad'][dict_key]['Qty']
@@ -175,7 +174,6 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
                 with col2:
                     current_val = in_cart_qty if in_cart_qty > 0 else None
                     
-                    # Pre-package the data to send to the cart instantly
                     item_data = {
                         "Outlet": outlet_filter,
                         "Location": loc_filter,
@@ -183,13 +181,11 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
                         "Group": row.get('Group', ''),
                         "Product Code": row.get('Product Code', ''),
                         "Product Description": item_name,
-                        "Qty": 0, # Placeholder, updated in callback
+                        "Qty": 0, 
                         "Unit": row.get('Unit', '')
                     }
                     
                     widget_key = f"qty_{index}_{dict_key}"
-                    
-                    # The on_change triggers the instant save without a form button
                     st.number_input(
                         "Qty", 
                         value=current_val, 
@@ -207,33 +203,47 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
         st.divider()
         with st.expander("➕ Missing an Item? Add it to the Database"):
             st.info(f"This will permanently add the item to **{loc_filter}**.")
-            with st.form("add_new_item_form", clear_on_submit=True):
-                new_item_name = st.text_input("Product Name (e.g. Fresh Salmon)")
+            
+            # Extract unique lists for our strict dropdowns
+            all_db_cats = list(df_inv['Category'].dropna().unique()) if 'Category' in df_inv.columns else ["Food", "Beverage"]
+            all_db_grps = list(df_inv['Group'].dropna().unique()) if 'Group' in df_inv.columns else ["General"]
+            all_db_units = list(df_inv['Unit'].dropna().unique()) if 'Unit' in df_inv.columns else ["KG", "PCS", "LITRE", "BTL"]
+            
+            # Using clear_on_submit=False so if they hit an error, they don't lose their inputs
+            with st.form("add_new_item_form", clear_on_submit=False):
+                new_item_name = st.text_input("Product Name (Type carefully!)", placeholder="e.g. Red Bull Sugar Free")
                 colA, colB = st.columns(2)
                 with colA:
-                    new_cat = st.text_input("Category (e.g. Food)")
-                    new_unit = st.text_input("Unit (e.g. KG, PCS)")
+                    new_cat = st.selectbox("Category", all_db_cats)
+                    new_unit = st.selectbox("Unit", all_db_units)
                 with colB:
-                    new_grp = st.text_input("Group (e.g. Seafood)")
+                    new_grp = st.selectbox("Group", all_db_grps)
                     new_code = st.text_input("Product Code (Optional)")
                     
                 if st.form_submit_button("💾 Add to Database", type="primary", use_container_width=True):
-                    if new_item_name and new_cat and new_grp and new_unit:
-                        new_row = pd.DataFrame([{
-                            "Outlet": outlet_filter,
-                            "Location": loc_filter,
-                            "Category": new_cat.title(),
-                            "Group": new_grp.title(),
-                            "Product Code": new_code,
-                            "Product Description": new_item_name.title(),
-                            "Unit": new_unit.upper()
-                        }])
-                        updated_inv = pd.concat([df_inv, new_row], ignore_index=True)
-                        conn.update(spreadsheet=sheet_link, worksheet="inventory", data=updated_inv)
-                        st.success(f"✅ {new_item_name} added to {loc_filter}! It will appear immediately.")
-                        st.rerun()
+                    if not new_item_name.strip():
+                        st.error("🛑 Please enter a Product Name.")
                     else:
-                        st.error("Please fill in Name, Category, Group, and Unit.")
-
+                        # --- SMART DUPLICATE CHECKER ---
+                        # Strips spaces and makes everything lowercase (e.g., "Red Bull" -> "redbull")
+                        clean_input = new_item_name.strip().lower().replace(" ", "")
+                        existing_items_clean = df_inv['Product Description'].astype(str).str.lower().str.replace(" ", "").tolist()
+                        
+                        if clean_input in existing_items_clean:
+                            st.error(f"🛑 HOLD ON! **{new_item_name}** (or something very similar) is already in the system. Go back up to the search bar and look for it!")
+                        else:
+                            new_row = pd.DataFrame([{
+                                "Outlet": outlet_filter,
+                                "Location": loc_filter,
+                                "Category": new_cat,
+                                "Group": new_grp,
+                                "Product Code": new_code,
+                                "Product Description": new_item_name.strip().title(),
+                                "Unit": new_unit
+                            }])
+                            updated_inv = pd.concat([df_inv, new_row], ignore_index=True)
+                            conn.update(spreadsheet=sheet_link, worksheet="inventory", data=updated_inv)
+                            st.success(f"✅ {new_item_name.title()} successfully added to {loc_filter}! Please refresh the page to count it.")
+                            
     except Exception as e:
         st.error(f"Error loading Inventory module: {e}")
