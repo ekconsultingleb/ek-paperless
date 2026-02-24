@@ -48,7 +48,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
         # ==========================================
         # 📝 COUNTING MODE (THE MULTI-USER LEDGER)
         # ==========================================
-        df_inv = conn.read(spreadsheet=sheet_link, worksheet="inventory", ttl=600)
+        df_inv = conn.read(spreadsheet=sheet_link, worksheet="inventory", ttl=0)
         
         # --- 🛒 THE DIGITAL SHOPPING CART UI (TOP OF SCREEN) ---
         cart_size = len(st.session_state['inv_notepad'])
@@ -120,12 +120,11 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
         # --- ⚡ QUICK FILTERS (MAIN SCREEN) ---
         col_f1, col_f2 = st.columns(2)
         
-        # Grab the groups based on the sidebar filters, and add an "All" option
+        # Grab groups but NO LONGER ADD "All"
         groups = list(df_inv[(df_inv.get('Outlet') == outlet_filter) & (df_inv.get('Location') == loc_filter) & (df_inv.get('Category') == cat_filter)]['Group'].dropna().unique()) if 'Group' in df_inv.columns else []
-        groups.insert(0, "All") 
         
         with col_f1:
-            grp_filter = st.selectbox("Group", groups, key="main_grp", label_visibility="collapsed")
+            grp_filter = st.selectbox("Group", groups, key="main_grp", label_visibility="collapsed") if groups else None
             
         with col_f2:
             search_query = st.text_input("Search", "", placeholder="🔍 Search...", key="main_search", label_visibility="collapsed")
@@ -135,15 +134,14 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
         # --- THE FILTERING ENGINE ---
         filtered_df = df_inv.copy()
         
-        # Apply the permanent sidebar filters first
         if 'Outlet' in filtered_df.columns: filtered_df = filtered_df[filtered_df['Outlet'] == outlet_filter]
         if 'Location' in filtered_df.columns and loc_filter: filtered_df = filtered_df[filtered_df['Location'] == loc_filter]
         if cat_filter: filtered_df = filtered_df[filtered_df['Category'] == cat_filter]
             
-        # Apply the Quick Filters (Search overrides Group)
+        # If they type a search, it ignores the group. Otherwise, it strictly filters by the Group dropdown.
         if search_query:
             filtered_df = filtered_df[filtered_df['Product Description'].astype(str).str.lower().str.contains(search_query.lower(), na=False)]
-        elif grp_filter != "All":
+        elif grp_filter:
             filtered_df = filtered_df[filtered_df['Group'] == grp_filter]
             
         # --- THE COUNT FORM WITH VISUAL BADGES ---
@@ -153,7 +151,6 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
                 item_name = row.get('Product Description', 'Unknown Item')
                 dict_key = f"{outlet_filter}_{loc_filter}_{item_name}"
                 
-                # Check if this specific item is already sitting in the shopping cart!
                 in_cart_qty = 0
                 if dict_key in st.session_state['inv_notepad']:
                     in_cart_qty = st.session_state['inv_notepad'][dict_key]['Qty']
@@ -161,7 +158,6 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
                 with st.container(border=True):
                     col1, col2 = st.columns([1, 1], vertical_alignment="center")
                     with col1:
-                        # THE VISUAL BADGE LOGIC
                         if in_cart_qty > 0:
                             st.markdown(f"🟢 **{item_name}**")
                             st.caption(f"📦 Unit: {row.get('Unit', '')} &nbsp;|&nbsp; ✅ **In Cart: {in_cart_qty}**")
@@ -169,7 +165,6 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
                             st.markdown(f"**{item_name}**")
                             st.caption(f"📦 Unit: {row.get('Unit', '')}")
                     with col2:
-                        # Setting value=None makes it empty, and placeholder="0.0" shows a light gray hint!
                         new_quantities[index] = st.number_input("Qty", value=None, min_value=0.0, step=1.0, format="%.1f", placeholder="0.0", key=f"qty_{index}", label_visibility="collapsed")
                         
             if st.form_submit_button("➕ Add to Cart", type="secondary", use_container_width=True):
@@ -199,6 +194,38 @@ def render_inventory(conn, sheet_link, user, role, assigned_outlet, assigned_loc
                     st.rerun() 
                 else:
                     st.warning("⚠️ No quantities entered.")
+
+        # --- ADD MISSING ITEM TO MASTER DATABASE ---
+        st.divider()
+        with st.expander("➕ Missing an Item? Add it to the Database"):
+            st.info(f"This will permanently add the item to **{loc_filter}**.")
+            with st.form("add_new_item_form", clear_on_submit=True):
+                new_item_name = st.text_input("Product Name (e.g. Fresh Salmon)")
+                colA, colB = st.columns(2)
+                with colA:
+                    new_cat = st.text_input("Category (e.g. Food)")
+                    new_unit = st.text_input("Unit (e.g. KG, PCS)")
+                with colB:
+                    new_grp = st.text_input("Group (e.g. Seafood)")
+                    new_code = st.text_input("Product Code (Optional)")
+                    
+                if st.form_submit_button("💾 Add to Database", type="primary", use_container_width=True):
+                    if new_item_name and new_cat and new_grp and new_unit:
+                        new_row = pd.DataFrame([{
+                            "Outlet": outlet_filter,
+                            "Location": loc_filter,
+                            "Category": new_cat.title(),
+                            "Group": new_grp.title(),
+                            "Product Code": new_code,
+                            "Product Description": new_item_name.title(),
+                            "Unit": new_unit.upper()
+                        }])
+                        updated_inv = pd.concat([df_inv, new_row], ignore_index=True)
+                        conn.update(spreadsheet=sheet_link, worksheet="inventory", data=updated_inv)
+                        st.success(f"✅ {new_item_name} added to {loc_filter}! It will appear immediately.")
+                        st.rerun()
+                    else:
+                        st.error("Please fill in Name, Category, Group, and Unit.")
 
     except Exception as e:
         st.error(f"Error loading Inventory module: {e}")
