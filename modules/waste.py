@@ -136,7 +136,7 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
                     col1, col2 = st.columns([1, 1.5], vertical_alignment="center")
                     with col1:
                         # Reverted to value=0.0 so the + and - buttons work flawlessly!
-                        new_quantities[index] = st.number_input("Qty", value=0.0, min_value=0.0, step=1.0, key=f"w_qty_{index}", label_visibility="collapsed")
+                        new_quantities[index] = st.number_input("Qty", value=None, min_value=0.0, step=1.0, placeholder="0.0", key=f"w_qty_{index}", label_visibility="collapsed")
                     with col2:
                         # Added label_visibility="collapsed" here too to align perfectly with the quantity box
                         new_remarks[index] = st.text_input("Remark", value="", key=f"w_rem_{index}", placeholder="Optional remark...", label_visibility="collapsed")
@@ -148,7 +148,7 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
                     ticket_items = []
                     for idx, row in filtered_df.iterrows():
                         qty = new_quantities[idx]
-                        if qty > 0:
+                        if qty is not None and qty > 0:
                             cat_text = str(row.get('Category', '')).lower()
                             is_bev = 'bev' in cat_text or 'drink' in cat_text or 'bar' in cat_text
                             
