@@ -58,7 +58,7 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
 
         event_name = ""
         if declaration == "🎉 Event / Function":
-            event_name = st.text_input("🏆 Enter Event Name (e.g. Smith Wedding)")
+            event_name = st.text_input("🏆 Enter Event Name (e.g. Jacob Wedding)")
 
         st.sidebar.divider()
         st.sidebar.subheader("🔍 Filter & Search")
