@@ -113,6 +113,8 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
                                         (df_archive['Group'] == grp_filter)]
             if not already_logged.empty:
                 st.warning(f"⚠️ **Heads up!** '{grp_filter}' was already submitted for this date ({len(already_logged)} items).")
+                with st.expander("👁️ View logged items"):
+                    st.dataframe(already_logged[['Description', 'Qty', 'Unit', 'Remarks']], use_container_width=True, hide_index=True)
 
         # --- 🟢 PROGRESS TRACKER ---
         total_items = len(filtered_df)
@@ -158,43 +160,57 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
         if cart_size > 0:
             st.success(f"🛒 **{cart_size} items** ready to submit.")
             with st.expander("👀 Review & Submit Ticket", expanded=True):
-                if st.button("🚀 SUBMIT TICKET", type="primary", use_container_width=True):
-                    if declaration == "🎉 Event / Function" and not event_name:
-                        st.error("🛑 Please enter the Event Name.")
-                    else:
-                        ticket_items = []
-                        for dict_key, data in st.session_state['waste_notepad'].items():
-                            qty = data['Qty']
-                            rem = data['Remark']
-                            base_row = data['row_data']
+                
+                # THIS IS THE NEW PREVIEW LIST
+                cart_preview = []
+                for k, v in st.session_state['waste_notepad'].items():
+                    cart_preview.append({
+                        "Description": v['row_data'].get('Description', ''),
+                        "Qty": v['Qty'],
+                        "Remark": v['Remark']
+                    })
+                st.dataframe(pd.DataFrame(cart_preview), use_container_width=True, hide_index=True)
+                
+                colA, colB = st.columns(2)
+                with colA:
+                    if st.button("🚀 SUBMIT TICKET", type="primary", use_container_width=True):
+                        if declaration == "🎉 Event / Function" and not event_name:
+                            st.error("🛑 Please enter the Event Name.")
+                        else:
+                            ticket_items = []
+                            for dict_key, data in st.session_state['waste_notepad'].items():
+                                qty = data['Qty']
+                                rem = data['Remark']
+                                base_row = data['row_data']
+                                
+                                cat_text = str(base_row.get('Category', '')).lower()
+                                is_bev = 'bev' in cat_text or 'drink' in cat_text or 'bar' in cat_text
+                                
+                                if declaration == "🗑️ Daily Waste": tag = "wb" if is_bev else "wf"
+                                elif declaration == "🍽️ Staff Meal": tag = "smb" if is_bev else "sm" 
+                                elif declaration == "🎉 Event / Function": tag = f"theo b - {event_name}" if is_bev else f"theo f - {event_name}"
+                                
+                                new_row = base_row.copy()
+                                new_row['Qty'] = qty
+                                chef_remark = rem.strip()
+                                new_row['Remarks'] = f"{tag} - {chef_remark}" if chef_remark else tag
+                                new_row['Archive Date'] = waste_date.strftime("%Y-%m-%d") 
+                                new_row['Outlet'] = outlet_filter 
+                                new_row['Location'] = loc_filter
+                                ticket_items.append(new_row)
                             
-                            cat_text = str(base_row.get('Category', '')).lower()
-                            is_bev = 'bev' in cat_text or 'drink' in cat_text or 'bar' in cat_text
+                            df_ticket = pd.DataFrame(ticket_items)
+                            updated_archive = pd.concat([df_archive, df_ticket], ignore_index=True)
+                            conn.update(spreadsheet=sheet_link, worksheet="archive_waste", data=updated_archive)
                             
-                            if declaration == "🗑️ Daily Waste": tag = "wb" if is_bev else "wf"
-                            elif declaration == "🍽️ Staff Meal": tag = "smb" if is_bev else "sm" 
-                            elif declaration == "🎉 Event / Function": tag = f"theo b - {event_name}" if is_bev else f"theo f - {event_name}"
-                            
-                            new_row = base_row.copy()
-                            new_row['Qty'] = qty
-                            chef_remark = rem.strip()
-                            new_row['Remarks'] = f"{tag} - {chef_remark}" if chef_remark else tag
-                            new_row['Archive Date'] = waste_date.strftime("%Y-%m-%d") 
-                            new_row['Outlet'] = outlet_filter 
-                            new_row['Location'] = loc_filter
-                            ticket_items.append(new_row)
-                        
-                        df_ticket = pd.DataFrame(ticket_items)
-                        updated_archive = pd.concat([df_archive, df_ticket], ignore_index=True)
-                        conn.update(spreadsheet=sheet_link, worksheet="archive_waste", data=updated_archive)
-                        
-                        st.session_state['waste_notepad'] = {}
-                        st.success(f"✅ {declaration} logged successfully!")
-                        st.rerun()
+                            st.session_state['waste_notepad'] = {}
+                            st.success(f"✅ {declaration} logged successfully!")
+                            st.rerun()
 
-                if st.button("🗑️ Clear Ticket", use_container_width=True):
-                    st.session_state['waste_notepad'] = {}
-                    st.rerun()
+                with colB:
+                    if st.button("🗑️ Clear Ticket", use_container_width=True):
+                        st.session_state['waste_notepad'] = {}
+                        st.rerun()
 
     except Exception as e:
         st.error(f"Error loading Waste module: {e}")
