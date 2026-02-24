@@ -13,29 +13,44 @@ def render_transfers(conn, sheet_link, user, role, assigned_outlet, assigned_loc
         
         all_outlets = list(df_inv['Outlet'].dropna().astype(str).unique()) if 'Outlet' in df_inv.columns else ["Main Warehouse", "Branch 1"]
         
-        # --- SECURITY FILTERS FOR TABS ---
-        # Find exactly what THIS user is allowed to Dispatch and Receive
-        is_global = (assigned_outlet.lower() == 'all' or assigned_outlet == '')
+        # --- NEW LOCATION-BASED SECURITY FILTERS ---
+        # 1. Who is this user?
+        user_locs = [loc.strip().lower() for loc in assigned_location.split(',')]
         
-        my_pending = df_transfers[(df_transfers['Status'] == 'Pending') & 
-                                  ((df_transfers['From Outlet'] == assigned_outlet) | is_global)]
-                                  
-        my_incoming = df_transfers[(df_transfers['Status'] == 'In Transit') & 
-                                   ((df_transfers['To Outlet'] == assigned_outlet) | is_global)]
+        # 2. Are they the Warehouse Manager? (Can they dispatch?)
+        can_dispatch = (assigned_location.lower() == 'all' or assigned_location == '' or 'warehouse' in assigned_location.lower())
+        
+        # 3. Filter the tickets based on their LOCATION
+        if can_dispatch:
+            my_pending = df_transfers[df_transfers['Status'] == 'Pending']
+            my_incoming = df_transfers[df_transfers['Status'] == 'In Transit']
+        else:
+            # Chefs only see requests coming TO their specific location
+            my_pending = pd.DataFrame() # Chefs don't dispatch, so pending is empty for them
+            my_incoming = df_transfers[(df_transfers['Status'] == 'In Transit') & 
+                                       (df_transfers['To Location'].astype(str).str.lower().isin(user_locs))]
 
         # --- IN-APP NOTIFICATIONS ---
-        if not my_pending.empty:
+        if can_dispatch and not my_pending.empty:
             st.warning(f"🔔 **Alert:** You have {len(my_pending)} pending requests to dispatch!")
         if not my_incoming.empty:
             st.info(f"🚚 **Alert:** You have {len(my_incoming)} shipments arriving soon. Waiting for you to receive them.")
 
-        # --- DYNAMIC TABS WITH BADGES ---
-        tab_req, tab_out, tab_in = st.tabs([
-            "🛒 1. Request Stock", 
-            f"📤 2. Dispatch ({len(my_pending)})", 
-            f"✅ 3. Receive ({len(my_incoming)})"
-        ])
-        
+        # --- DYNAMIC TABS (HIDES DISPATCH FROM CHEFS) ---
+        if can_dispatch:
+            tab_req, tab_out, tab_in = st.tabs([
+                "🛒 1. Request Stock", 
+                f"📤 2. Dispatch ({len(my_pending)})", 
+                f"✅ 3. Receive ({len(my_incoming)})"
+            ])
+        else:
+            # Chefs only get 2 tabs!
+            tab_req, tab_in = st.tabs([
+                "🛒 1. Request Stock", 
+                f"✅ 2. Receive ({len(my_incoming)})"
+            ])
+            tab_out = None
+
         # ==========================================
         # TAB 1: REQUEST STOCK
         # ==========================================
@@ -46,16 +61,21 @@ def render_transfers(conn, sheet_link, user, role, assigned_outlet, assigned_loc
             with col_o1:
                 from_outlet = st.selectbox("Request From (Sender Outlet)", all_outlets, key="t_from_out")
             with col_o2:
-                to_outlet = assigned_outlet if not is_global else st.selectbox("Request For (Receiver Outlet)", all_outlets, key="t_to_out")
+                to_outlet = assigned_outlet if assigned_outlet.lower() != 'all' else st.selectbox("Request For (Receiver Outlet)", all_outlets, key="t_to_out")
             
-            from_locs = list(df_inv[df_inv['Outlet'] == from_outlet]['Location'].dropna().astype(str).unique()) if 'Location' in df_inv.columns else ["Main Store"]
+            from_locs = list(df_inv[df_inv['Outlet'] == from_outlet]['Location'].dropna().astype(str).unique()) if 'Location' in df_inv.columns else ["Warehouse"]
             to_locs = list(df_inv[df_inv['Outlet'] == to_outlet]['Location'].dropna().astype(str).unique()) if 'Location' in df_inv.columns else ["Kitchen"]
             
             col_l1, col_l2 = st.columns(2)
             with col_l1:
-                from_location = st.selectbox("From Location", from_locs if from_locs else ["Main Store"], key="t_from_loc")
+                from_location = st.selectbox("From Location", from_locs if from_locs else ["Warehouse"], key="t_from_loc")
             with col_l2:
-                to_location = st.selectbox("To Location", to_locs if to_locs else ["Kitchen"], key="t_to_loc")
+                # If they are a Chef, lock the 'To Location' to their assigned location!
+                if not can_dispatch and assigned_location.lower() != 'all':
+                    user_exact_loc = [loc for loc in to_locs if loc.lower() in user_locs]
+                    to_location = st.selectbox("To Location", user_exact_loc if user_exact_loc else [assigned_location], key="t_to_loc")
+                else:
+                    to_location = st.selectbox("To Location", to_locs if to_locs else ["Kitchen"], key="t_to_loc")
             
             st.divider()
             st.write("#### How would you like to request items?")
@@ -63,7 +83,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_outlet, assigned_loc
             
             if req_style == "📝 Quick Text Note":
                 with st.form("text_req_form", clear_on_submit=True):
-                    text_request = st.text_area("Example: I need 5kg chicken, 2 boxes halawe, and some rice ASAP.", height=100, label_visibility="collapsed")
+                    text_request = st.text_area("Example: I need 5kg chicken, 2 boxes halawe...", height=100, label_visibility="collapsed")
                     
                     if st.form_submit_button("🚀 Send Request", type="primary", use_container_width=True):
                         if text_request.strip() == "":
@@ -84,7 +104,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_outlet, assigned_loc
                             }])
                             updated_df = pd.concat([df_transfers, new_req], ignore_index=True)
                             conn.update(spreadsheet=sheet_link, worksheet="transfers", data=updated_df)
-                            st.success(f"✅ Request sent to {from_outlet} ({from_location})!")
+                            st.success(f"✅ Request sent to {from_location}!")
                             st.rerun()
 
             elif req_style == "🎯 Pick Exact Items":
@@ -126,35 +146,35 @@ def render_transfers(conn, sheet_link, user, role, assigned_outlet, assigned_loc
                                 }])
                                 updated_df = pd.concat([df_transfers, new_req], ignore_index=True)
                                 conn.update(spreadsheet=sheet_link, worksheet="transfers", data=updated_df)
-                                st.success(f"✅ Exact items requested from {from_outlet} ({from_location})!")
+                                st.success(f"✅ Exact items requested from {from_location}!")
                                 st.rerun()
                             else:
                                 st.warning("No quantities entered.")
 
         # ==========================================
-        # TAB 2: DISPATCH (WAREHOUSE SENDS ITEMS)
+        # TAB 2: DISPATCH (WAREHOUSE ONLY)
         # ==========================================
-        with tab_out:
-            st.subheader("📤 Pending Requests to Fulfill")
-            
-            if my_pending.empty:
-                st.success("No pending requests for your outlet! You are all caught up.")
-            else:
-                for idx, row in my_pending.iterrows():
-                    with st.expander(f"🚨 Request from {row['Requester']} at {row['To Outlet']} ({row['To Location']})", expanded=True):
-                        st.markdown(f"**Transfer ID:** {row['Transfer ID']} &nbsp;|&nbsp; 🗓️ {row['Date']}")
-                        
-                        # --- THE WAREHOUSE EDIT BOX ---
-                        st.caption("You can edit the quantities below if you are out of stock before dispatching:")
-                        edited_details = st.text_area("Adjust Items:", value=row['Details'], key=f"edit_{idx}", height=100)
-                        
-                        if st.button(f"📦 Approve & Dispatch", key=f"send_{idx}", type="primary", use_container_width=True):
-                            df_transfers.at[idx, 'Details'] = edited_details # Save the edited text!
-                            df_transfers.at[idx, 'Status'] = 'In Transit'
-                            df_transfers.at[idx, 'Action By'] = f"Dispatched by {user}"
-                            conn.update(spreadsheet=sheet_link, worksheet="transfers", data=df_transfers)
-                            st.success("Items dispatched! Receiver will now see the updated quantities.")
-                            st.rerun()
+        if tab_out is not None:
+            with tab_out:
+                st.subheader("📤 Pending Requests to Fulfill")
+                
+                if my_pending.empty:
+                    st.success("No pending requests! You are all caught up.")
+                else:
+                    for idx, row in my_pending.iterrows():
+                        with st.expander(f"🚨 Request from {row['Requester']} at {row['To Location']}", expanded=True):
+                            st.markdown(f"**Transfer ID:** {row['Transfer ID']} &nbsp;|&nbsp; 🗓️ {row['Date']}")
+                            
+                            st.caption("Edit the quantities below if you are out of stock before dispatching:")
+                            edited_details = st.text_area("Adjust Items:", value=row['Details'], key=f"edit_{idx}", height=100)
+                            
+                            if st.button(f"📦 Approve & Dispatch", key=f"send_{idx}", type="primary", use_container_width=True):
+                                df_transfers.at[idx, 'Details'] = edited_details 
+                                df_transfers.at[idx, 'Status'] = 'In Transit'
+                                df_transfers.at[idx, 'Action By'] = f"Dispatched by {user}"
+                                conn.update(spreadsheet=sheet_link, worksheet="transfers", data=df_transfers)
+                                st.success("Items dispatched! Receiver will now see the updated quantities.")
+                                st.rerun()
 
         # ==========================================
         # TAB 3: RECEIVE (CHEF ACCEPTS ITEMS)
@@ -163,13 +183,12 @@ def render_transfers(conn, sheet_link, user, role, assigned_outlet, assigned_loc
             st.subheader("📥 Incoming Shipments")
             
             if my_incoming.empty:
-                st.info("No incoming shipments for your outlet right now.")
+                st.info("No incoming shipments for your location right now.")
             else:
                 for idx, row in my_incoming.iterrows():
                     with st.container(border=True):
-                        st.markdown(f"**Transfer ID:** {row['Transfer ID']} &nbsp;|&nbsp; 🚚 Coming from **{row['From Outlet']} ({row['From Location']})**")
+                        st.markdown(f"**Transfer ID:** {row['Transfer ID']} &nbsp;|&nbsp; 🚚 Coming from **{row['From Location']}**")
                         
-                        # Show what Khaldoun actually sent (the edited details)
                         st.warning(row['Details'])
                         
                         if st.button(f"✅ I Physically Received This", key=f"recv_{idx}", type="primary", use_container_width=True):
