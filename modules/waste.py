@@ -95,11 +95,11 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
         # --- ⚡ QUICK FILTERS (MAIN SCREEN) ---
         col_f1, col_f2 = st.columns(2)
         
+        # NO MORE "All" INSERTION HERE
         valid_grps = list(df_waste[(df_waste.get('Outlet') == outlet_filter) & (df_waste.get('Location') == loc_filter) & (df_waste.get('Status') == stat_filter) & (df_waste.get('Category') == cat_filter)]['Group'].dropna().unique()) if 'Group' in df_waste.columns else []
-        valid_grps.insert(0, "All")
         
         with col_f1:
-            grp_filter = st.selectbox("Group", valid_grps, key="w_main_grp", label_visibility="collapsed")
+            grp_filter = st.selectbox("Group", valid_grps, key="w_main_grp", label_visibility="collapsed") if valid_grps else None
             
         with col_f2:
             search_query = st.text_input("Search", "", placeholder="🔍 Search...", key="w_main_search", label_visibility="collapsed")
@@ -118,7 +118,7 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
         else:
             if stat_filter: filtered_df = filtered_df[filtered_df['Status'] == stat_filter]
             if cat_filter: filtered_df = filtered_df[filtered_df['Category'] == cat_filter]
-            if grp_filter != "All": filtered_df = filtered_df[filtered_df['Group'] == grp_filter]
+            if grp_filter: filtered_df = filtered_df[filtered_df['Group'] == grp_filter]
             
         # --- THE TICKET FORM ---
         with st.form("waste_ticket_form", clear_on_submit=True):
@@ -128,17 +128,14 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
             for index, row in filtered_df.iterrows():
                 with st.container(border=True):
                     
-                    # Beautifully formats the Product Code if it exists!
                     p_code = row.get('Product Code / Menu Code', '')
                     code_display = f"**[{p_code}]** " if pd.notna(p_code) and str(p_code).strip() != "" else ""
                     
                     st.markdown(f"{code_display}**{row.get('Description', 'Unknown')}** &nbsp;|&nbsp; 📦 {row.get('Unit', '')}")
                     col1, col2 = st.columns([1, 1.5], vertical_alignment="center")
                     with col1:
-                        # Reverted to value=0.0 so the + and - buttons work flawlessly!
                         new_quantities[index] = st.number_input("Qty", value=None, min_value=0.0, step=1.0, placeholder="0.0", key=f"w_qty_{index}", label_visibility="collapsed")
                     with col2:
-                        # Added label_visibility="collapsed" here too to align perfectly with the quantity box
                         new_remarks[index] = st.text_input("Remark", value="", key=f"w_rem_{index}", placeholder="Optional remark...", label_visibility="collapsed")
                         
             if st.form_submit_button("🚀 Submit Ticket", type="primary", use_container_width=True):
