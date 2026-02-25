@@ -9,7 +9,7 @@ def get_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
 def render_inventory(conn, sheet, user, role, outlet, location):
-    st.markdown("## 📱 Mobile Inventory Count")
+    st.markdown("##   Inventory Count")
     
     supabase = get_supabase()
 
