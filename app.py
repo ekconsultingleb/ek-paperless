@@ -27,7 +27,7 @@ st.set_page_config(page_title="EK Consulting Portal", layout="wide")
 # --- BRANDING & LOGO ---
 st.sidebar.image("EK-Logo.png", use_container_width=True)
 st.sidebar.divider()
-st.sidebar.success("✅ Supabase is LIVE!") # Quick test!
+st.sidebar.success("✅ LIVE!")
 custom_css = """
             <style>
             .block-container { padding-top: 2rem !important; padding-bottom: 1rem !important; }
@@ -125,8 +125,8 @@ else:
     # 2. PAGE: HOME MENU
     # ==========================================
     if st.session_state['current_page'] == 'home':
-        st.markdown(f"## 👋 Welcome, {user.title()}")
-        st.subheader("📱 App Modules")
+        st.markdown(f"##  Welcome, {user.title()}")
+        st.subheader("Click for an App Modules")
         
         # Create a row of 4 columns for the buttons
         col_a, col_b, col_c, col_d = st.columns(4)

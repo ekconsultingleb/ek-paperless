@@ -13,17 +13,13 @@ def add_inventory_qty(item_key, row_dict, input_key):
     added_val = st.session_state[input_key]
     
     if added_val > 0:
-        # If it's the first time counting this item, create it
         if item_key not in st.session_state['mobile_counts']:
             st.session_state['mobile_counts'][item_key] = {
                 'row_data': row_dict,
                 'qty': 0.0
             }
         
-        # Add the new amount to the running total (e.g., 5 + 6 = 11)
         st.session_state['mobile_counts'][item_key]['qty'] += added_val
-        
-        # Reset the input box to 0 immediately so they can add more later!
         st.session_state[input_key] = 0.0
 
 def undo_inventory_count(item_key):
@@ -31,17 +27,13 @@ def undo_inventory_count(item_key):
         del st.session_state['mobile_counts'][item_key]
 
 def render_inventory(conn, sheet, user, role, outlet, location):
-    st.markdown("## 📱 Mobile Inventory Count")
+    st.markdown("## Inventory Count")
     
     supabase = get_supabase()
 
-    # --- SESSION STATES ---
     if 'mobile_counts' not in st.session_state:
         st.session_state['mobile_counts'] = {}
-    if 'custom_items' not in st.session_state:
-        st.session_state['custom_items'] = []
 
-    # --- 1. FETCH MASTER ITEMS ---
     try:
         response = supabase.table("master_items").select("*").execute()
         if not response.data:
@@ -53,7 +45,6 @@ def render_inventory(conn, sheet, user, role, outlet, location):
         st.error(f"Failed to load master items: {e}")
         return
 
-    # --- 2. TOP SETTINGS ---
     col1, col2, col3 = st.columns(3)
     with col1:
         clients = df_items['client_name'].dropna().unique()
@@ -67,12 +58,10 @@ def render_inventory(conn, sheet, user, role, outlet, location):
         else:
             selected_location = st.selectbox("📍 Location", locations)
 
-    # Filter items for this client, outlet, and force 'Inventory' type
     df_client_items = df_items[df_items['client_name'] == selected_client].copy()
     if outlet.lower() != "all":
         df_client_items = df_client_items[df_client_items['outlet'] == outlet]
     
-    # Force only Raw Inventory (Hides Sushi/Menu Items)
     if 'item_type' in df_client_items.columns:
         df_client_items = df_client_items[df_client_items['item_type'].astype(str).str.lower() == 'inventory']
 
@@ -109,25 +98,30 @@ def render_inventory(conn, sheet, user, role, outlet, location):
                 st.success(f"Added {c_name} to cart!")
                 st.rerun()
 
-    # --- 4. FILTERS & SEARCH ---
+    # --- 4. SMART FILTERS & SEARCH ---
     st.subheader("🔍 Filter & Count")
+    
+    search_query = st.text_input("🔍 Quick Search", placeholder="Search any item (Overrides filters below)...")
+    
     c1, c2 = st.columns(2)
     with c1:
-        categories = list(df_client_items['category'].dropna().unique())
-        selected_category = st.selectbox("📂 Category", categories)
+        cats = sorted(list(df_client_items['category'].dropna().astype(str).unique()))
+        cat_options = ["All"] + cats
+        selected_category = st.selectbox("📂 Category", cat_options, index=1 if cats else 0)
     with c2:
-        groups = list(df_client_items[df_client_items['category'] == selected_category]['sub_category'].dropna().unique())
-        selected_group = st.selectbox("🏷️ Sub Category", groups)
+        df_grp_list = df_client_items if selected_category == "All" else df_client_items[df_client_items['category'] == selected_category]
+        grps = sorted(list(df_grp_list['sub_category'].dropna().astype(str).unique()))
+        grp_options = ["All"] + grps
+        selected_group = st.selectbox("🏷️ Sub Category", grp_options, index=1 if grps else 0)
 
-    search_query = st.text_input("Search", placeholder="🔍 Search item...", label_visibility="collapsed")
-
-    df_display = df_client_items[
-        (df_client_items['category'] == selected_category) & 
-        (df_client_items['sub_category'] == selected_group)
-    ].copy()
-    
     if search_query:
-        df_display = df_display[df_display['item_name'].str.contains(search_query, case=False, na=False)]
+        df_display = df_client_items[df_client_items['item_name'].str.contains(search_query, case=False, na=False)].copy()
+    else:
+        df_display = df_client_items.copy()
+        if selected_category != "All":
+            df_display = df_display[df_display['category'] == selected_category]
+        if selected_group != "All":
+            df_display = df_display[df_display['sub_category'] == selected_group]
 
     # --- 🟢 LIVE PROGRESS BADGES ---
     total_items = len(df_display)
@@ -136,23 +130,21 @@ def render_inventory(conn, sheet, user, role, outlet, location):
     st.markdown(f"""
         <div style='display: flex; justify-content: space-between; background-color: #1e1e1e; padding: 10px; border-radius: 10px; margin-bottom: 20px;'>
             <span style='color: #00ff00;'>✅ {counted_in_view} Counted</span>
-            <span style='color: white;'>📝 {total_items} Total Items in {selected_group}</span>
+            <span style='color: white;'>📝 {total_items} Items in {selected_group}</span>
         </div>
     """, unsafe_allow_html=True)
 
-    # --- 5. THE LIVE ENTRY LIST (No st.form!) ---
+    # --- 5. THE LIVE ENTRY LIST ---
     if df_display.empty:
         st.info("No items found.")
     else:
         for index, row in df_display.iterrows():
             item_name = row['item_name']
             
-            # Check if this item is in the cart
             cart_data = st.session_state['mobile_counts'].get(item_name)
             current_total = cart_data['qty'] if cart_data else 0.0
             
             with st.container(border=True):
-                # UI changes instantly based on if current_total > 0
                 if current_total > 0:
                     st.markdown(f"🟢 **{item_name}** &nbsp;|&nbsp; ✅ Total: **{current_total}**")
                 else:
@@ -187,7 +179,6 @@ def render_inventory(conn, sheet, user, role, outlet, location):
         st.success(f"🛒 **{cart_size} items** ready to submit.")
         with st.expander("👀 Review & Submit Count", expanded=True):
             
-            # Show a history preview of everything entered so far
             preview_list = []
             for k, v in st.session_state['mobile_counts'].items():
                 preview_list.append({

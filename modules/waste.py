@@ -15,7 +15,6 @@ def add_waste_entry(dict_key, row_dict, qty_key, rem_key):
     added_rem = st.session_state[rem_key]
     
     if added_qty > 0:
-        # If first time logging this item, create it
         if dict_key not in st.session_state['waste_notepad']:
             st.session_state['waste_notepad'][dict_key] = {
                 'row_data': row_dict,
@@ -23,10 +22,8 @@ def add_waste_entry(dict_key, row_dict, qty_key, rem_key):
                 'remark': ""
             }
         
-        # Add to the running total
         st.session_state['waste_notepad'][dict_key]['qty'] += added_qty
         
-        # Append the remark if there is one
         current_rem = st.session_state['waste_notepad'][dict_key]['remark']
         if added_rem.strip():
             if current_rem:
@@ -34,7 +31,6 @@ def add_waste_entry(dict_key, row_dict, qty_key, rem_key):
             else:
                 st.session_state['waste_notepad'][dict_key]['remark'] = added_rem.strip()
                 
-        # Reset the input boxes immediately
         st.session_state[qty_key] = 0.0
         st.session_state[rem_key] = ""
 
@@ -95,42 +91,47 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
 
         st.divider()
 
-        # --- MAIN PAGE FILTERS (WITH ITEM TYPE) ---
+        # --- MAIN PAGE FILTERS ---
         st.subheader("🔍 Find Items to Log")
         
-        # Pre-filter by Outlet and exact Location
         df_location = df_master[
             (df_master['outlet'] == outlet_filter) & 
             (df_master['location'].astype(str).str.lower() == loc_filter.lower())
         ].copy()
 
+        search_query = st.text_input("🔍 Quick Search", placeholder="Search any item (Overrides filters below)...")
+
+        # Smart Dropdowns: Options contain "All", but index=1 forces the first real category by default
         col_type, col_cat, col_grp = st.columns(3)
         
         with col_type:
-            types = list(df_location['item_type'].dropna().unique())
-            # Default to "Menu Items" if it exists, otherwise the first option
-            default_idx = types.index("menu items") if "menu items" in types else 0
-            type_filter = st.selectbox("📦 Item Type", types, index=default_idx if types else 0)
+            types = sorted(list(df_location['item_type'].dropna().astype(str).unique()))
+            type_options = ["All"] + types
+            type_filter = st.selectbox("📦 Item Type", type_options, index=1 if types else 0)
 
         with col_cat:
-            cats = list(df_location[df_location['item_type'] == type_filter]['category'].dropna().unique())
-            cat_filter = st.selectbox("📂 Category", cats)
+            df_cat_list = df_location if type_filter == "All" else df_location[df_location['item_type'] == type_filter]
+            cats = sorted(list(df_cat_list['category'].dropna().astype(str).unique()))
+            cat_options = ["All"] + cats
+            cat_filter = st.selectbox("📂 Category", cat_options, index=1 if cats else 0)
             
         with col_grp:
-            grps = list(df_location[(df_location['item_type'] == type_filter) & (df_location['category'] == cat_filter)]['sub_category'].dropna().unique())
-            grp_filter = st.selectbox("🏷️ Sub Category", grps)
+            df_grp_list = df_cat_list if cat_filter == "All" else df_cat_list[df_cat_list['category'] == cat_filter]
+            grps = sorted(list(df_grp_list['sub_category'].dropna().astype(str).unique()))
+            grp_options = ["All"] + grps
+            grp_filter = st.selectbox("🏷️ Sub Category", grp_options, index=1 if grps else 0)
 
-        search_query = st.text_input("Search", "", placeholder="🔍 Quick search item name...", label_visibility="collapsed")
-
-        # Apply Filters to Display
-        filtered_df = df_location[
-            (df_location['item_type'] == type_filter) &
-            (df_location['category'] == cat_filter) & 
-            (df_location['sub_category'] == grp_filter)
-        ].copy()
-
+        # --- THE SMART FILTERING LOGIC ---
         if search_query:
             filtered_df = df_location[df_location['item_name'].str.contains(search_query, case=False, na=False)]
+        else:
+            filtered_df = df_location.copy()
+            if type_filter != "All":
+                filtered_df = filtered_df[filtered_df['item_type'] == type_filter]
+            if cat_filter != "All":
+                filtered_df = filtered_df[filtered_df['category'] == cat_filter]
+            if grp_filter != "All":
+                filtered_df = filtered_df[filtered_df['sub_category'] == grp_filter]
 
         # --- 🚨 HISTORY ALERT ---
         today_str = waste_date.strftime("%Y-%m-%d")
@@ -150,22 +151,19 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
             </div>
         """, unsafe_allow_html=True)
 
-        # --- LIVE TICKET FORM (NO st.form!) ---
+        # --- LIVE TICKET FORM ---
         if filtered_df.empty:
             st.info("No items found matching the filters.")
         else:
             for index, row in filtered_df.iterrows():
                 item_name = row.get('item_name', 'Unknown')
-                # Make the dict_key completely unique based on outlet, location, and item
                 dict_key = f"{outlet_filter}_{loc_filter}_{item_name}"
                 
-                # Check if this item is in the cart
                 cart_data = st.session_state['waste_notepad'].get(dict_key)
                 current_total = cart_data['qty'] if cart_data else 0.0
                 current_remark = cart_data['remark'] if cart_data else ""
 
                 with st.container(border=True):
-                    # Top Row: The Name and Live Badges
                     col_n, col_undo = st.columns([8, 2])
                     with col_n:
                         if current_total > 0:
@@ -181,7 +179,6 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
                                 undo_waste_entry(dict_key)
                                 st.rerun()
 
-                    # Bottom Row: Inputs and Add Button
                     col_q, col_r, col_btn = st.columns([1.5, 3, 1], vertical_alignment="bottom")
                     qty_key = f"w_add_qty_{row.get('id', index)}"
                     rem_key = f"w_add_rem_{row.get('id', index)}"
@@ -200,7 +197,6 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
             st.success(f"🛒 **{cart_size} items** ready to submit.")
             with st.expander("👀 Review & Submit Ticket", expanded=True):
                 
-                # Preview History
                 preview_list = []
                 for k, v in st.session_state['waste_notepad'].items():
                     preview_list.append({
@@ -240,7 +236,6 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
                         })
                     
                     try:
-                        
                         supabase.table("waste_logs").insert(cart_data).execute()
                         st.session_state['waste_notepad'] = {}
                         st.success("✅ Ticket Logged Successfully!")
