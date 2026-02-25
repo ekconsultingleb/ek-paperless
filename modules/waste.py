@@ -104,7 +104,7 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
         else:
             filtered_df = pd.DataFrame() 
 
-        # 5. RENDER LIST (Live Totals)
+        # 5. RENDER LIST (Live Totals & Unit Fix)
         if filtered_df.empty and not search_q and cat_filter == "None":
             st.info("👆 Search by name or select a Category above.")
         elif filtered_df.empty:
@@ -116,27 +116,44 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
 
             for idx, row in display_df.iterrows():
                 item_name = row['item_name']
+                # CLEAN UNIT: If it's empty/None, call it "Unit"
+                item_unit = row.get('count_unit')
+                if not item_unit or str(item_unit).lower() == 'none' or str(item_unit).strip() == "":
+                    item_unit = "Unit"
+                
                 dict_key = f"{final_outlet}_{loc_filter}_{item_name}"
-                cart = st.session_state['waste_notepad'].get(dict_key)
-                current_total = cart['qty'] if cart else 0.0
-
+                
+                # Check the session state notepad for this specific item
+                item_in_cart = st.session_state['waste_notepad'].get(dict_key)
+                
                 with st.container(border=True):
                     c_title, c_undo = st.columns([8, 2])
-                    with c_title:
-                        if current_total > 0:
-                            st.markdown(f"🟢 **{item_name}** | ✅ **Total: {current_total} {row.get('count_unit', 'pcs')}**")
-                        else:
-                            st.markdown(f"⚪ **{item_name}** | {row.get('count_unit', 'pcs')}")
                     
-                    if current_total > 0 and c_undo.button("🗑️ Undo", key=f"un_{idx}"):
-                        undo_waste_entry(dict_key)
-                        st.rerun()
+                    with c_title:
+                        # --- THE TOTAL QTY FIX ---
+                        if item_in_cart and item_in_cart['qty'] > 0:
+                            # If it exists in the notepad, show the green light and the cumulative total
+                            st.markdown(f"🟢 **{item_name}** | ✅ **Total Added: {item_in_cart['qty']} {item_unit}**")
+                        else:
+                            # If not added yet, show the grey light and the default unit
+                            st.markdown(f"⚪ **{item_name}** | {item_unit}")
+                    
+                    with c_undo:
+                        if item_in_cart and item_in_cart['qty'] > 0:
+                            if st.button("🗑️ Undo", key=f"un_{idx}"):
+                                undo_waste_entry(dict_key)
+                                st.rerun()
 
+                    # Input Row
                     cq, cr, cb = st.columns([1.5, 3, 1], vertical_alignment="bottom")
                     qty_key, rem_key = f"q_{idx}", f"r_{idx}"
+                    
                     cq.number_input("+ Qty", 0.0, step=1.0, key=qty_key, label_visibility="collapsed")
                     cr.text_input("Remark", key=rem_key, placeholder="Reason...", label_visibility="collapsed")
-                    cb.button("➕ Add", key=f"b_{idx}", on_click=add_waste_entry, args=(dict_key, row.to_dict(), qty_key, rem_key), use_container_width=True)
+                    
+                    # On click, the add_waste_entry function updates the notepad and the UI refreshes
+                    cb.button("➕ Add", key=f"b_{idx}", on_click=add_waste_entry, 
+                              args=(dict_key, row.to_dict(), qty_key, rem_key), use_container_width=True)
 
         # 6. SUBMIT
         st.divider()
