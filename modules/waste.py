@@ -42,6 +42,7 @@ def undo_waste_entry(dict_key):
     if dict_key in st.session_state['waste_notepad']:
         del st.session_state['waste_notepad'][dict_key]
 
+
 def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_location):
     st.markdown(f"### 🗑️ Daily Waste & Events")
     
@@ -94,29 +95,42 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
 
         st.divider()
 
-        # --- MAIN PAGE FILTERS ---
+        # --- MAIN PAGE FILTERS (WITH ITEM TYPE) ---
         st.subheader("🔍 Find Items to Log")
-        col_cat, col_grp = st.columns(2)
         
+        # Pre-filter by Outlet and exact Location
+        df_location = df_master[
+            (df_master['outlet'] == outlet_filter) & 
+            (df_master['location'].astype(str).str.lower() == loc_filter.lower())
+        ].copy()
+
+        col_type, col_cat, col_grp = st.columns(3)
+        
+        with col_type:
+            types = list(df_location['item_type'].dropna().unique())
+            # Default to "Menu Items" if it exists, otherwise the first option
+            default_idx = types.index("menu items") if "menu items" in types else 0
+            type_filter = st.selectbox("📦 Item Type", types, index=default_idx if types else 0)
+
         with col_cat:
-            cats = list(df_master[(df_master['client_name'] == client_filter) & (df_master['outlet'] == outlet_filter)]['category'].dropna().unique())
+            cats = list(df_location[df_location['item_type'] == type_filter]['category'].dropna().unique())
             cat_filter = st.selectbox("📂 Category", cats)
             
         with col_grp:
-            grps = list(df_master[(df_master['outlet'] == outlet_filter) & (df_master['category'] == cat_filter)]['sub_category'].dropna().unique())
+            grps = list(df_location[(df_location['item_type'] == type_filter) & (df_location['category'] == cat_filter)]['sub_category'].dropna().unique())
             grp_filter = st.selectbox("🏷️ Sub Category", grps)
 
         search_query = st.text_input("Search", "", placeholder="🔍 Quick search item name...", label_visibility="collapsed")
 
         # Apply Filters to Display
-        filtered_df = df_master[
-            (df_master['outlet'] == outlet_filter) & 
-            (df_master['category'] == cat_filter) & 
-            (df_master['sub_category'] == grp_filter)
+        filtered_df = df_location[
+            (df_location['item_type'] == type_filter) &
+            (df_location['category'] == cat_filter) & 
+            (df_location['sub_category'] == grp_filter)
         ].copy()
 
         if search_query:
-            filtered_df = df_master[df_master['item_name'].str.contains(search_query, case=False, na=False)]
+            filtered_df = df_location[df_location['item_name'].str.contains(search_query, case=False, na=False)]
 
         # --- 🚨 HISTORY ALERT ---
         today_str = waste_date.strftime("%Y-%m-%d")
@@ -127,7 +141,7 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
 
         # --- 🟢 LIVE PROGRESS BADGES ---
         total_items = len(filtered_df)
-        counted_in_view = sum(1 for item in filtered_df['item_name'] if f"{outlet_filter}_{item}" in st.session_state['waste_notepad'])
+        counted_in_view = sum(1 for item in filtered_df['item_name'] if f"{outlet_filter}_{loc_filter}_{item}" in st.session_state['waste_notepad'])
         
         st.markdown(f"""
             <div style='display: flex; justify-content: space-between; background-color: #1e1e1e; padding: 10px; border-radius: 10px; margin-bottom: 20px;'>
@@ -142,7 +156,8 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
         else:
             for index, row in filtered_df.iterrows():
                 item_name = row.get('item_name', 'Unknown')
-                dict_key = f"{outlet_filter}_{item_name}"
+                # Make the dict_key completely unique based on outlet, location, and item
+                dict_key = f"{outlet_filter}_{loc_filter}_{item_name}"
                 
                 # Check if this item is in the cart
                 cart_data = st.session_state['waste_notepad'].get(dict_key)
@@ -225,6 +240,7 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
                         })
                     
                     try:
+                        
                         supabase.table("waste_logs").insert(cart_data).execute()
                         st.session_state['waste_notepad'] = {}
                         st.success("✅ Ticket Logged Successfully!")
