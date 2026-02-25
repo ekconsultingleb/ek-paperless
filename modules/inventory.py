@@ -52,11 +52,17 @@ def render_inventory(conn, sheet, user, role, outlet, location):
     with col2:
         count_date = st.date_input("📅 Date", date.today())
     with col3:
-        locations = ["MED", "WAREHOUSE", "CHALET", "BAR"]
+        # Dynamically grab all unique locations for this client and outlet from the database
+        db_locations = sorted(list(df_items[(df_items['client_name'] == selected_client) & (df_items['outlet'] == outlet)]['location'].dropna().astype(str).str.upper().unique()))
+        
+        # Fallback just in case a location is missing in the database
+        if not db_locations:
+            db_locations = ["MAIN"]
+
         if str(location).lower() != "all":
-            selected_location = st.selectbox("📍 Location", [location], disabled=True)
+            selected_location = st.selectbox("📍 Location", [location.upper()], disabled=True)
         else:
-            selected_location = st.selectbox("📍 Location", locations)
+            selected_location = st.selectbox("📍 Location", db_locations)
 
     df_client_items = df_items[df_items['client_name'] == selected_client].copy()
     if outlet.lower() != "all":

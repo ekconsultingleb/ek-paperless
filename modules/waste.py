@@ -40,7 +40,7 @@ def undo_waste_entry(dict_key):
 
 
 def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_location):
-    st.markdown(f"### 🗑️ Daily Waste & Events")
+    st.markdown("### 🗑️ Daily Waste & Events")
     
     supabase = get_supabase()
     
@@ -83,34 +83,34 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
         allowed_outlets = [assigned_outlet] if assigned_outlet.lower() != 'all' else all_outlets
         outlet_filter = st.sidebar.selectbox("🏠 Outlet", allowed_outlets)
 
-        locations = ["MED", "WAREHOUSE", "CHALET", "BAR"]
+        # Dynamically grab all unique locations for this specific outlet from the database
+        db_locations = sorted(list(df_master[df_master['outlet'] == outlet_filter]['location'].dropna().astype(str).str.upper().unique()))
+        
         if str(assigned_location).lower() != "all":
-            loc_filter = st.sidebar.selectbox("📍 Location", [assigned_location], disabled=True)
+            loc_filter = st.sidebar.selectbox("📍 Location", [assigned_location.upper()], disabled=True)
         else:
-            loc_filter = st.sidebar.selectbox("📍 Location", locations)
+            loc_filter = st.sidebar.selectbox("📍 Location", db_locations)
 
         st.divider()
 
         # --- MAIN PAGE FILTERS ---
         st.subheader("🔍 Find Items to Log")
         
-        df_location = df_master[
-            (df_master['outlet'] == outlet_filter) & 
-            (df_master['location'].astype(str).str.lower() == loc_filter.lower())
-        ].copy()
+        # We only filter by Outlet here. Location is just for the submitted log!
+        df_outlet_items = df_master[df_master['outlet'] == outlet_filter].copy()
 
         search_query = st.text_input("🔍 Quick Search", placeholder="Search any item (Overrides filters below)...")
 
-        # Smart Dropdowns: Options contain "All", but index=1 forces the first real category by default
+        # Smart Dropdowns: Type is "All", Category and Sub-category default to index 1
         col_type, col_cat, col_grp = st.columns(3)
         
         with col_type:
-            types = sorted(list(df_location['item_type'].dropna().astype(str).unique()))
+            types = sorted(list(df_outlet_items['item_type'].dropna().astype(str).unique()))
             type_options = ["All"] + types
-            type_filter = st.selectbox("📦 Item Type", type_options, index=1 if types else 0)
+            type_filter = st.selectbox("📦 Item Type", type_options, index=0)
 
         with col_cat:
-            df_cat_list = df_location if type_filter == "All" else df_location[df_location['item_type'] == type_filter]
+            df_cat_list = df_outlet_items if type_filter == "All" else df_outlet_items[df_outlet_items['item_type'] == type_filter]
             cats = sorted(list(df_cat_list['category'].dropna().astype(str).unique()))
             cat_options = ["All"] + cats
             cat_filter = st.selectbox("📂 Category", cat_options, index=1 if cats else 0)
@@ -123,9 +123,9 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
 
         # --- THE SMART FILTERING LOGIC ---
         if search_query:
-            filtered_df = df_location[df_location['item_name'].str.contains(search_query, case=False, na=False)]
+            filtered_df = df_outlet_items[df_outlet_items['item_name'].str.contains(search_query, case=False, na=False)]
         else:
-            filtered_df = df_location.copy()
+            filtered_df = df_outlet_items.copy()
             if type_filter != "All":
                 filtered_df = filtered_df[filtered_df['item_type'] == type_filter]
             if cat_filter != "All":
