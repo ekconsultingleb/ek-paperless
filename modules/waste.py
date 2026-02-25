@@ -21,7 +21,7 @@ def update_waste_cart(item_key, row_data, qty_key, rem_key):
             del st.session_state['waste_notepad'][item_key]
 
 def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_location):
-    st.markdown(f"### 🗑️ Daily Waste & Events (Supabase Cloud)")
+    st.markdown(f"### 🗑️ Daily Waste & Events") 
     
     supabase = get_supabase()
     
@@ -30,15 +30,14 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
 
     try:
         # ==========================================
-        # 1. FETCH DATA FROM SUPABASE
+        # 1. FETCH DATA FROM DATABASE
         # ==========================================
-        # Fetch Master Items
         items_res = supabase.table("master_items").select("*").execute()
         df_master = pd.DataFrame(items_res.data)
-        # Standardize columns to match your logic
-        df_master.columns = [c.title() if c.lower() != 'id' else 'id' for c in df_master.columns]
+        
+        # UNIVERSAL FIX: Force all columns to lowercase to prevent KeyErrors
+        df_master.columns = [c.lower() for c in df_master.columns]
 
-        # Fetch Archive for history alerts (last 100 rows to keep it fast)
         archive_res = supabase.table("waste_logs").select("*").order("date", desc=True).limit(100).execute()
         df_archive = pd.DataFrame(archive_res.data)
 
@@ -60,74 +59,85 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
 
         # Sidebar Filters
         st.sidebar.subheader("🔍 Filter")
-        clients = list(df_master['Client_Name'].unique())
+        clients = list(df_master['client_name'].dropna().unique())
         client_filter = st.sidebar.selectbox("🏢 Client", clients)
         
         # Outlet filter logic
-        all_outlets = list(df_master[df_master['Client_Name'] == client_filter]['Outlet'].unique())
+        all_outlets = list(df_master[df_master['client_name'] == client_filter]['outlet'].dropna().unique())
         allowed_outlets = [assigned_outlet] if assigned_outlet.lower() != 'all' else all_outlets
         outlet_filter = st.sidebar.selectbox("🏠 Outlet", allowed_outlets)
 
+        # Location filter logic
+        locations = ["MED", "WAREHOUSE", "CHALET", "BAR"]
+        if str(assigned_location).lower() != "all":
+            loc_filter = st.sidebar.selectbox("📍 Location", [assigned_location], disabled=True)
+        else:
+            loc_filter = st.sidebar.selectbox("📍 Location", locations)
+
         # Category/Group filters
-        cats = list(df_master[(df_master['Client_Name'] == client_filter) & (df_master['Outlet'] == outlet_filter)]['Category'].unique())
+        cats = list(df_master[(df_master['client_name'] == client_filter) & (df_master['outlet'] == outlet_filter)]['category'].dropna().unique())
         cat_filter = st.sidebar.selectbox("Category", cats)
         
-        grps = list(df_master[(df_master['Outlet'] == outlet_filter) & (df_master['Category'] == cat_filter)]['Group'].unique())
-        grp_filter = st.selectbox("Group", grps, label_visibility="collapsed")
+        # Using exact column names: sub_category
+        grps = list(df_master[(df_master['outlet'] == outlet_filter) & (df_master['category'] == cat_filter)]['sub_category'].dropna().unique())
+        grp_filter = st.selectbox("Sub Category", grps, label_visibility="collapsed")
 
-        search_query = st.text_input("Search", "", placeholder="🔍 Search item description...", label_visibility="collapsed")
+        search_query = st.text_input("Search", "", placeholder="🔍 Search item name...", label_visibility="collapsed")
 
         # Apply Filters to Display
         filtered_df = df_master[
-            (df_master['Outlet'] == outlet_filter) & 
-            (df_master['Category'] == cat_filter) & 
-            (df_master['Group'] == grp_filter)
+            (df_master['outlet'] == outlet_filter) & 
+            (df_master['category'] == cat_filter) & 
+            (df_master['sub_category'] == grp_filter)
         ].copy()
 
         if search_query:
-            filtered_df = df_master[df_master['Description'].str.contains(search_query, case=False, na=False)]
+            filtered_df = df_master[df_master['item_name'].str.contains(search_query, case=False, na=False)]
 
         # --- 🚨 HISTORY ALERT ---
         today_str = waste_date.strftime("%Y-%m-%d")
-        if not df_archive.empty:
-            already_logged = df_archive[(df_archive['date'] == today_str) & (df_archive['item_description'].isin(filtered_df['Description']))]
+        if not df_archive.empty and 'item_name' in df_archive.columns:
+            already_logged = df_archive[(df_archive['date'] == today_str) & (df_archive['item_name'].isin(filtered_df['item_name']))]
             if not already_logged.empty:
                 st.warning(f"⚠️ {len(already_logged)} items already logged for today.")
 
         # --- LIVE TICKET FORM ---
-        for index, row in filtered_df.iterrows():
-            item_name = row['Description']
-            dict_key = f"{outlet_filter}_{item_name}"
-            
-            cart_item = st.session_state['waste_notepad'].get(dict_key, {})
-            in_cart_qty = cart_item.get('Qty', 0.0)
-            in_cart_rem = cart_item.get('Remark', "")
-
-            with st.container(border=True):
-                col_n, col_q, col_r = st.columns([2, 1, 1.5])
-                with col_n:
-                    st.markdown(f"**{item_name}**")
-                    st.caption(f"Unit: {row.get('Unit', 'pcs')}")
+        if filtered_df.empty:
+            st.info("No items found matching the filters.")
+        else:
+            for index, row in filtered_df.iterrows():
+                item_name = row.get('item_name', 'Unknown')
+                dict_key = f"{outlet_filter}_{item_name}"
                 
-                qty_key = f"w_qty_{index}"
-                rem_key = f"w_rem_{index}"
-                
-                with col_q:
-                    st.number_input("Qty", value=float(in_cart_qty) if in_cart_qty > 0 else 0.0, min_value=0.0, key=qty_key, 
-                                    on_change=update_waste_cart, args=(dict_key, row.to_dict(), qty_key, rem_key), label_visibility="collapsed")
-                with col_r:
-                    st.text_input("Remark", value=in_cart_rem, key=rem_key, placeholder="Reason...", 
-                                  on_change=update_waste_cart, args=(dict_key, row.to_dict(), qty_key, rem_key), label_visibility="collapsed")
+                cart_item = st.session_state['waste_notepad'].get(dict_key, {})
+                in_cart_qty = cart_item.get('Qty', 0.0)
+                in_cart_rem = cart_item.get('Remark', "")
 
-        # --- 🛒 SUBMIT TO SUPABASE ---
+                with st.container(border=True):
+                    col_n, col_q, col_r = st.columns([2, 1, 1.5])
+                    with col_n:
+                        st.markdown(f"**{item_name}**")
+                        # Using exact column names: count_unit and product_code
+                        st.caption(f"Unit: {row.get('count_unit', 'pcs')} | Code: {row.get('product_code', 'N/A')}")
+                    
+                    qty_key = f"w_qty_{row.get('id', index)}"
+                    rem_key = f"w_rem_{row.get('id', index)}"
+                    
+                    with col_q:
+                        st.number_input("Qty", value=float(in_cart_qty) if in_cart_qty > 0 else 0.0, min_value=0.0, key=qty_key, 
+                                        on_change=update_waste_cart, args=(dict_key, row.to_dict(), qty_key, rem_key), label_visibility="collapsed")
+                    with col_r:
+                        st.text_input("Remark", value=in_cart_rem, key=rem_key, placeholder="Reason...", 
+                                      on_change=update_waste_cart, args=(dict_key, row.to_dict(), qty_key, rem_key), label_visibility="collapsed")
+
+        # --- 🛒 SUBMIT ---
         st.divider()
         if st.session_state['waste_notepad']:
             with st.expander("👀 Review & Submit Ticket", expanded=True):
                 cart_data = []
                 for k, v in st.session_state['waste_notepad'].items():
-                    # Map to Supabase table columns
                     row = v['row_data']
-                    cat_text = str(row.get('Category', '')).lower()
+                    cat_text = str(row.get('category', '')).lower()
                     is_bev = any(x in cat_text for x in ['bev', 'drink', 'bar'])
                     
                     if declaration == "🗑️ Daily Waste": tag = "wb" if is_bev else "wf"
@@ -138,24 +148,26 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
                         "date": str(today_str),
                         "client_name": client_filter,
                         "outlet": outlet_filter,
-                        "location": row.get('Location', 'Main'),
-                        "item_description": row.get('Description'),
-                        "category": row.get('Category'),
-                        "item_group": row.get('Group'),
-                        "product_code": str(row.get('Product Code / Menu Code', '')),
+                        "location": loc_filter,
+                        "item_name": row.get('item_name'), 
+                        "product_code": str(row.get('product_code', '')), 
+                        "item_type": row.get('item_type', ''), 
+                        "category": row.get('category'), 
+                        "sub_category": row.get('sub_category'), 
                         "quantity": float(v['Qty']),
-                        "unit": row.get('Unit', 'pcs'),
+                        "count_unit": row.get('count_unit', 'pcs'), 
                         "remarks": f"{tag} | {v['Remark']}".strip(" | "),
                         "reported_by": user,
                         "status": "Submitted"
                     })
                 
-                st.table(pd.DataFrame(cart_data)[['item_description', 'quantity', 'remarks']])
+                st.table(pd.DataFrame(cart_data)[['item_name', 'quantity', 'remarks']])
                 
-                if st.button("🚀 SUBMIT TO SUPABASE", type="primary", use_container_width=True):
+                # Removed 'Supabase' phrasing entirely
+                if st.button("🚀 SUBMIT WASTE TICKET", type="primary", use_container_width=True):
                     supabase.table("waste_logs").insert(cart_data).execute()
                     st.session_state['waste_notepad'] = {}
-                    st.success("✅ Waste Logged Successfully!")
+                    st.success("✅ Ticket Logged Successfully!")
                     st.rerun()
 
     except Exception as e:
