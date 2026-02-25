@@ -119,32 +119,52 @@ else:
     else:
         allowed_modules = [m.strip() for m in raw_modules.split(",")]
 
-    # 1. ADMIN COMMAND CENTER
+    # 1. ADMIN COMMAND CENTER + MODULE ACCESS
     if role == "admin":
-        st.markdown("## 👑 EK Consulting Command Center")
-        st.info("Select a client below to instantly open their Google Sheet database.")
+        st.markdown(f"## 👑 Welcome, {user.title()}")
+        
+        # --- NEW: Let the Admin use the modules too! ---
+        st.subheader("📱 App Modules")
+        col_a, col_b, col_c, col_d = st.columns(4)
+        with col_a:
+            if st.button("📊 Dashboard", use_container_width=True):
+                st.session_state['current_page'] = 'dashboard'
+                st.rerun()
+        with col_b:
+            if st.button("📦 Inventory", use_container_width=True):
+                st.session_state['current_page'] = 'inventory'
+                st.rerun()
+        with col_c:
+            if st.button("🗑️ Waste", use_container_width=True):
+                st.session_state['current_page'] = 'waste'
+                st.rerun()
+        with col_d:
+            if st.button("🔄 Transfers", use_container_width=True):
+                st.session_state['current_page'] = 'transfers'
+                st.rerun()
+
+        st.divider()
+        
+        # --- THE MASTER DIRECTORY ---
+        st.subheader("🔗 Master Database Links")
+        st.info("Direct access to client Google Sheets:")
         
         try:
+            # We still read the Master Hub for the links
             users_df = conn.read(spreadsheet=MASTER_HUB_URL, worksheet="users", ttl=600)
             users_df.columns = [str(c).strip().lower() for c in users_df.columns]
             
-            clients = users_df[(users_df['client_sheet_link'].notna()) & (users_df['role'] != 'admin')]
-            unique_links = clients['client_sheet_link'].unique()
+            clients_with_links = users_df[users_df['client_sheet_link'].notna()]
+            unique_links = clients_with_links['client_sheet_link'].unique()
             
             with st.container(border=True):
                 for link in unique_links:
-                    client_name = str(clients[clients['client_sheet_link'] == link]['clients'].iloc[0]).title()
-                    st.markdown(f"#### 🔗 [{client_name} Master Database]({link})")
-            
-            st.divider()
-            st.subheader("👥 Active User Directory")
-            cols_to_show = ['username', 'role', 'module', 'clients']
-            if 'assigned_outlet' in users_df.columns: cols_to_show.append('assigned_outlet')
-            if 'assigned_location' in users_df.columns: cols_to_show.append('assigned_location')
-            st.dataframe(users_df[cols_to_show], use_container_width=True)
+                    # Get the client name associated with this link
+                    c_name = clients_with_links[clients_with_links['client_sheet_link'] == link]['clients'].iloc[0]
+                    st.markdown(f"🔹 [{str(c_name).title()} Master Database]({link})")
             
         except Exception as e:
-            st.error(f"Could not load Master Hub data. Details: {e}")
+            st.error(f"Could not load Master Hub links: {e}")
 
     # 2. DYNAMIC APP MENU
     elif role != "admin":
