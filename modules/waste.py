@@ -34,53 +34,45 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
         st.session_state['waste_notepad'] = {}
 
     try:
-        # 1. FETCH DATA
-        items_res = supabase.table("master_items").select("*").execute()
-        df_master = pd.DataFrame(items_res.data)
-        df_master.columns = [c.lower() for c in df_master.columns]
-
-        archive_res = supabase.table("waste_logs").select("*").order("date", desc=True).limit(100).execute()
-        df_archive = pd.DataFrame(archive_res.data)
-
-        if role == "viewer":
-            st.info("👁️ Viewer Mode")
-            if not df_archive.empty: st.dataframe(df_archive, use_container_width=True, hide_index=True)
-            return
-
-        # 2. ENTRY MODE SETUP
-        declaration = st.radio("Type", ["🗑️ Daily Waste", "🍽️ Staff Meal", "🎉 Event / Function"], horizontal=True, label_visibility="collapsed")
-        waste_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")))
-        event_name = st.text_input("🏆 Event Name") if declaration == "🎉 Event / Function" else ""
-
-        # --- SIDEBAR ---
-        clients = list(df_master['client_name'].dropna().unique())
+        # 1. FETCH OUTLETS FIRST (Small query, no limit issues)
+        outlets_res = supabase.table("master_items").select("outlet, client_name").execute()
+        df_nav = pd.DataFrame(outlets_res.data)
+        
+        # --- SIDEBAR FILTERS ---
+        clients = sorted(list(df_nav['client_name'].dropna().unique()))
         client_filter = st.sidebar.selectbox("🏢 Client", clients)
-        all_outlets = list(df_master[df_master['client_name'] == client_filter]['outlet'].dropna().unique())
+        
+        all_outlets = sorted(list(df_nav[df_nav['client_name'] == client_filter]['outlet'].dropna().unique()))
         allowed_outlets = [assigned_outlet] if assigned_outlet.lower() != 'all' else all_outlets
         outlet_filter = st.sidebar.selectbox("🏠 Outlet", allowed_outlets)
 
-        # 3. FILTER BY OUTLET IMMEDIATELY (Case-Insensitive)
-        df_outlet_items = df_master[df_master['outlet'].astype(str).str.lower() == outlet_filter.lower()].copy()
+        # 2. FETCH ALL ITEMS FOR THIS OUTLET (Bypass the 1000 limit)
+        # We filter at the database level so we only get what we need!
+        items_res = supabase.table("master_items").select("*").eq("outlet", outlet_filter).limit(5000).execute()
+        df_outlet_items = pd.DataFrame(items_res.data)
+        df_outlet_items.columns = [c.lower() for c in df_outlet_items.columns]
 
+        # 3. LOCATION FILTER
         db_locations = sorted(list(df_outlet_items['location'].dropna().astype(str).str.upper().unique()))
         loc_filter = st.sidebar.selectbox("📍 Location", [assigned_location.upper()] if assigned_location.lower() != "all" else db_locations, disabled=(assigned_location.lower() != "all"))
 
         st.divider()
 
-        # --- MAIN FILTERS ---
+        # --- MAIN PAGE FILTERS ---
         st.subheader("🔍 Find Items")
-        search_query = st.text_input("🔍 Quick Search", placeholder="Search item name...")
+        search_query = st.text_input("🔍 Quick Search", placeholder="Type item name...")
 
         col_cat, col_grp = st.columns(2)
         with col_cat:
             cats = sorted(list(df_outlet_items['category'].dropna().astype(str).unique()))
             cat_filter = st.selectbox("📂 Category", ["All"] + cats, index=0)
+        
         with col_grp:
             df_temp = df_outlet_items if cat_filter == "All" else df_outlet_items[df_outlet_items['category'] == cat_filter]
             grps = sorted(list(df_temp['sub_category'].dropna().astype(str).unique()))
             grp_filter = st.selectbox("🏷️ Sub Category", ["All"] + grps, index=0)
 
-        # 4. FINAL FILTERING LOGIC (ONLY ONE BLOCK)
+        # 4. FINAL FILTERING
         if search_query:
             filtered_df = df_outlet_items[df_outlet_items['item_name'].str.contains(search_query, case=False, na=False)]
         else:
@@ -90,14 +82,13 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
             if grp_filter != "All":
                 filtered_df = filtered_df[filtered_df['sub_category'] == grp_filter]
 
-        # --- DISPLAY ---
+        # --- PROGRESS BADGE ---
         total_items = len(filtered_df)
         counted_in_view = sum(1 for item in filtered_df['item_name'] if f"{outlet_filter}_{loc_filter}_{item}" in st.session_state['waste_notepad'])
-        
-        st.markdown(f"<div style='background-color: #1e1e1e; padding: 10px; border-radius: 10px; margin-bottom: 20px; color: white;'>✅ {counted_in_view} Logged | 📝 {total_items} Items shown</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='background-color: #1e1e1e; padding: 10px; border-radius: 10px; margin-bottom: 20px; color: white;'>✅ {counted_in_view} Logged | 📝 {total_items} Items in view</div>", unsafe_allow_html=True)
 
         if filtered_df.empty:
-            st.info("No items found. Try selecting 'All' in categories.")
+            st.warning("No items found. Check if the items are assigned to this Outlet in the database.")
         else:
             for index, row in filtered_df.iterrows():
                 item_name = row.get('item_name', 'Unknown')
@@ -125,13 +116,12 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
                 logs = []
                 for k, v in st.session_state['waste_notepad'].items():
                     r = v['row_data']
-                    tag = "wb" if "bev" in str(r.get('category')).lower() else "wf"
                     logs.append({
                         "date": str(waste_date), "client_name": client_filter, "outlet": outlet_filter,
                         "location": loc_filter, "item_name": r.get('item_name'), "product_code": str(r.get('product_code', '')),
                         "item_type": r.get('item_type'), "category": r.get('category'), "sub_category": r.get('sub_category'),
                         "quantity": float(v['qty']), "count_unit": r.get('count_unit', 'pcs'),
-                        "remarks": f"{tag} | {v['remark']}".strip(" | "), "reported_by": user, "status": "Submitted"
+                        "remarks": f"Waste | {v['remark']}".strip(" | "), "reported_by": user, "status": "Submitted"
                     })
                 supabase.table("waste_logs").insert(logs).execute()
                 st.session_state['waste_notepad'] = {}
