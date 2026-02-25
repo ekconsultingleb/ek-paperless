@@ -21,7 +21,7 @@ def update_waste_cart(item_key, row_data, qty_key, rem_key):
             del st.session_state['waste_notepad'][item_key]
 
 def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_location):
-    st.markdown(f"### 🗑️ Daily Waste & Events") 
+    st.markdown(f"### 🗑️ Daily Waste & Events")
     
     supabase = get_supabase()
     
@@ -34,8 +34,6 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
         # ==========================================
         items_res = supabase.table("master_items").select("*").execute()
         df_master = pd.DataFrame(items_res.data)
-        
-        # UNIVERSAL FIX: Force all columns to lowercase to prevent KeyErrors
         df_master.columns = [c.lower() for c in df_master.columns]
 
         archive_res = supabase.table("waste_logs").select("*").order("date", desc=True).limit(100).execute()
@@ -57,32 +55,36 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
         waste_date = st.date_input("📅 Date of Event / Waste", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")))
         event_name = st.text_input("🏆 Enter Event Name") if declaration == "🎉 Event / Function" else ""
 
-        # Sidebar Filters
-        st.sidebar.subheader("🔍 Filter")
+        # --- SIDEBAR FILTERS (Only High-Level Locations) ---
+        st.sidebar.subheader("🔍 Location")
         clients = list(df_master['client_name'].dropna().unique())
         client_filter = st.sidebar.selectbox("🏢 Client", clients)
         
-        # Outlet filter logic
         all_outlets = list(df_master[df_master['client_name'] == client_filter]['outlet'].dropna().unique())
         allowed_outlets = [assigned_outlet] if assigned_outlet.lower() != 'all' else all_outlets
         outlet_filter = st.sidebar.selectbox("🏠 Outlet", allowed_outlets)
 
-        # Location filter logic
         locations = ["MED", "WAREHOUSE", "CHALET", "BAR"]
         if str(assigned_location).lower() != "all":
             loc_filter = st.sidebar.selectbox("📍 Location", [assigned_location], disabled=True)
         else:
             loc_filter = st.sidebar.selectbox("📍 Location", locations)
 
-        # Category/Group filters
-        cats = list(df_master[(df_master['client_name'] == client_filter) & (df_master['outlet'] == outlet_filter)]['category'].dropna().unique())
-        cat_filter = st.sidebar.selectbox("Category", cats)
-        
-        # Using exact column names: sub_category
-        grps = list(df_master[(df_master['outlet'] == outlet_filter) & (df_master['category'] == cat_filter)]['sub_category'].dropna().unique())
-        grp_filter = st.selectbox("Sub Category", grps, label_visibility="collapsed")
+        st.divider()
 
-        search_query = st.text_input("Search", "", placeholder="🔍 Search item name...", label_visibility="collapsed")
+        # --- MAIN PAGE FILTERS (Category & Group in the middle!) ---
+        st.subheader("🔍 Find Items")
+        col_cat, col_grp = st.columns(2)
+        
+        with col_cat:
+            cats = list(df_master[(df_master['client_name'] == client_filter) & (df_master['outlet'] == outlet_filter)]['category'].dropna().unique())
+            cat_filter = st.selectbox("📂 Category", cats)
+            
+        with col_grp:
+            grps = list(df_master[(df_master['outlet'] == outlet_filter) & (df_master['category'] == cat_filter)]['sub_category'].dropna().unique())
+            grp_filter = st.selectbox("🏷️ Sub Category", grps)
+
+        search_query = st.text_input("Search", "", placeholder="🔍 Quick search item name...", label_visibility="collapsed")
 
         # Apply Filters to Display
         filtered_df = df_master[
@@ -117,7 +119,6 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
                     col_n, col_q, col_r = st.columns([2, 1, 1.5])
                     with col_n:
                         st.markdown(f"**{item_name}**")
-                        # Using exact column names: count_unit and product_code
                         st.caption(f"Unit: {row.get('count_unit', 'pcs')} | Code: {row.get('product_code', 'N/A')}")
                     
                     qty_key = f"w_qty_{row.get('id', index)}"
@@ -163,7 +164,6 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
                 
                 st.table(pd.DataFrame(cart_data)[['item_name', 'quantity', 'remarks']])
                 
-                # Removed 'Supabase' phrasing entirely
                 if st.button("🚀 SUBMIT WASTE TICKET", type="primary", use_container_width=True):
                     supabase.table("waste_logs").insert(cart_data).execute()
                     st.session_state['waste_notepad'] = {}

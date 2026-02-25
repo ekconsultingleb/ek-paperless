@@ -2,33 +2,50 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import uuid
+from supabase import create_client, Client
+
+# --- SAFELY INITIALIZE SUPABASE ---
+@st.cache_resource
+def get_supabase() -> Client:
+    return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
 def render_transfers(conn, sheet_link, user, role, assigned_outlet, assigned_location):
     st.markdown("### 🔄 Warehouse Transfers & Requisitions")
     
+    supabase = get_supabase()
+    
     try:
-        # Load data
-        df_transfers = conn.read(spreadsheet=sheet_link, worksheet="transfers", ttl=0)
-        df_inv = conn.read(spreadsheet=sheet_link, worksheet="inventory", ttl=600)
+        # Load data from Supabase instead of Google Sheets
+        res_transfers = supabase.table("transfers").select("*").execute()
+        df_transfers = pd.DataFrame(res_transfers.data)
         
-        all_outlets = list(df_inv['Outlet'].dropna().astype(str).unique()) if 'Outlet' in df_inv.columns else ["Main Warehouse", "Branch 1"]
+        # Load master items for the "Pick Exact Items" search
+        res_inv = supabase.table("master_items").select("*").execute()
+        df_inv = pd.DataFrame(res_inv.data)
         
-        # --- NEW LOCATION-BASED SECURITY FILTERS ---
-        # 1. Who is this user?
+        # Ensure lowercase columns to prevent errors
+        if not df_transfers.empty:
+            df_transfers.columns = [c.lower() for c in df_transfers.columns]
+        else:
+            # Create empty DF with proper columns if table is completely empty
+            df_transfers = pd.DataFrame(columns=['transfer_id', 'date', 'status', 'requester', 'from_outlet', 'from_location', 'to_outlet', 'to_location', 'request_type', 'details', 'action_by'])
+            
+        if not df_inv.empty:
+            df_inv.columns = [c.lower() for c in df_inv.columns]
+
+        all_outlets = list(df_inv['outlet'].dropna().astype(str).unique()) if 'outlet' in df_inv.columns else ["Main Warehouse", "Branch 1"]
+        
+        # --- LOCATION-BASED SECURITY FILTERS ---
         user_locs = [loc.strip().lower() for loc in assigned_location.split(',')]
-        
-        # 2. Are they the Warehouse Manager? (Can they dispatch?)
         can_dispatch = (assigned_location.lower() == 'all' or assigned_location == '' or 'warehouse' in assigned_location.lower())
         
-        # 3. Filter the tickets based on their LOCATION
         if can_dispatch:
-            my_pending = df_transfers[df_transfers['Status'] == 'Pending']
-            my_incoming = df_transfers[df_transfers['Status'] == 'In Transit']
+            my_pending = df_transfers[df_transfers['status'] == 'Pending']
+            my_incoming = df_transfers[df_transfers['status'] == 'In Transit']
         else:
-            # Chefs only see requests coming TO their specific location
-            my_pending = pd.DataFrame() # Chefs don't dispatch, so pending is empty for them
-            my_incoming = df_transfers[(df_transfers['Status'] == 'In Transit') & 
-                                       (df_transfers['To Location'].astype(str).str.lower().isin(user_locs))]
+            my_pending = pd.DataFrame() 
+            my_incoming = df_transfers[(df_transfers['status'] == 'In Transit') & 
+                                       (df_transfers['to_location'].astype(str).str.lower().isin(user_locs))]
 
         # --- IN-APP NOTIFICATIONS ---
         if can_dispatch and not my_pending.empty:
@@ -36,7 +53,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_outlet, assigned_loc
         if not my_incoming.empty:
             st.info(f"🚚 **Alert:** You have {len(my_incoming)} shipments arriving soon. Waiting for you to receive them.")
 
-        # --- DYNAMIC TABS (HIDES DISPATCH FROM CHEFS) ---
+        # --- DYNAMIC TABS ---
         if can_dispatch:
             tab_req, tab_out, tab_in = st.tabs([
                 "🛒 1. Request Stock", 
@@ -44,7 +61,6 @@ def render_transfers(conn, sheet_link, user, role, assigned_outlet, assigned_loc
                 f"✅ 3. Receive ({len(my_incoming)})"
             ])
         else:
-            # Chefs only get 2 tabs!
             tab_req, tab_in = st.tabs([
                 "🛒 1. Request Stock", 
                 f"✅ 2. Receive ({len(my_incoming)})"
@@ -63,14 +79,13 @@ def render_transfers(conn, sheet_link, user, role, assigned_outlet, assigned_loc
             with col_o2:
                 to_outlet = assigned_outlet if assigned_outlet.lower() != 'all' else st.selectbox("Request For (Receiver Outlet)", all_outlets, key="t_to_out")
             
-            from_locs = list(df_inv[df_inv['Outlet'] == from_outlet]['Location'].dropna().astype(str).unique()) if 'Location' in df_inv.columns else ["Warehouse"]
-            to_locs = list(df_inv[df_inv['Outlet'] == to_outlet]['Location'].dropna().astype(str).unique()) if 'Location' in df_inv.columns else ["Kitchen"]
+            from_locs = list(df_inv[df_inv['outlet'] == from_outlet]['location'].dropna().astype(str).unique()) if 'location' in df_inv.columns else ["Warehouse"]
+            to_locs = list(df_inv[df_inv['outlet'] == to_outlet]['location'].dropna().astype(str).unique()) if 'location' in df_inv.columns else ["Kitchen"]
             
             col_l1, col_l2 = st.columns(2)
             with col_l1:
                 from_location = st.selectbox("From Location", from_locs if from_locs else ["Warehouse"], key="t_from_loc")
             with col_l2:
-                # If they are a Chef, lock the 'To Location' to their assigned location!
                 if not can_dispatch and assigned_location.lower() != 'all':
                     user_exact_loc = [loc for loc in to_locs if loc.lower() in user_locs]
                     to_location = st.selectbox("To Location", user_exact_loc if user_exact_loc else [assigned_location], key="t_to_loc")
@@ -89,21 +104,20 @@ def render_transfers(conn, sheet_link, user, role, assigned_outlet, assigned_loc
                         if text_request.strip() == "":
                             st.error("Please type something before sending.")
                         else:
-                            new_req = pd.DataFrame([{
-                                "Transfer ID": str(uuid.uuid4())[:8],
-                                "Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                                "Status": "Pending",
-                                "Requester": user,
-                                "From Outlet": from_outlet,
-                                "From Location": from_location,
-                                "To Outlet": to_outlet,
-                                "To Location": to_location,
-                                "Request Type": "Text Note",
-                                "Details": text_request,
-                                "Action By": ""
-                            }])
-                            updated_df = pd.concat([df_transfers, new_req], ignore_index=True)
-                            conn.update(spreadsheet=sheet_link, worksheet="transfers", data=updated_df)
+                            new_req = {
+                                "transfer_id": str(uuid.uuid4())[:8],
+                                "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                "status": "Pending",
+                                "requester": user,
+                                "from_outlet": from_outlet,
+                                "from_location": from_location,
+                                "to_outlet": to_outlet,
+                                "to_location": to_location,
+                                "request_type": "Text Note",
+                                "details": text_request,
+                                "action_by": ""
+                            }
+                            supabase.table("transfers").insert(new_req).execute()
                             st.success(f"✅ Request sent to {from_location}!")
                             st.rerun()
 
@@ -112,13 +126,13 @@ def render_transfers(conn, sheet_link, user, role, assigned_outlet, assigned_loc
                 with st.form("item_req_form", clear_on_submit=True):
                     filtered_items = df_inv.copy()
                     if search_q:
-                        filtered_items = filtered_items[filtered_items['Product Description'].astype(str).str.lower().str.contains(search_q.lower(), na=False)]
+                        filtered_items = filtered_items[filtered_items['item_name'].astype(str).str.lower().str.contains(search_q.lower(), na=False)]
                         
                         req_quants = {}
                         for idx, row in filtered_items.head(15).iterrows():
                             colA, colB = st.columns([2, 1])
                             with colA:
-                                st.markdown(f"**{row.get('Product Description', '')}** | 📦 {row.get('Unit', '')}")
+                                st.markdown(f"**{row.get('item_name', '')}** | 📦 {row.get('count_unit', '')}")
                             with colB:
                                 req_quants[idx] = st.number_input("Qty", value=None, min_value=0.0, step=1.0, placeholder="0.0", key=f"treq_{idx}", label_visibility="collapsed")
                                 
@@ -126,26 +140,25 @@ def render_transfers(conn, sheet_link, user, role, assigned_outlet, assigned_loc
                             selected_details = []
                             for idx, qty in req_quants.items():
                                 if qty is not None and qty > 0:
-                                    item_name = filtered_items.loc[idx, 'Product Description']
+                                    item_name = filtered_items.loc[idx, 'item_name']
                                     selected_details.append(f"{qty}x {item_name}")
                             
                             if selected_details:
                                 combined_details = "\n".join(selected_details)
-                                new_req = pd.DataFrame([{
-                                    "Transfer ID": str(uuid.uuid4())[:8],
-                                    "Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                                    "Status": "Pending",
-                                    "Requester": user,
-                                    "From Outlet": from_outlet,
-                                    "From Location": from_location,
-                                    "To Outlet": to_outlet,
-                                    "To Location": to_location,
-                                    "Request Type": "Exact Items",
-                                    "Details": combined_details,
-                                    "Action By": ""
-                                }])
-                                updated_df = pd.concat([df_transfers, new_req], ignore_index=True)
-                                conn.update(spreadsheet=sheet_link, worksheet="transfers", data=updated_df)
+                                new_req = {
+                                    "transfer_id": str(uuid.uuid4())[:8],
+                                    "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                    "status": "Pending",
+                                    "requester": user,
+                                    "from_outlet": from_outlet,
+                                    "from_location": from_location,
+                                    "to_outlet": to_outlet,
+                                    "to_location": to_location,
+                                    "request_type": "Exact Items",
+                                    "details": combined_details,
+                                    "action_by": ""
+                                }
+                                supabase.table("transfers").insert(new_req).execute()
                                 st.success(f"✅ Exact items requested from {from_location}!")
                                 st.rerun()
                             else:
@@ -162,17 +175,20 @@ def render_transfers(conn, sheet_link, user, role, assigned_outlet, assigned_loc
                     st.success("No pending requests! You are all caught up.")
                 else:
                     for idx, row in my_pending.iterrows():
-                        with st.expander(f"🚨 Request from {row['Requester']} at {row['To Location']}", expanded=True):
-                            st.markdown(f"**Transfer ID:** {row['Transfer ID']} &nbsp;|&nbsp; 🗓️ {row['Date']}")
+                        with st.expander(f"🚨 Request from {row['requester']} at {row['to_location']}", expanded=True):
+                            st.markdown(f"**Transfer ID:** {row['transfer_id']} &nbsp;|&nbsp; 🗓️ {row['date']}")
                             
                             st.caption("Edit the quantities below if you are out of stock before dispatching:")
-                            edited_details = st.text_area("Adjust Items:", value=row['Details'], key=f"edit_{idx}", height=100)
+                            edited_details = st.text_area("Adjust Items:", value=row['details'], key=f"edit_{row['transfer_id']}", height=100)
                             
-                            if st.button(f"📦 Approve & Dispatch", key=f"send_{idx}", type="primary", use_container_width=True):
-                                df_transfers.at[idx, 'Details'] = edited_details 
-                                df_transfers.at[idx, 'Status'] = 'In Transit'
-                                df_transfers.at[idx, 'Action By'] = f"Dispatched by {user}"
-                                conn.update(spreadsheet=sheet_link, worksheet="transfers", data=df_transfers)
+                            if st.button(f"📦 Approve & Dispatch", key=f"send_{row['transfer_id']}", type="primary", use_container_width=True):
+                                # Update Supabase instead of Google Sheets
+                                supabase.table("transfers").update({
+                                    "details": edited_details,
+                                    "status": "In Transit",
+                                    "action_by": f"Dispatched by {user}"
+                                }).eq("transfer_id", row['transfer_id']).execute()
+                                
                                 st.success("Items dispatched! Receiver will now see the updated quantities.")
                                 st.rerun()
 
@@ -187,14 +203,17 @@ def render_transfers(conn, sheet_link, user, role, assigned_outlet, assigned_loc
             else:
                 for idx, row in my_incoming.iterrows():
                     with st.container(border=True):
-                        st.markdown(f"**Transfer ID:** {row['Transfer ID']} &nbsp;|&nbsp; 🚚 Coming from **{row['From Location']}**")
+                        st.markdown(f"**Transfer ID:** {row['transfer_id']} &nbsp;|&nbsp; 🚚 Coming from **{row['from_location']}**")
                         
-                        st.warning(row['Details'])
+                        st.warning(row['details'])
                         
-                        if st.button(f"✅ I Physically Received This", key=f"recv_{idx}", type="primary", use_container_width=True):
-                            df_transfers.at[idx, 'Status'] = 'Received'
-                            df_transfers.at[idx, 'Action By'] = f"Received by {user}"
-                            conn.update(spreadsheet=sheet_link, worksheet="transfers", data=df_transfers)
+                        if st.button(f"✅ I Physically Received This", key=f"recv_{row['transfer_id']}", type="primary", use_container_width=True):
+                            # Update Supabase instead of Google Sheets
+                            supabase.table("transfers").update({
+                                "status": "Received",
+                                "action_by": f"Received by {user}"
+                            }).eq("transfer_id", row['transfer_id']).execute()
+                            
                             st.success("Transfer Complete! Inventory perfectly tracked.")
                             st.rerun()
                             
