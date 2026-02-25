@@ -112,138 +112,99 @@ else:
     outlet = st.session_state['assigned_outlet']
     location = st.session_state['assigned_location']
     
-    # 1. PAGE: HOME MENU
+    # 1. PARSE ALLOWED MODULES
+    # This turns "inventory, waste" into a list: ['inventory', 'waste']
+    raw_modules = str(st.session_state.get('module', '')).lower().strip()
+    
+    if raw_modules == "all_modules" or role == "admin":
+        allowed_modules = ["dashboard", "daily_cash", "inventory", "waste", "transfers"]
+    else:
+        allowed_modules = [m.strip() for m in raw_modules.split(",") if m.strip()]
+
+    # ==========================================
+    # 2. PAGE: HOME MENU
+    # ==========================================
     if st.session_state['current_page'] == 'home':
-        if role == "admin":
-            st.markdown(f"## 👑 Welcome, {user.title()}")
-            st.subheader("📱 App Modules")
-            col_a, col_b, col_c, col_d = st.columns(4)
+        st.markdown(f"## 👋 Welcome, {user.title()}")
+        st.subheader("📱 App Modules")
+        
+        # Create a row of 4 columns for the buttons
+        col_a, col_b, col_c, col_d = st.columns(4)
+        
+        if "dashboard" in allowed_modules:
             with col_a:
                 if st.button("📊 Dashboard", use_container_width=True):
                     st.session_state['current_page'] = 'dashboard'
                     st.rerun()
+                    
+        if "inventory" in allowed_modules:
             with col_b:
                 if st.button("📦 Inventory", use_container_width=True):
                     st.session_state['current_page'] = 'inventory'
                     st.rerun()
+                    
+        if "waste" in allowed_modules:
             with col_c:
                 if st.button("🗑️ Waste", use_container_width=True):
                     st.session_state['current_page'] = 'waste'
                     st.rerun()
+                    
+        if "transfers" in allowed_modules or "transfer" in allowed_modules:
             with col_d:
                 if st.button("🔄 Transfers", use_container_width=True):
                     st.session_state['current_page'] = 'transfers'
                     st.rerun()
 
-            st.divider()
-            st.subheader("🔗 Master Database Links")
-            # ... (Your existing code for the Google Sheet links goes here)
-
-        else:
-            # Logic for STAFF menu buttons goes here
-            st.markdown(f"## 👨‍🍳 Welcome, {user.title()}")
-            # (Show buttons based on allowed_modules)
-
-    # 2. PAGE: INVENTORY
-    elif st.session_state['current_page'] == 'inventory':
-        if st.button("⬅️ Back to Menu"):
-            st.session_state['current_page'] = 'home'
-            st.rerun()
-        # This calls your new Supabase module!
-        render_inventory(supabase, None, user, role, outlet, location)
-
-    # 3. PAGE: WASTE
-    elif st.session_state['current_page'] == 'waste':
-        if st.button("⬅️ Back to Menu"):
-            st.session_state['current_page'] = 'home'
-            st.rerun()
-        # This still calls the Google Sheets version
-        render_waste(conn, sheet, user, role, outlet, location)
-
-    # 4. PAGE: DASHBOARD
-    elif st.session_state['current_page'] == 'dashboard':
-        if st.button("⬅️ Back to Menu"):
-            st.session_state['current_page'] = 'home'
-            st.rerun()
-        render_dashboard(conn, sheet)
-        
-        # --- THE MASTER DIRECTORY ---
-        st.subheader("🔗 Master Database Links")
-        st.info("Direct access to client Google Sheets:")
-        
-        try:
-            # We still read the Master Hub for the links
-            users_df = conn.read(spreadsheet=MASTER_HUB_URL, worksheet="users", ttl=600)
-            users_df.columns = [str(c).strip().lower() for c in users_df.columns]
-            
-            clients_with_links = users_df[users_df['client_sheet_link'].notna()]
-            unique_links = clients_with_links['client_sheet_link'].unique()
-            
-            with st.container(border=True):
-                for link in unique_links:
-                    # Get the client name associated with this link
-                    c_name = clients_with_links[clients_with_links['client_sheet_link'] == link]['clients'].iloc[0]
-                    st.markdown(f"🔹 [{str(c_name).title()} Master Database]({link})")
-            
-        except Exception as e:
-            st.error(f"Could not load Master Hub links: {e}")
-
-    # 2. DYNAMIC APP MENU
-    elif role != "admin":
-        if len(allowed_modules) == 1 and st.session_state['current_page'] == 'home':
-            st.session_state['current_page'] = allowed_modules[0]
-
-        if st.session_state['current_page'] == 'home':
-            st.markdown("## 📱 Main Menu")
-            st.write("Select a module below to begin:")
-            st.write("") 
-            
-            if "dashboard" in allowed_modules:
-                if st.button("📊 Management Dashboard", use_container_width=True):
-                    st.session_state['current_page'] = 'dashboard'
-                    st.rerun()
-                st.write("")
-            
-            if "daily_cash" in allowed_modules:
-                if st.button("🏦 Daily Cash Report", use_container_width=True):
+        # If they have daily cash, put it on a new row
+        if "daily_cash" in allowed_modules:
+            st.write("")
+            col_e, _, _, _ = st.columns(4)
+            with col_e:
+                if st.button("🏦 Daily Cash", use_container_width=True):
                     st.session_state['current_page'] = 'daily_cash'
                     st.rerun()
-                st.write("")
+
+        # 👑 ADMIN ONLY: MASTER HUB LINKS
+        if role == "admin":
+            st.divider()
+            st.subheader("🔗 Master Database Links")
+            st.info("Direct access to client Google Sheets:")
+            try:
+                users_df = conn.read(spreadsheet=MASTER_HUB_URL, worksheet="users", ttl=600)
+                users_df.columns = [str(c).strip().lower() for c in users_df.columns]
                 
-            if "waste" in allowed_modules:
-                if st.button("🗑️ Daily Waste & Events", use_container_width=True):
-                    st.session_state['current_page'] = 'waste'
-                    st.rerun()
-                st.write("")
+                clients_with_links = users_df[users_df['client_sheet_link'].notna()]
+                unique_links = clients_with_links['client_sheet_link'].unique()
                 
-            if "inventory" in allowed_modules:
-                if st.button("📦 Inventory Count", use_container_width=True):
-                    st.session_state['current_page'] = 'inventory'
-                    st.rerun()
-                st.write("")
+                with st.container(border=True):
+                    for link in unique_links:
+                        c_name = clients_with_links[clients_with_links['client_sheet_link'] == link]['clients'].iloc[0]
+                        st.markdown(f"🔹 [{str(c_name).title()} Master Database]({link})")
+            except Exception as e:
+                st.error(f"Could not load Master Hub links: {e}")
+
+    # ==========================================
+    # 3. PAGE ROUTING (INSIDE MODULES)
+    # ==========================================
+    else:
+        # Show a universal "Back" button at the top of every module
+        if st.button("⬅️ Back to Main Menu"):
+            st.session_state['current_page'] = 'home'
+            st.rerun()
+        st.divider()
+
+        # Route to the correct file
+        if st.session_state['current_page'] == 'dashboard':
+            render_dashboard(conn, sheet, outlet)
             
-            # --- THE NEW TRANSFERS BUTTON ---
-            if "transfers" in allowed_modules:
-                if st.button("🔄 Warehouse Transfers", use_container_width=True):
-                    st.session_state['current_page'] = 'transfers'
-                    st.rerun()
-                st.write("")
-                    
-        else:
-            if len(allowed_modules) > 1:
-                if st.button("⬅️ Back to Main Menu"):
-                    st.session_state['current_page'] = 'home'
-                    st.rerun()
-                st.divider()
+        elif st.session_state['current_page'] == 'daily_cash':
+            render_daily_cash(conn, sheet, outlet)
             
-            # --- ROUTING TO THE NEW FILES ---
-            if st.session_state['current_page'] == 'dashboard':
-                render_dashboard(conn, sheet, outlet)
-            elif st.session_state['current_page'] == 'daily_cash':
-                render_daily_cash(conn, sheet, outlet)
-            elif st.session_state['current_page'] == 'inventory':
-                render_inventory(conn, sheet, user, role, outlet, location)
-            elif st.session_state['current_page'] == 'waste':
-                render_waste(conn, sheet, user, role, outlet, location)
-            elif st.session_state['current_page'] == 'transfers':
-                render_transfers(conn, sheet, user, role, outlet, location)
+        elif st.session_state['current_page'] == 'inventory':
+            render_inventory(conn, sheet, user, role, outlet, location)
+            
+        elif st.session_state['current_page'] == 'waste':
+            render_waste(conn, sheet, user, role, outlet, location)
+            
+        elif st.session_state['current_page'] == 'transfers':
+            render_transfers(conn, sheet, user, role, outlet, location)
