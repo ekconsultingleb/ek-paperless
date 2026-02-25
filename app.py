@@ -106,44 +106,67 @@ else:
         st.session_state.clear()
         st.rerun()
 
-    # --- TRAFFIC COP (NAVIGATION) ---
+   # --- TRAFFIC COP (NAVIGATION) ---
     role = st.session_state['role']
     sheet = st.session_state['link']
     user = st.session_state['user']
     outlet = st.session_state['assigned_outlet']
     location = st.session_state['assigned_location']
     
-    raw_modules = str(st.session_state['module']).lower().strip()
-    if raw_modules == "all_modules" or role == "manager":
-        allowed_modules = ["dashboard", "daily_cash", "inventory", "waste", "transfers"]
-    else:
-        allowed_modules = [m.strip() for m in raw_modules.split(",")]
+    # 1. PAGE: HOME MENU
+    if st.session_state['current_page'] == 'home':
+        if role == "admin":
+            st.markdown(f"## 👑 Welcome, {user.title()}")
+            st.subheader("📱 App Modules")
+            col_a, col_b, col_c, col_d = st.columns(4)
+            with col_a:
+                if st.button("📊 Dashboard", use_container_width=True):
+                    st.session_state['current_page'] = 'dashboard'
+                    st.rerun()
+            with col_b:
+                if st.button("📦 Inventory", use_container_width=True):
+                    st.session_state['current_page'] = 'inventory'
+                    st.rerun()
+            with col_c:
+                if st.button("🗑️ Waste", use_container_width=True):
+                    st.session_state['current_page'] = 'waste'
+                    st.rerun()
+            with col_d:
+                if st.button("🔄 Transfers", use_container_width=True):
+                    st.session_state['current_page'] = 'transfers'
+                    st.rerun()
 
-    # 1. ADMIN COMMAND CENTER + MODULE ACCESS
-    if role == "admin":
-        st.markdown(f"## 👑 Welcome, {user.title()}")
-        
-        # --- NEW: Let the Admin use the modules too! ---
-        st.subheader("📱 App Modules")
-        col_a, col_b, col_c, col_d = st.columns(4)
-        with col_a:
-            if st.button("📊 Dashboard", use_container_width=True):
-                st.session_state['current_page'] = 'dashboard'
-                st.rerun()
-        with col_b:
-            if st.button("📦 Inventory", use_container_width=True):
-                st.session_state['current_page'] = 'inventory'
-                st.rerun()
-        with col_c:
-            if st.button("🗑️ Waste", use_container_width=True):
-                st.session_state['current_page'] = 'waste'
-                st.rerun()
-        with col_d:
-            if st.button("🔄 Transfers", use_container_width=True):
-                st.session_state['current_page'] = 'transfers'
-                st.rerun()
+            st.divider()
+            st.subheader("🔗 Master Database Links")
+            # ... (Your existing code for the Google Sheet links goes here)
 
-        st.divider()
+        else:
+            # Logic for STAFF menu buttons goes here
+            st.markdown(f"## 👨‍🍳 Welcome, {user.title()}")
+            # (Show buttons based on allowed_modules)
+
+    # 2. PAGE: INVENTORY
+    elif st.session_state['current_page'] == 'inventory':
+        if st.button("⬅️ Back to Menu"):
+            st.session_state['current_page'] = 'home'
+            st.rerun()
+        # This calls your new Supabase module!
+        render_inventory(supabase, None, user, role, outlet, location)
+
+    # 3. PAGE: WASTE
+    elif st.session_state['current_page'] == 'waste':
+        if st.button("⬅️ Back to Menu"):
+            st.session_state['current_page'] = 'home'
+            st.rerun()
+        # This still calls the Google Sheets version
+        render_waste(conn, sheet, user, role, outlet, location)
+
+    # 4. PAGE: DASHBOARD
+    elif st.session_state['current_page'] == 'dashboard':
+        if st.button("⬅️ Back to Menu"):
+            st.session_state['current_page'] = 'home'
+            st.rerun()
+        render_dashboard(conn, sheet)
         
         # --- THE MASTER DIRECTORY ---
         st.subheader("🔗 Master Database Links")
