@@ -83,7 +83,6 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
         allowed_outlets = [assigned_outlet] if assigned_outlet.lower() != 'all' else all_outlets
         outlet_filter = st.sidebar.selectbox("🏠 Outlet", allowed_outlets)
 
-        # Dynamically grab all unique locations for this specific outlet from the database
         db_locations = sorted(list(df_master[df_master['outlet'] == outlet_filter]['location'].dropna().astype(str).str.upper().unique()))
         
         if str(assigned_location).lower() != "all":
@@ -96,7 +95,7 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
         # --- MAIN PAGE FILTERS ---
         st.subheader("🔍 Find Items to Log")
         
-        # 1. Lowercase safety for the Outlet (matches "Med" to "med")
+        # 🔴 CRITICAL FIX 1: Lowercase safety for Outlet
         df_outlet_items = df_master[df_master['outlet'].str.lower() == outlet_filter.lower()].copy()
 
         search_query = st.text_input("🔍 Quick Search", placeholder="Search any item (Overrides filters below)...")
@@ -104,44 +103,52 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
         col_type, col_cat, col_grp = st.columns(3)
         
         with col_type:
-            # We grab unique types. Even if some are "Menu Item" and others "Menu Items", they will both show here.
+            # This pulls unique types (e.g., 'Inventory', 'Menu Items')
             types = sorted(list(df_outlet_items['item_type'].dropna().astype(str).unique()))
             type_options = ["All"] + types
             type_filter = st.selectbox("📦 Item Type", type_options, index=0)
 
         with col_cat:
-            # SMART "S" FIX: We check if the filter is "All" OR if the row contains the selected type string
+            # 🔴 CRITICAL FIX 2: Partial Matching for the "s" issue
             if type_filter == "All":
                 df_cat_list = df_outlet_items
             else:
-                # This ensures "Menu Items" matches "Menu Item" or vice versa
+                # Use .str.contains to find "Menu" whether it has an 's' or not
                 df_cat_list = df_outlet_items[df_outlet_items['item_type'].str.contains(type_filter, case=False, na=False)]
             
             cats = sorted(list(df_cat_list['category'].dropna().astype(str).unique()))
             cat_options = ["All"] + cats
-            # Default to index 1 (Beverages)
             cat_filter = st.selectbox("📂 Category", cat_options, index=1 if cats else 0)
             
         with col_grp:
             df_grp_list = df_cat_list if cat_filter == "All" else df_cat_list[df_cat_list['category'] == cat_filter]
             grps = sorted(list(df_grp_list['sub_category'].dropna().astype(str).unique()))
             grp_options = ["All"] + grps
-            # Default to index 1 (Arak)
             grp_filter = st.selectbox("🏷️ Sub Category", grp_options, index=1 if grps else 0)
 
-        # --- THE FINAL FILTERING LOGIC ---
+        # ==========================================
+        # 🔴 THE SMART FILTERING LOGIC (CLEANED)
+        # ==========================================
         if search_query:
-            # SEARCH OVERRIDE: Searches everything in that outlet
+            # Search override: Ignore dropdowns if user is typing
             filtered_df = df_outlet_items[df_outlet_items['item_name'].str.contains(search_query, case=False, na=False)]
         else:
+            # Start with the full list and narrow it down
             filtered_df = df_outlet_items.copy()
+            
             if type_filter != "All":
-                # Use contains here too for the "s" safety
+                # Partial match for "Menu" / "Inventory" safety
                 filtered_df = filtered_df[filtered_df['item_type'].str.contains(type_filter, case=False, na=False)]
+            
             if cat_filter != "All":
                 filtered_df = filtered_df[filtered_df['category'] == cat_filter]
+            
             if grp_filter != "All":
                 filtered_df = filtered_df[filtered_df['sub_category'] == grp_filter]
+
+        # ==========================================
+        # Rest of your logic (History, Badges, Form)
+        # ==========================================
 
         # --- 🚨 HISTORY ALERT ---
         today_str = waste_date.strftime("%Y-%m-%d")
