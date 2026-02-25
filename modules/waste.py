@@ -97,7 +97,8 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
         st.subheader("🔍 Find Items to Log")
         
         # We only filter by Outlet here. Location is just for the submitted log!
-        df_outlet_items = df_master[df_master['outlet'] == outlet_filter].copy()
+        # FIX: Use .str.lower() on both sides to ensure "Med" matches "med"
+df_outlet_items = df_master[df_master['outlet'].str.lower() == outlet_filter.lower()].copy()
 
         search_query = st.text_input("🔍 Quick Search", placeholder="Search any item (Overrides filters below)...")
 
