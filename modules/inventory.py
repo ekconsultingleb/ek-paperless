@@ -8,10 +8,38 @@ from supabase import create_client, Client
 def get_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
+# --- THE CUMULATIVE COUNTING LOGIC ---
+def add_inventory_qty(item_key, row_dict, input_key):
+    added_val = st.session_state[input_key]
+    
+    if added_val > 0:
+        # If it's the first time counting this item, create it
+        if item_key not in st.session_state['mobile_counts']:
+            st.session_state['mobile_counts'][item_key] = {
+                'row_data': row_dict,
+                'qty': 0.0
+            }
+        
+        # Add the new amount to the running total (e.g., 5 + 6 = 11)
+        st.session_state['mobile_counts'][item_key]['qty'] += added_val
+        
+        # Reset the input box to 0 immediately so they can add more later!
+        st.session_state[input_key] = 0.0
+
+def undo_inventory_count(item_key):
+    if item_key in st.session_state['mobile_counts']:
+        del st.session_state['mobile_counts'][item_key]
+
 def render_inventory(conn, sheet, user, role, outlet, location):
-    st.markdown("##   Inventory Count")
+    st.markdown("## 📱 Mobile Inventory Count")
     
     supabase = get_supabase()
+
+    # --- SESSION STATES ---
+    if 'mobile_counts' not in st.session_state:
+        st.session_state['mobile_counts'] = {}
+    if 'custom_items' not in st.session_state:
+        st.session_state['custom_items'] = []
 
     # --- 1. FETCH MASTER ITEMS ---
     try:
@@ -20,10 +48,7 @@ def render_inventory(conn, sheet, user, role, outlet, location):
             st.warning("⚠️ No items found in the master list.")
             return
         df_items = pd.DataFrame(response.data)
-        
-        # KEY FIX: Force column names to lowercase to avoid 'Unit' vs 'unit' errors
         df_items.columns = [c.lower() for c in df_items.columns]
-        
     except Exception as e:
         st.error(f"Failed to load master items: {e}")
         return
@@ -42,23 +67,20 @@ def render_inventory(conn, sheet, user, role, outlet, location):
         else:
             selected_location = st.selectbox("📍 Location", locations)
 
-    # Filter items for this client AND Outlet (to make sure La Siesta only sees La Siesta)
+    # Filter items for this client, outlet, and force 'Inventory' type
     df_client_items = df_items[df_items['client_name'] == selected_client].copy()
     if outlet.lower() != "all":
         df_client_items = df_client_items[df_client_items['outlet'] == outlet]
-    df_client_items = df_client_items[df_client_items['item_type'].astype(str).str.lower() == 'inventory']
+    
+    # Force only Raw Inventory (Hides Sushi/Menu Items)
+    if 'item_type' in df_client_items.columns:
+        df_client_items = df_client_items[df_client_items['item_type'].astype(str).str.lower() == 'inventory']
 
     if df_client_items.empty:
-        st.warning("No items found for this client and outlet.")
+        st.warning("No inventory items found for this location.")
         return
 
     st.divider()
-
-    # --- SESSION STATES ---
-    if 'mobile_counts' not in st.session_state:
-        st.session_state['mobile_counts'] = {}
-    if 'custom_items' not in st.session_state:
-        st.session_state['custom_items'] = []
 
     # --- 3. MISSING ITEM FEATURE ---
     with st.expander("➕ Missing an item? Add it manually here"):
@@ -68,37 +90,36 @@ def render_inventory(conn, sheet, user, role, outlet, location):
             cat_options = list(df_client_items['category'].dropna().unique())
             c_cat = st.selectbox("Category", cat_options, key="custom_cat")
         with col_grp:
-            # FIXED: 'sub_category'
             grp_options = list(df_client_items[df_client_items['category'] == c_cat]['sub_category'].dropna().unique())
             c_grp = st.selectbox("Sub Category", grp_options, key="custom_grp")
             
         col_qty, col_unit = st.columns(2)
         with col_qty:
-            c_qty = st.number_input("Quantity", min_value=0.0, key="custom_qty")
+            c_qty = st.number_input("Quantity", min_value=0.0, step=1.0, format="%g", key="custom_qty")
         with col_unit:
             c_unit = st.text_input("Unit (e.g., Can, Kg)")
             
         if st.button("Save Custom Item", use_container_width=True):
-            if c_name and c_qty >= 0:
-                st.session_state['custom_items'].append({
-                    "item_name": c_name.upper(),
-                    "category": c_cat,
-                    "sub_category": c_grp, # FIXED
-                    "quantity": c_qty,
-                    "count_unit": c_unit.title() if c_unit else "Pcs" # FIXED
-                })
-                st.success(f"Added {c_name} to session!")
+            if c_name and c_qty > 0:
+                fake_row = {
+                    "item_name": c_name.upper(), "category": c_cat, 
+                    "sub_category": c_grp, "count_unit": c_unit.title() if c_unit else "Pcs"
+                }
+                st.session_state['mobile_counts'][f"CUSTOM_{c_name}"] = {'row_data': fake_row, 'qty': c_qty}
+                st.success(f"Added {c_name} to cart!")
+                st.rerun()
 
     # --- 4. FILTERS & SEARCH ---
-    search_query = st.text_input("🔍 Search Item...", placeholder="e.g. Tomato...")
+    st.subheader("🔍 Filter & Count")
     c1, c2 = st.columns(2)
     with c1:
         categories = list(df_client_items['category'].dropna().unique())
         selected_category = st.selectbox("📂 Category", categories)
     with c2:
-        # FIXED: 'sub_category'
         groups = list(df_client_items[df_client_items['category'] == selected_category]['sub_category'].dropna().unique())
-        selected_group = st.selectbox("🏷️ Group", groups)
+        selected_group = st.selectbox("🏷️ Sub Category", groups)
+
+    search_query = st.text_input("Search", placeholder="🔍 Search item...", label_visibility="collapsed")
 
     df_display = df_client_items[
         (df_client_items['category'] == selected_category) & 
@@ -108,82 +129,100 @@ def render_inventory(conn, sheet, user, role, outlet, location):
     if search_query:
         df_display = df_display[df_display['item_name'].str.contains(search_query, case=False, na=False)]
 
-    # --- PROGRESS BADGES ---
+    # --- 🟢 LIVE PROGRESS BADGES ---
     total_items = len(df_display)
-    counted_items = sum(1 for item in df_display['item_name'] if st.session_state['mobile_counts'].get(item) is not None)
+    counted_in_view = sum(1 for item in df_display['item_name'] if item in st.session_state['mobile_counts'])
     
     st.markdown(f"""
         <div style='display: flex; justify-content: space-between; background-color: #1e1e1e; padding: 10px; border-radius: 10px; margin-bottom: 20px;'>
-            <span style='color: white;'>✅ {counted_items} Counted</span>
-            <span style='color: white;'>❌ {total_items - counted_items} Pending</span>
+            <span style='color: #00ff00;'>✅ {counted_in_view} Counted</span>
+            <span style='color: white;'>📝 {total_items} Total Items in {selected_group}</span>
         </div>
     """, unsafe_allow_html=True)
 
-    # --- 5. THE FORM ---
-    with st.form("mobile_inventory_form"):
-        if df_display.empty:
-            st.info("No items found.")
-        else:
-            for index, row in df_display.iterrows():
-                item_name = row['item_name']
-                is_counted = st.session_state['mobile_counts'].get(item_name) is not None
-                status_emoji = "🟢" if is_counted else "🔴"
-                
-                col_name, col_input = st.columns([6, 4])
-                with col_name:
-                    st.markdown(f"**{status_emoji} {item_name}**")
-                    # FIXED: 'count_unit'
-                    st.caption(f"Unit: {row.get('count_unit', 'pcs')}")
-                
-                with col_input:
-                    current_val = st.session_state['mobile_counts'].get(item_name)
-                    val = st.number_input(
-                        "Qty", 
-                        value=float(current_val) if current_val is not None else 0.0,
-                        min_value=0.0, 
-                        key=f"input_{row.get('id', index)}", # Safety check for ID
-                        label_visibility="collapsed"
-                    )
-                    if val > 0 or current_val is not None:
-                        st.session_state['mobile_counts'][item_name] = val
-        
-        submit_btn = st.form_submit_button("🚀 SUBMIT ALL COUNTS TO CLOUD", use_container_width=True)
-        
-        if submit_btn:
-            logs = []
-            # Standard Items
-            for i_name, qty in st.session_state['mobile_counts'].items():
-                item_info = df_client_items[df_client_items['item_name'] == i_name].iloc[0]
-                logs.append({
-                    "date": str(count_date),
-                    "client_name": selected_client,
-                    "outlet": outlet, # <-- Added this
-                    "location": selected_location,
-                    "counted_by": user,
-                    
-                    "item_name": i_name,
-                    "product_code": item_info.get('product_code', ''), # <-- Added this
-                    "item_type": item_info.get('item_type', ''),       # <-- Added this
-                    "category": item_info.get('category', ''),
-                    "sub_category": item_info.get('sub_category', ''),
-                    
-                    "quantity": float(qty),
-                    "count_unit": item_info.get('count_unit', 'pcs')
-                })
-            # Custom Items
-            for c in st.session_state['custom_items']:
-                logs.append({
-                    "client_name": selected_client, "date": str(count_date), "location": selected_location,
-                    "item_name": f"⚠️ {c['item_name']}", "category": c['category'], "sub_category": c['sub_category'], # FIXED
-                    "quantity": float(c['quantity']), "count_unit": c['count_unit'], "counted_by": user # FIXED
-                })
+    # --- 5. THE LIVE ENTRY LIST (No st.form!) ---
+    if df_display.empty:
+        st.info("No items found.")
+    else:
+        for index, row in df_display.iterrows():
+            item_name = row['item_name']
             
-            if logs:
-                try:
-                    supabase.table("inventory_logs").insert(logs).execute()
-                    st.success("✅ Saved to Cloud!")
-                    st.session_state['mobile_counts'] = {}
-                    st.session_state['custom_items'] = []
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error: {e}")
+            # Check if this item is in the cart
+            cart_data = st.session_state['mobile_counts'].get(item_name)
+            current_total = cart_data['qty'] if cart_data else 0.0
+            
+            with st.container(border=True):
+                # UI changes instantly based on if current_total > 0
+                if current_total > 0:
+                    st.markdown(f"🟢 **{item_name}** &nbsp;|&nbsp; ✅ Total: **{current_total}**")
+                else:
+                    st.markdown(f"🔴 **{item_name}** &nbsp;|&nbsp; 📦 {row.get('count_unit', 'pcs')}")
+                
+                col_add, col_btn = st.columns([3, 1], vertical_alignment="center")
+                input_key = f"inv_add_{row.get('id', index)}"
+                
+                with col_add:
+                    st.number_input(
+                        "+ Add Qty", 
+                        value=0.0, 
+                        min_value=0.0, 
+                        step=1.0, 
+                        format="%g", 
+                        key=input_key,
+                        on_change=add_inventory_qty,
+                        args=(item_name, row.to_dict(), input_key),
+                        label_visibility="collapsed",
+                        placeholder="Type amount and press Enter"
+                    )
+                with col_btn:
+                    if current_total > 0:
+                        if st.button("🗑️ Undo", key=f"undo_{row.get('id', index)}"):
+                            undo_inventory_count(item_name)
+                            st.rerun()
+
+    # --- 🛒 REVIEW & SUBMIT TO CLOUD ---
+    st.divider()
+    cart_size = len(st.session_state['mobile_counts'])
+    if cart_size > 0:
+        st.success(f"🛒 **{cart_size} items** ready to submit.")
+        with st.expander("👀 Review & Submit Count", expanded=True):
+            
+            # Show a history preview of everything entered so far
+            preview_list = []
+            for k, v in st.session_state['mobile_counts'].items():
+                preview_list.append({
+                    "Item": v['row_data'].get('item_name', k),
+                    "Total Counted": v['qty'],
+                    "Unit": v['row_data'].get('count_unit', '')
+                })
+            st.dataframe(pd.DataFrame(preview_list), use_container_width=True, hide_index=True)
+
+            if st.button("🚀 SUBMIT ALL COUNTS TO CLOUD", type="primary", use_container_width=True):
+                logs = []
+                for i_name, data in st.session_state['mobile_counts'].items():
+                    r_data = data['row_data']
+                    logs.append({
+                        "date": str(count_date),
+                        "client_name": selected_client,
+                        "outlet": outlet,
+                        "location": selected_location,
+                        "counted_by": user,
+                        
+                        "item_name": r_data.get('item_name', i_name),
+                        "product_code": r_data.get('product_code', ''),
+                        "item_type": r_data.get('item_type', ''),
+                        "category": r_data.get('category', ''),
+                        "sub_category": r_data.get('sub_category', ''),
+                        
+                        "quantity": float(data['qty']),
+                        "count_unit": r_data.get('count_unit', 'pcs')
+                    })
+                
+                if logs:
+                    try:
+                        supabase.table("inventory_logs").insert(logs).execute()
+                        st.success("✅ Saved to Cloud!")
+                        st.session_state['mobile_counts'] = {}
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
