@@ -46,6 +46,7 @@ def render_inventory(conn, sheet, user, role, outlet, location):
     df_client_items = df_items[df_items['client_name'] == selected_client].copy()
     if outlet.lower() != "all":
         df_client_items = df_client_items[df_client_items['outlet'] == outlet]
+    df_client_items = df_client_items[df_client_items['item_type'].astype(str).str.lower() == 'inventory']
 
     if df_client_items.empty:
         st.warning("No items found for this client and outlet.")
