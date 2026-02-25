@@ -42,10 +42,13 @@ def render_inventory(conn, sheet, user, role, outlet, location):
         else:
             selected_location = st.selectbox("📍 Location", locations)
 
-    # Filter items for this client
-    df_client_items = df_items[df_items['client_name'] == selected_client]
+    # Filter items for this client AND Outlet (to make sure La Siesta only sees La Siesta)
+    df_client_items = df_items[df_items['client_name'] == selected_client].copy()
+    if outlet.lower() != "all":
+        df_client_items = df_client_items[df_client_items['outlet'] == outlet]
+
     if df_client_items.empty:
-        st.warning("No items found for this client.")
+        st.warning("No items found for this client and outlet.")
         return
 
     st.divider()
@@ -64,8 +67,9 @@ def render_inventory(conn, sheet, user, role, outlet, location):
             cat_options = list(df_client_items['category'].dropna().unique())
             c_cat = st.selectbox("Category", cat_options, key="custom_cat")
         with col_grp:
-            grp_options = list(df_client_items[df_client_items['category'] == c_cat]['group'].dropna().unique())
-            c_grp = st.selectbox("Group", grp_options, key="custom_grp")
+            # FIXED: 'sub_category'
+            grp_options = list(df_client_items[df_client_items['category'] == c_cat]['sub_category'].dropna().unique())
+            c_grp = st.selectbox("Sub Category", grp_options, key="custom_grp")
             
         col_qty, col_unit = st.columns(2)
         with col_qty:
@@ -78,9 +82,9 @@ def render_inventory(conn, sheet, user, role, outlet, location):
                 st.session_state['custom_items'].append({
                     "item_name": c_name.upper(),
                     "category": c_cat,
-                    "group": c_grp,
+                    "sub_category": c_grp, # FIXED
                     "quantity": c_qty,
-                    "unit": c_unit.title() if c_unit else "Pcs"
+                    "count_unit": c_unit.title() if c_unit else "Pcs" # FIXED
                 })
                 st.success(f"Added {c_name} to session!")
 
@@ -91,12 +95,13 @@ def render_inventory(conn, sheet, user, role, outlet, location):
         categories = list(df_client_items['category'].dropna().unique())
         selected_category = st.selectbox("📂 Category", categories)
     with c2:
-        groups = list(df_client_items[df_client_items['category'] == selected_category]['group'].dropna().unique())
+        # FIXED: 'sub_category'
+        groups = list(df_client_items[df_client_items['category'] == selected_category]['sub_category'].dropna().unique())
         selected_group = st.selectbox("🏷️ Group", groups)
 
     df_display = df_client_items[
         (df_client_items['category'] == selected_category) & 
-        (df_client_items['group'] == selected_group)
+        (df_client_items['sub_category'] == selected_group)
     ].copy()
     
     if search_query:
@@ -126,7 +131,8 @@ def render_inventory(conn, sheet, user, role, outlet, location):
                 col_name, col_input = st.columns([6, 4])
                 with col_name:
                     st.markdown(f"**{status_emoji} {item_name}**")
-                    st.caption(f"Unit: {row.get('unit', 'pcs')}")
+                    # FIXED: 'count_unit'
+                    st.caption(f"Unit: {row.get('count_unit', 'pcs')}")
                 
                 with col_input:
                     current_val = st.session_state['mobile_counts'].get(item_name)
@@ -134,7 +140,7 @@ def render_inventory(conn, sheet, user, role, outlet, location):
                         "Qty", 
                         value=float(current_val) if current_val is not None else 0.0,
                         min_value=0.0, 
-                        key=f"input_{row['id']}",
+                        key=f"input_{row.get('id', index)}", # Safety check for ID
                         label_visibility="collapsed"
                     )
                     if val > 0 or current_val is not None:
@@ -148,22 +154,27 @@ def render_inventory(conn, sheet, user, role, outlet, location):
             for i_name, qty in st.session_state['mobile_counts'].items():
                 item_info = df_client_items[df_client_items['item_name'] == i_name].iloc[0]
                 logs.append({
-                    "client_name": selected_client,
                     "date": str(count_date),
+                    "client_name": selected_client,
+                    "outlet": outlet, # <-- Added this
                     "location": selected_location,
+                    "counted_by": user,
+                    
                     "item_name": i_name,
-                    "category": item_info['category'],
-                    "group": item_info['group'],
+                    "product_code": item_info.get('product_code', ''), # <-- Added this
+                    "item_type": item_info.get('item_type', ''),       # <-- Added this
+                    "category": item_info.get('category', ''),
+                    "sub_category": item_info.get('sub_category', ''),
+                    
                     "quantity": float(qty),
-                    "unit": item_info.get('unit', 'pcs'),
-                    "counted_by": user
+                    "count_unit": item_info.get('count_unit', 'pcs')
                 })
             # Custom Items
             for c in st.session_state['custom_items']:
                 logs.append({
                     "client_name": selected_client, "date": str(count_date), "location": selected_location,
-                    "item_name": f"⚠️ {c['item_name']}", "category": c['category'], "group": c['group'],
-                    "quantity": float(c['quantity']), "unit": c['unit'], "counted_by": user
+                    "item_name": f"⚠️ {c['item_name']}", "category": c['category'], "sub_category": c['sub_category'], # FIXED
+                    "quantity": float(c['quantity']), "count_unit": c['count_unit'], "counted_by": user # FIXED
                 })
             
             if logs:
