@@ -48,7 +48,7 @@ if 'logged_in' not in st.session_state:
     })
 
 # ==========================================
-# 🚀 MAIN APP ROUTING (LOGIN & SECURITY - SUPABASE UPGRADE)
+# 🚀 MAIN APP ROUTING (LOGIN & SECURITY)
 # ==========================================
 
 if not st.session_state.get('logged_in', False):
@@ -58,39 +58,38 @@ if not st.session_state.get('logged_in', False):
     """, unsafe_allow_html=True)
     
     with st.container(border=True):
-        u_input = st.text_input("Username").strip().lower()
-        p_input = st.text_input("Password", type="password").strip()
+        u_input = st.text_input("Username").strip()
+        p_input = st.text_input("Password", type="password").strip() # Added .strip() here too
         
         if st.button("Sign In", use_container_width=True):
             try:
-                # 1. Ask Supabase directly for the user
+                # Search Supabase for the user
                 response = supabase.table("users").select("*").eq("username", u_input).eq("password", p_input).execute()
                 
-                # 2. Check if we found a match
                 if len(response.data) > 0:
-                    match = response.data[0] # Grab the first matched row
+                    match = response.data[0] 
                     
-                    # Handle empty locations/outlets cleanly
+                    # 1. Clean up Outlet and Location
                     assigned_out = str(match.get('outlet', 'All')).strip() if match.get('outlet') else "All"
                     assigned_loc = str(match.get('location', 'All')).strip() if match.get('location') else "All"
 
-                    # 3. Save the exact same variables your old app expects
+                    # 2. Save EVERYTHING to Session State
                     st.session_state.update({
                         'logged_in': True,
                         'user': match.get('username', u_input),
-                        'role': str(match.get('role', '')).lower().strip(),
+                        'role': str(match.get('role', 'staff')).lower().strip(),
                         'module': match.get('module', 'All'), 
                         'link': match.get('client_sheet_link', ''), 
                         'assigned_outlet': assigned_out,
                         'assigned_location': assigned_loc,
-                        'client_name': match.get('client_name', 'All'), # <--- ADD THIS LINE
+                        'client_name': match.get('client_name', 'All'), # This is the key!
                         'current_page': 'home'
                     })
                     st.rerun()
                 else:
-                    st.error("Invalid Username or Password")
+                    st.error("❌ Invalid Username or Password")
             except Exception as e:
-                st.exception(e)
+                st.error(f"Login Error: {e}")
 
 else:
     # --- SIDEBAR & USER INFO ---
