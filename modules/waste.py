@@ -142,17 +142,6 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
                 filtered_df = filtered_df[filtered_df['category'] == cat_filter]
             if grp_filter != "All":
                 filtered_df = filtered_df[filtered_df['sub_category'] == grp_filter]
-        # --- THE SMART FILTERING LOGIC ---
-        if search_query:
-            filtered_df = df_outlet_items[df_outlet_items['item_name'].str.contains(search_query, case=False, na=False)]
-        else:
-            filtered_df = df_outlet_items.copy()
-            if type_filter != "All":
-                filtered_df = filtered_df[filtered_df['item_type'] == type_filter]
-            if cat_filter != "All":
-                filtered_df = filtered_df[filtered_df['category'] == cat_filter]
-            if grp_filter != "All":
-                filtered_df = filtered_df[filtered_df['sub_category'] == grp_filter]
 
         # --- 🚨 HISTORY ALERT ---
         today_str = waste_date.strftime("%Y-%m-%d")
