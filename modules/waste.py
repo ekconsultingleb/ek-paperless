@@ -92,45 +92,34 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
 
         st.divider()
 
-            # --- MAIN PAGE FILTERS (BULLETPROOF VERSION) ---
+        # --- MAIN PAGE FILTERS (CLEANED) ---
         st.subheader("🔍 Find Items to Log")
         
-        # 1. Force Outlet match to be Case-Insensitive
-        df_outlet_items = df_master[df_master['outlet'].get(df_master['outlet'].str.lower() == outlet_filter.lower(), df_master['outlet'] == outlet_filter)].copy()
+        # Filter by Outlet (Case-Insensitive)
+        df_outlet_items = df_master[df_master['outlet'].astype(str).str.lower() == outlet_filter.lower()].copy()
 
-        search_query = st.text_input("🔍 Quick Search", placeholder="Search any item...")
+        search_query = st.text_input("🔍 Quick Search", placeholder="Search any item (e.g. Arak, Burger)...")
 
+        # Simplified to 2 columns: Category and Sub-Category
         col_cat, col_grp = st.columns(2)
         
         with col_cat:
-            # We force all categories to UPPERCASE so 'Food' and 'food' merge into one 'FOOD'
-            cats = sorted(list(df_outlet_items['category'].dropna().astype(str).str.upper().unique()))
-            cat_options = ["ALL"] + cats
-            # We default to index 0 (ALL) to make sure we see everything first
+            cats = sorted(list(df_outlet_items['category'].dropna().astype(str).unique()))
+            cat_options = ["All"] + cats
+            # Default to "All" so we see EVERYTHING (Inventory + Menu) immediately
             cat_filter = st.selectbox("📂 Category", cat_options, index=0)
             
         with col_grp:
-            # Filter the dataframe based on the selected Category (Case-Insensitive)
-            if cat_filter == "ALL":
+            if cat_filter == "All":
                 df_grp_list = df_outlet_items
             else:
-                df_grp_list = df_outlet_items[df_outlet_items['category'].astype(str).str.upper() == cat_filter]
+                df_grp_list = df_outlet_items[df_outlet_items['category'] == cat_filter]
             
-            grps = sorted(list(df_grp_list['sub_category'].dropna().astype(str).str.upper().unique()))
-            grp_options = ["ALL"] + grps
+            grps = sorted(list(df_grp_list['sub_category'].dropna().astype(str).unique()))
+            grp_options = ["All"] + grps
             grp_filter = st.selectbox("🏷️ Sub Category", grp_options, index=0)
 
-        # --- THE FINAL FILTERING LOGIC ---
-        if search_query:
-            filtered_df = df_outlet_items[df_outlet_items['item_name'].str.contains(search_query, case=False, na=False)]
-        else:
-            filtered_df = df_outlet_items.copy()
-            if cat_filter != "ALL":
-                filtered_df = filtered_df[filtered_df['category'].astype(str).str.upper() == cat_filter]
-            if grp_filter != "ALL":
-                filtered_df = filtered_df[filtered_df['sub_category'].astype(str).str.upper() == grp_filter]
-
-        # --- THE SMART FILTERING LOGIC ---
+        # --- THE FINAL FILTERING LOGIC (ONE SINGLE BLOCK) ---
         if search_query:
             # Search override
             filtered_df = df_outlet_items[df_outlet_items['item_name'].str.contains(search_query, case=False, na=False)]
