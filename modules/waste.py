@@ -22,6 +22,7 @@ def add_waste_entry(dict_key, row_dict, qty_key, rem_key):
                 'remark': ""
             }
         
+        # Cumulative math so entries don't overwrite each other
         st.session_state['waste_notepad'][dict_key]['qty'] += added_qty
         
         current_rem = st.session_state['waste_notepad'][dict_key]['remark']
@@ -31,7 +32,7 @@ def add_waste_entry(dict_key, row_dict, qty_key, rem_key):
             else:
                 st.session_state['waste_notepad'][dict_key]['remark'] = added_rem.strip()
                 
-        # Reset local item inputs
+        # Reset local inputs after adding
         st.session_state[qty_key] = 0.0
         st.session_state[rem_key] = ""
 
@@ -48,14 +49,11 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
 
     try:
         # ==========================================
-        # 1. FETCH ARCHIVED LOGS (For Viewer Mode)
+        # 1. VIEW MODE (KHALDOUN)
         # ==========================================
         archive_res = supabase.table("waste_logs").select("*").order("date", desc=True).limit(100).execute()
         df_archive = pd.DataFrame(archive_res.data)
 
-        # ==========================================
-        # 👁️ VIEWER MODE (KHALDOUN'S VIEW)
-        # ==========================================
         if role == "viewer":
             st.info("👁️ Viewer Mode: Showing Daily Waste Logs")
             if not df_archive.empty:
@@ -65,19 +63,17 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
             return
 
         # ==========================================
-        # 📝 ENTRY MODE (SAMI'S VIEW)
+        # 2. ENTRY MODE (SAMI)
         # ==========================================
         
-        # 1. FETCH OUTLETS FOR SIDEBAR
+        # Sidebar setup
         nav_res = supabase.table("master_items").select("outlet, client_name").execute()
         df_nav = pd.DataFrame(nav_res.data)
-        client_list = sorted(df_nav['client_name'].dropna().unique())
-        client_filter = st.sidebar.selectbox("🏢 Client", client_list)
-        
+        client_filter = st.sidebar.selectbox("🏢 Client", sorted(df_nav['client_name'].dropna().unique()))
         outlet_options = sorted(df_nav[df_nav['client_name'] == client_filter]['outlet'].dropna().unique())
         final_outlet = assigned_outlet if assigned_outlet.lower() != 'all' else st.sidebar.selectbox("🏠 Outlet", outlet_options)
 
-        # 2. MEGA-FETCH LOOP (PAGINATION) - Gets Menu Items past Row 1,000
+        # MEGA-FETCH LOOP: Bypasses 1,000 row limit to find Menu Items at row 2000+
         all_items = []
         page_size, start_row = 1000, 0
         while True:
@@ -90,19 +86,17 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
         df_items = pd.DataFrame(all_items)
         df_items.columns = [c.lower() for c in df_items.columns]
         
-        # Sidebar Filters
         db_locs = sorted(df_items['location'].dropna().astype(str).str.upper().unique())
         loc_filter = st.sidebar.selectbox("📍 Location", [assigned_location.upper()] if assigned_location.lower() != 'all' else db_locs)
         
-        # Declaration Type
         declaration = st.radio("Type", ["🗑️ Daily Waste", "🍽️ Staff Meal", "🎉 Event"], horizontal=True, label_visibility="collapsed")
         waste_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")))
 
         st.divider()
 
-        # 3. SEARCH & CATEGORY FILTERS
+        # 3. FILTERS (Search-First approach to keep UI fast)
         st.subheader("🔍 Find Items")
-        search_q = st.text_input("🔍 Search Inventory or Menu Items...", placeholder="e.g. Burger, Arak...")
+        search_q = st.text_input("🔍 Quick Search", placeholder="Find items...")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -110,8 +104,7 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
             cat_filter = st.selectbox("📂 Category", ["None"] + cats, index=0)
         with col2:
             df_temp = df_items if cat_filter == "None" else df_items[df_items['category'] == cat_filter]
-            sub_cats = sorted(df_temp['sub_category'].dropna().unique())
-            sub_filter = st.selectbox("🏷️ Sub Category", ["All"] + sub_cats)
+            sub_filter = st.selectbox("🏷️ Sub Category", ["All"] + sorted(df_temp['sub_category'].dropna().unique()))
 
         # 4. FILTERING LOGIC
         if search_q:
@@ -122,26 +115,34 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
         else:
             filtered_df = pd.DataFrame() 
 
-        # 5. RENDER LIST (LIVE STATUS & UNIT FIX)
+        # 5. RENDER CARDS (Traffic Light Logic: Grey -> Orange -> Green)
         st.info(f"📊 System Status: Loaded {len(df_items)} items for {final_outlet}.")
         
         if not filtered_df.empty:
             for idx, row in filtered_df.head(60).iterrows():
                 item_name = row['item_name']
-                unit = row.get('count_unit')
-                if not unit or str(unit).lower() == 'none' or str(unit).strip() == "":
-                    unit = "Unit"
+                unit = row.get('count_unit', 'Unit')
+                if not unit or str(unit).lower() == 'none': unit = "Unit"
                 
                 dict_key = f"{final_outlet}_{loc_filter}_{item_name}"
+                qty_key, rem_key = f"q_{idx}", f"r_{idx}"
+                
+                # Check status
                 cart = st.session_state['waste_notepad'].get(dict_key)
                 current_total = cart['qty'] if cart else 0.0
+                live_input_val = st.session_state.get(qty_key, 0.0)
 
                 with st.container(border=True):
                     c_t, c_u = st.columns([8, 2])
                     with c_t:
                         if current_total > 0:
-                            st.markdown(f"🟢 **{item_name}** | ✅ **Total Added: {current_total} {unit}**")
+                            # 🟢 GREEN: Item is logged in the notepad
+                            st.markdown(f"🟢 **{item_name}** | ✅ **Total: {current_total} {unit}**")
+                        elif live_input_val > 0:
+                            # 🟠 ORANGE: User typed a number but didn't click Add yet
+                            st.markdown(f"🟠 **{item_name}** | ⚠️ *Ready to add {live_input_val} {unit}...*")
                         else:
+                            # ⚪ GREY: Neutral state
                             st.markdown(f"⚪ **{item_name}** | {unit}")
                     
                     if current_total > 0 and c_u.button("🗑️ Undo", key=f"un_{idx}"):
@@ -149,22 +150,28 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
                         st.rerun()
 
                     cq, cr, cb = st.columns([2, 5, 3], vertical_alignment="bottom")
-                    q_key, r_key = f"q_{idx}", f"r_{idx}"
                     cq.number_input("Qty", 0.0, step=1.0, key=qty_key)
                     cr.text_input("Remark", key=rem_key, placeholder="Reason...")
-                    cb.button("➕ Add", key=f"b_{idx}", on_click=add_waste_entry, args=(dict_key, row.to_dict(), q_key, r_key), type="primary", use_container_width=True)
+                    
+                    # Add button becomes Primary (blue) when Orange light is on
+                    cb.button("➕ Add", key=f"b_{idx}", on_click=add_waste_entry, 
+                              args=(dict_key, row.to_dict(), qty_key, rem_key), 
+                              type="primary" if live_input_val > 0 else "secondary", 
+                              use_container_width=True)
 
         elif not search_q and cat_filter == "None":
             st.warning("👆 Please use the search bar or select a category to see items.")
 
-        # 6. SUBMIT (SYNCED WITH 'qty' COLUMN IN DB)
+        # 6. SUBMIT (Synced with 'qty' column and 'text' unit type)
         st.divider()
         if st.session_state['waste_notepad']:
-            st.success(f"🛒 {len(st.session_state['waste_notepad'])} items in ticket.")
             if st.button("🚀 SUBMIT WASTE TICKET", type="primary", use_container_width=True):
                 submission_data = []
                 for k, v in st.session_state['waste_notepad'].items():
                     r = v['row_data']
+                    item_unit_val = str(r.get('count_unit', 'Unit'))
+                    if item_unit_val.lower() == 'none': item_unit_val = "Unit"
+
                     submission_data.append({
                         "date": str(waste_date),
                         "client_name": client_filter,
@@ -174,8 +181,8 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
                         "product_code": str(r.get('product_code', '')),
                         "category": r.get('category'),
                         "sub_category": r.get('sub_category'),
-                        "qty": float(v['qty']), # MATCHES NEW COLUMN NAME
-                        "count_unit": r.get('count_unit') if r.get('count_unit') and str(r.get('count_unit')).lower() != 'none' else "Unit",
+                        "qty": float(v['qty']), 
+                        "count_unit": item_unit_val, # Ensure this is Text in Supabase
                         "remarks": v['remark'],
                         "reported_by": user,
                         "status": "Submitted"
