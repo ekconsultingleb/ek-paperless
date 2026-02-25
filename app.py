@@ -1,6 +1,7 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
+from supabase import create_client, Client  # <-- Add this right here!
 
 # --- IMPORT YOUR NEW MODULES ---
 from modules.dashboard import render_dashboard
@@ -9,13 +10,24 @@ from modules.inventory import render_inventory
 from modules.waste import render_waste
 from modules.transfers import render_transfers
 
+# --- INITIALIZE SUPABASE ---
+@st.cache_resource
+def init_supabase():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase: Client = init_supabase()
+
 # --- CONFIGURATION ---
 MASTER_HUB_URL = "https://docs.google.com/spreadsheets/d/1Bwk2UYwtLrg5bOzAbzF834aIlnCPBVYU4hAiaW26Fec"
 
 st.set_page_config(page_title="EK Consulting Portal", layout="wide")
+
 # --- BRANDING & LOGO ---
 st.sidebar.image("EK-Logo.png", use_container_width=True)
 st.sidebar.divider()
+st.sidebar.success("✅ Supabase is LIVE!") # Quick test!
 custom_css = """
             <style>
             .block-container { padding-top: 2rem !important; padding-bottom: 1rem !important; }
@@ -36,45 +48,42 @@ if 'logged_in' not in st.session_state:
     })
 
 # ==========================================
-# 🚀 MAIN APP ROUTING (LOGIN & SECURITY)
+# 🚀 MAIN APP ROUTING (LOGIN & SECURITY - SUPABASE UPGRADE)
 # ==========================================
 
-if not st.session_state['logged_in']:
+if not st.session_state.get('logged_in', False):
     st.markdown("""
         <h1 style='text-align: center; margin-bottom: 0;'> EK Consulting</h1>
         <p style='text-align: center; color: gray; font-size: 18px; margin-top: 0;'>Partner Portal</p>
     """, unsafe_allow_html=True)
+    
     with st.container(border=True):
         u_input = st.text_input("Username").strip().lower()
         p_input = st.text_input("Password", type="password").strip()
         
         if st.button("Sign In", use_container_width=True):
             try:
-                users_df = conn.read(spreadsheet=MASTER_HUB_URL, worksheet="users", ttl=600)
-                users_df.columns = [str(c).strip().lower() for c in users_df.columns]
-                users_df['username'] = users_df['username'].astype(str).str.strip().str.lower()
-                users_df['password'] = users_df['password'].astype(str).str.strip()
-
-                match = users_df[(users_df['username'] == u_input) & (users_df['password'] == p_input)]
+                # 1. Ask Supabase directly for the user
+                response = supabase.table("users").select("*").eq("username", u_input).eq("password", p_input).execute()
                 
-                if not match.empty:
-                    # Capture assigned Outlet and Location from the Master Hub
-                    assigned_out = "All"
-                    if 'assigned_outlet' in match.columns and pd.notna(match.iloc[0]['assigned_outlet']):
-                        assigned_out = str(match.iloc[0]['assigned_outlet']).strip()
-                        
-                    assigned_loc = "All"
-                    if 'assigned_location' in match.columns and pd.notna(match.iloc[0]['assigned_location']):
-                        assigned_loc = str(match.iloc[0]['assigned_location']).strip()
+                # 2. Check if we found a match
+                if len(response.data) > 0:
+                    match = response.data[0] # Grab the first matched row
+                    
+                    # Handle empty locations/outlets cleanly
+                    assigned_out = str(match.get('outlet', 'All')).strip() if match.get('outlet') else "All"
+                    assigned_loc = str(match.get('location', 'All')).strip() if match.get('location') else "All"
 
+                    # 3. Save the exact same variables your old app expects
                     st.session_state.update({
                         'logged_in': True,
-                        'user': u_input,
-                        'role': str(match.iloc[0]['role']).lower().strip(),
-                        'module': match.iloc[0]['module'],
-                        'link': match.iloc[0]['client_sheet_link'],
+                        'user': match.get('username', u_input),
+                        'role': str(match.get('role', '')).lower().strip(),
+                        'module': match.get('module', 'All'), 
+                        'link': match.get('client_sheet_link', ''), 
                         'assigned_outlet': assigned_out,
                         'assigned_location': assigned_loc,
+                        'client_name': match.get('client_name', 'All'), # <--- ADD THIS LINE
                         'current_page': 'home'
                     })
                     st.rerun()
