@@ -142,7 +142,7 @@ else:
             <style>
             /* Force the button and its container to accept the new height */
             div[data-testid="stButton"] > button {
-                height: 50px !important;
+                height: 100px !important;
                 width: 100% !important;
                 border-radius: 15px !important;
                 border: 2px solid rgba(255,255,255,0.2) !important;
