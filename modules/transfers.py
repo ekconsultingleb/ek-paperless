@@ -10,7 +10,6 @@ from supabase import create_client, Client
 def get_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
-# ---> THE UPGRADED RENDER FUNCTION <---
 def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_outlet, assigned_location):
     st.markdown("### 🔄 Transfers & Requisitions")
     supabase = get_supabase()
@@ -30,11 +29,8 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
             if len(date_range) == 2:
                 start_date, end_date = date_range
                 
-                # Note: Assuming your 'date' column in transfers table stores strings like "YYYY-MM-DD HH:MM"
                 query = supabase.table("transfers").select("*").gte("date", f"{start_date} 00:00").lte("date", f"{end_date} 23:59")
-                
-                # In transfers, we check if either the 'to_outlet' or 'from_outlet' belongs to this client (though right now you don't track client_name in transfers. We will filter by the outlets belonging to the assigned client)
-                res_archive = query.order("date", desc=True).limit(1000).execute()
+                res_archive = query.order("date", desc=True).limit(2000).execute()
                 df_archive = pd.DataFrame(res_archive.data)
 
                 if not df_archive.empty:
@@ -48,31 +44,46 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
         # ==========================================
         # 2. SMART ROUTING & CLEAN SIDEBAR
         # ==========================================
-        # Load master items to get dynamic outlets and locations
-        res_inv = supabase.table("master_items").select("client_name, outlet, location, item_name, count_unit").execute()
-        df_inv = pd.DataFrame(res_inv.data)
-        
-        if not df_inv.empty:
-            df_inv['client_name'] = df_inv['client_name'].astype(str).str.strip().str.title()
-            df_inv['outlet'] = df_inv['outlet'].astype(str).str.strip().str.title()
-            df_inv['location'] = df_inv['location'].astype(str).str.strip().str.title()
-            
         clean_client = str(assigned_client).strip().title()
         clean_outlet = str(assigned_outlet).strip().title()
 
         st.sidebar.markdown("### 📍 Location Details")
 
+        # A. Determine Client
         if clean_client.lower() != 'all':
             final_client = clean_client
             st.sidebar.markdown(f"**🏢 Branch:** {final_client}")
         else:
-            c_list = sorted(df_inv['client_name'].unique()) if not df_inv.empty else ["All"]
+            # For Admins: Fetch a quick list of unique clients
+            nav_res = supabase.table("master_items").select("client_name").limit(5000).execute()
+            df_nav = pd.DataFrame(nav_res.data)
+            c_list = sorted(df_nav['client_name'].dropna().astype(str).str.strip().str.title().unique()) if not df_nav.empty else ["All"]
             final_client = st.sidebar.selectbox("🏢 Select Branch", c_list)
 
-        if not df_inv.empty:
-            outlets_for_client = sorted(df_inv[df_inv['client_name'] == final_client]['outlet'].unique())
+        # ==========================================
+        # 3. MEGA-FETCH FOR MASTER ITEMS
+        # ==========================================
+        # Safely pull ALL items for this specific client, bypassing the 1000-row limit
+        all_items = []
+        page_size, start_row = 1000, 0
+        
+        while True:
+            res = supabase.table("master_items").select("client_name, outlet, location, item_name, count_unit").ilike("client_name", f"%{final_client}%").range(start_row, start_row + page_size - 1).execute()
+            if not res.data: break
+            all_items.extend(res.data)
+            if len(res.data) < page_size: break
+            start_row += page_size
+
+        if not all_items:
+            df_inv = pd.DataFrame(columns=['client_name', 'outlet', 'location', 'item_name', 'count_unit'])
         else:
-            outlets_for_client = []
+            df_inv = pd.DataFrame(all_items)
+            df_inv['client_name'] = df_inv['client_name'].astype(str).str.strip().str.title()
+            df_inv['outlet'] = df_inv['outlet'].astype(str).str.strip().str.title()
+            df_inv['location'] = df_inv['location'].astype(str).str.strip().str.title()
+
+        # B. Determine Outlet
+        outlets_for_client = sorted(df_inv['outlet'].unique()) if not df_inv.empty else []
 
         if clean_outlet.lower() != 'all':
             final_outlet = clean_outlet
@@ -83,8 +94,8 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
             else:
                 st.sidebar.warning(f"No outlets found for branch '{final_client}'")
                 final_outlet = "None"
-                
-        # Handle multiple locations for the active user
+
+        # C. Determine Location
         db_locs = sorted(list(df_inv[df_inv['outlet'] == final_outlet]['location'].dropna().unique())) if final_outlet != "None" else []
         raw_loc = str(assigned_location).strip()
 
@@ -97,7 +108,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
             st.sidebar.markdown(f"**📍 Location(s):** {', '.join(active_locations)}")
 
         # ==========================================
-        # 3. LOAD ACTIVE TRANSFERS
+        # 4. LOAD ACTIVE TRANSFERS
         # ==========================================
         res_transfers = supabase.table("transfers").select("*").execute()
         df_transfers = pd.DataFrame(res_transfers.data)
@@ -113,7 +124,6 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
         # Determine if this user is allowed to dispatch (send items OUT)
         can_dispatch = (raw_loc.lower() == 'all' or any('warehouse' in loc for loc in user_locs_lower))
 
-        # Determine pending and incoming logic based on the user's active locations
         if can_dispatch:
             my_pending = df_transfers[(df_transfers['status'] == 'Pending') & (df_transfers['from_outlet'].str.title() == final_outlet)]
             my_incoming = df_transfers[(df_transfers['status'] == 'In Transit') & (df_transfers['to_outlet'].str.title() == final_outlet)]
@@ -146,20 +156,23 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
             else:
                 col_o1, col_o2 = st.columns(2)
                 with col_o1:
-                    # In a multi-tenant setup, you usually only request FROM your own branch's outlets
                     from_outlet = st.selectbox("Request From (Outlet)", outlets_for_client, key="t_from_out")
                 with col_o2:
                     to_outlet = st.selectbox("Request For (Outlet)", [final_outlet], disabled=True, key="t_to_out")
                 
-                # Dynamic Locations based on the selected Outlets
-                from_loc_options = sorted(list(df_inv[df_inv['outlet'] == from_outlet]['location'].dropna().unique())) if not df_inv.empty else ["Main Store"]
+                # STRICT FILTERING: Only look at items for THIS client and THIS outlet
+                df_local_items = df_inv[(df_inv['client_name'] == final_client) & (df_inv['outlet'] == from_outlet)] if not df_inv.empty else pd.DataFrame()
+
+                from_loc_options = sorted(list(df_local_items['location'].dropna().unique())) if not df_local_items.empty else ["Main Store"]
                 
                 col_l1, col_l2 = st.columns(2)
                 with col_l1:
                     from_location = st.selectbox("From Location", from_loc_options if from_loc_options else ["Main Store"], key="t_from_loc")
                 with col_l2:
                     if raw_loc.lower() == 'all':
-                        to_loc_options = sorted(list(df_inv[df_inv['outlet'] == to_outlet]['location'].dropna().unique())) if not df_inv.empty else ["Main Store"]
+                        df_to_items = df_inv[(df_inv['client_name'] == final_client) & (df_inv['outlet'] == to_outlet)] if not df_inv.empty else pd.DataFrame()
+                        to_loc_options = sorted(list(df_to_items['location'].dropna().unique())) if not df_to_items.empty else ["Main Store"]
+                        
                         filtered_to_locs = [l for l in to_loc_options if l != from_location]
                         to_location = st.selectbox("To Location", filtered_to_locs if filtered_to_locs else to_loc_options, key="t_to_loc")
                     else:
@@ -178,10 +191,8 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                                     "date": datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).strftime("%Y-%m-%d %H:%M"),
                                     "status": "Pending",
                                     "requester": user,
-                                    "from_outlet": from_outlet,
-                                    "from_location": from_location,
-                                    "to_outlet": to_outlet,
-                                    "to_location": to_location,
+                                    "from_outlet": from_outlet, "from_location": from_location,
+                                    "to_outlet": to_outlet, "to_location": to_location,
                                     "request_type": "Text Note",
                                     "details": text_request,
                                     "action_by": ""
@@ -194,15 +205,15 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                     search_q = st.text_input("🔍 Search Item...", placeholder="e.g. Almaza", label_visibility="collapsed")
                     with st.form("item_req_form", clear_on_submit=True):
                         req_quants = {}
-                        if search_q and not df_inv.empty:
-                            filtered_items = df_inv[df_inv['item_name'].str.contains(search_q, case=False, na=False)].head(15)
+                        if search_q and not df_local_items.empty:
+                            filtered_items = df_local_items[df_local_items['item_name'].str.contains(search_q, case=False, na=False)].head(15)
                             for idx, row in filtered_items.iterrows():
                                 c1, c2 = st.columns([3, 1])
                                 c1.markdown(f"**{row['item_name']}** ({row.get('count_unit', 'pcs')})")
                                 req_quants[idx] = c2.number_input("Qty", value=0.0, min_value=0.0, step=1.0, key=f"q_{idx}", label_visibility="collapsed")
                         
                         if st.form_submit_button("🚀 Send Itemized Request", type="primary", use_container_width=True):
-                            details_list = [f"{qty}x {df_inv.loc[i, 'item_name']}" for i, qty in req_quants.items() if qty > 0]
+                            details_list = [f"{qty}x {df_local_items.loc[i, 'item_name']}" for i, qty in req_quants.items() if qty > 0]
                             if details_list:
                                 new_req = {
                                     "transfer_id": str(uuid.uuid4())[:8],
