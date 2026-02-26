@@ -37,7 +37,7 @@ def undo_waste_entry(dict_key):
     if dict_key in st.session_state['waste_notepad']:
         del st.session_state['waste_notepad'][dict_key]
 
-# ---> THE SANITIZED RENDER FUNCTION <---
+# ---> THE CLEAN UI RENDER FUNCTION <---
 def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet, assigned_location):
     st.markdown("### 🗑️ Daily Waste & Events")
     supabase = get_supabase()
@@ -65,12 +65,12 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             return
 
         # ==========================================
-        # 2. SMART ROUTING & DATA SANITIZER
+        # 2. SMART ROUTING & CLEAN SIDEBAR
         # ==========================================
         nav_res = supabase.table("master_items").select("outlet, client_name").execute()
         df_nav = pd.DataFrame(nav_res.data)
         
-        # 🚨 THE SANITIZER: Forces everything to Title Case and removes spaces so matching is perfect
+        # Sanitizer
         if not df_nav.empty:
             df_nav['client_name'] = df_nav['client_name'].astype(str).str.strip().str.title()
             df_nav['outlet'] = df_nav['outlet'].astype(str).str.strip().str.title()
@@ -78,15 +78,15 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         clean_client = str(assigned_client).strip().title()
         clean_outlet = str(assigned_outlet).strip().title()
 
-        st.sidebar.markdown("### 📍 Routing Profile")
+        st.sidebar.markdown("### 📍 Location Details")
 
-        # --- A. CLIENT ROUTING ---
+        # --- A. BRANCH ROUTING (Formerly Client) ---
         if clean_client.lower() != 'all':
             final_client = clean_client
-            st.sidebar.info(f"🏢 Client: **{final_client}**")
+            st.sidebar.markdown(f"**🏢 Branch:** {final_client}")
         else:
             c_list = sorted(df_nav['client_name'].unique()) if not df_nav.empty else ["All"]
-            final_client = st.sidebar.selectbox("🏢 Select Client", c_list)
+            final_client = st.sidebar.selectbox("🏢 Select Branch", c_list)
 
         # --- B. OUTLET ROUTING ---
         if not df_nav.empty:
@@ -96,23 +96,22 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
 
         if clean_outlet.lower() != 'all':
             final_outlet = clean_outlet
-            st.sidebar.info(f"🏠 Outlet: **{final_outlet}**")
+            st.sidebar.markdown(f"**🏠 Outlet:** {final_outlet}")
         else:
             if outlets_for_client:
                 final_outlet = st.sidebar.selectbox("🏠 Select Outlet", outlets_for_client)
             else:
-                st.sidebar.warning(f"No outlets found for client '{final_client}'")
+                st.sidebar.warning(f"No outlets found for branch '{final_client}'")
                 final_outlet = "None"
 
         # ==========================================
-        # 3. MEGA-FETCH LOOP (WILDCARD PROTECTED)
+        # 3. MEGA-FETCH LOOP
         # ==========================================
         all_items = []
         page_size, start_row = 1000, 0
         
         if final_outlet != "None":
             while True:
-                # WILDCARD SEARCH: Ignores exact casing in Supabase
                 res = supabase.table("master_items").select("*").ilike("outlet", f"%{final_outlet}%").range(start_row, start_row + page_size - 1).execute()
                 if not res.data: break
                 all_items.extend(res.data)
@@ -120,9 +119,8 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                 start_row += page_size
 
         if not all_items:
-            # 🚨 CRASH PREVENTER
             df_items = pd.DataFrame(columns=['item_name', 'category', 'sub_category', 'count_unit', 'location', 'product_code'])
-            st.error(f"⚠️ No master items found for outlet '{final_outlet}'. Please check your master_items table.")
+            st.error(f"⚠️ No master items found for outlet '{final_outlet}'.")
         else:
             df_items = pd.DataFrame(all_items)
             df_items.columns = [str(c).strip().lower() for c in df_items.columns]
@@ -135,7 +133,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
 
         if clean_loc.lower() != 'all':
             loc_filter = clean_loc
-            st.sidebar.info(f"📍 Location: **{loc_filter}**")
+            st.sidebar.markdown(f"**📍 Location:** {loc_filter}")
         else:
             loc_options = ["All"] + db_locs if db_locs else ["All"]
             loc_filter = st.sidebar.selectbox("📍 Select Location", loc_options)
@@ -146,7 +144,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         st.divider()
 
         # ==========================================
-        # 4. FILTERS (Search First)
+        # 4. FILTERS
         # ==========================================
         st.subheader("🔍 Find Items")
         search_q = st.text_input("🔍 Quick Search", placeholder="Find items...")
@@ -168,7 +166,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             filtered_df = pd.DataFrame() 
 
         # ==========================================
-        # 5. RENDER CARDS (Traffic Light Logic)
+        # 5. RENDER CARDS
         # ==========================================
         st.info(f"📊 System Status: Loaded {len(df_items)} items for {final_outlet}.")
         
@@ -224,7 +222,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
 
                     submission_data.append({
                         "date": str(waste_date),
-                        "client_name": final_client,
+                        "client_name": final_client,  # Even though we call it Branch in UI, DB uses client_name
                         "outlet": final_outlet,
                         "location": loc_filter,
                         "item_name": r['item_name'],
