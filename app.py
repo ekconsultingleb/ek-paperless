@@ -195,7 +195,7 @@ else:
 
         # Route to the correct file
         if st.session_state['current_page'] == 'dashboard':
-            render_dashboard(conn, sheet, user, roler, client, outlet, location)
+            render_dashboard(conn, sheet, user, role, client, outlet, location)
             
         elif st.session_state['current_page'] == 'cash':
             render_daily_cash(conn, sheet, outlet,user,role,outlet,location)
