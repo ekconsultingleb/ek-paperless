@@ -5,7 +5,7 @@ from supabase import create_client, Client  # <-- Add this right here!
 
 # --- IMPORT YOUR NEW MODULES ---
 from modules.dashboard import render_dashboard
-from modules.daily_cash import render_daily_cash
+from modules.daily_cash import render_cash
 from modules.inventory import render_inventory
 from modules.waste import render_waste
 from modules.transfers import render_transfers
@@ -120,7 +120,7 @@ else:
     raw_modules = str(st.session_state.get('module', '')).lower().strip()
     
     if raw_modules == "all_modules" or role == "admin":
-        allowed_modules = ["dashboard", "daily_cash", "inventory", "waste", "transfers"]
+        allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers"]
     else:
         allowed_modules = [m.strip() for m in raw_modules.split(",") if m.strip()]
 
@@ -157,12 +157,12 @@ else:
                     st.session_state['current_page'] = 'transfers'
                     st.rerun()
 
-        if "daily_cash" in allowed_modules:
+        if "cash" in allowed_modules:
             st.write("")
             col_e, _, _, _ = st.columns(4)
             with col_e:
                 if st.button("🏦 Daily Cash", use_container_width=True):
-                    st.session_state['current_page'] = 'daily_cash'
+                    st.session_state['current_page'] = 'cash'
                     st.rerun()
 
         # 👑 ADMIN ONLY: MASTER HUB LINKS
@@ -197,8 +197,8 @@ else:
         if st.session_state['current_page'] == 'dashboard':
             render_dashboard(conn, sheet, outlet)
             
-        elif st.session_state['current_page'] == 'daily_cash':
-            render_daily_cash(conn, sheet, outlet)
+        elif st.session_state['current_page'] == 'cash':
+            render_cash(conn, sheet, outlet)
             
         elif st.session_state['current_page'] == 'inventory':
             render_inventory(conn, sheet, user, role, outlet, location)
