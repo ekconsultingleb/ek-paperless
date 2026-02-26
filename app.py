@@ -136,8 +136,31 @@ else:
     # 2. PAGE: HOME MENU
     # ==========================================
     if st.session_state['current_page'] == 'home':
-        st.markdown(f"##  Welcome, {user.title()}")
-        st.subheader("Click for an App Modules")
+        
+        # --- CSS MAGIC: Make the home buttons massive and interactive ---
+        st.markdown("""
+            <style>
+            section.main div[data-testid="stButton"] button {
+                height: 120px !important;
+                border-radius: 15px !important;
+                border: 1px solid rgba(255,255,255,0.2);
+                transition: all 0.2s ease-in-out;
+            }
+            section.main div[data-testid="stButton"] button:hover {
+                border-color: #00ff00 !important;
+                box-shadow: 0 0 15px rgba(0, 255, 0, 0.2);
+                transform: translateY(-3px);
+            }
+            section.main div[data-testid="stButton"] button p {
+                font-size: 26px !important; /* Doubles the text and emoji size */
+                font-weight: 600 !important;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+
+        # --- A Clean, Modern Greeting ---
+        st.markdown(f"## Welcome back, {user.title()}! 👋")
+        st.markdown("<h4 style='color: #888888; font-weight: 400; margin-bottom: 30px;'>What would you like to do today?</h4>", unsafe_allow_html=True)
         
         col_a, col_b, col_c, col_d = st.columns(4)
         
@@ -166,12 +189,31 @@ else:
                     st.rerun()
 
         if "cash" in allowed_modules:
-            st.write("")
+            st.write("") # Adds a tiny bit of spacing before the next row
             col_e, _, _, _ = st.columns(4)
             with col_e:
                 if st.button("🏦 Daily Cash", use_container_width=True):
                     st.session_state['current_page'] = 'cash'
                     st.rerun()
+
+        # 👑 ADMIN ONLY: MASTER HUB LINKS
+        if role == "admin":
+            st.divider()
+            st.subheader("🔗 Master Database Links")
+            st.info("Direct access to client Google Sheets:")
+            try:
+                users_df = conn.read(spreadsheet=MASTER_HUB_URL, worksheet="users", ttl=600)
+                users_df.columns = [str(c).strip().lower() for c in users_df.columns]
+                
+                clients_with_links = users_df[users_df['client_sheet_link'].notna()]
+                unique_links = clients_with_links['client_sheet_link'].unique()
+                
+                with st.container(border=True):
+                    for link in unique_links:
+                        c_name = clients_with_links[clients_with_links['client_sheet_link'] == link]['client_name'].iloc[0]
+                        st.markdown(f"🔹 [{str(c_name).title()} Master Database]({link})")
+            except Exception as e:
+                st.error(f"Could not load Master Hub links: {e}")
 
     # ==========================================
     # 3. PAGE ROUTING (INSIDE MODULES)
