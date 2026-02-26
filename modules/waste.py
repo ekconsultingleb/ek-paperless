@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import zoneinfo
 from supabase import create_client, Client
 
@@ -37,7 +37,7 @@ def undo_waste_entry(dict_key):
     if dict_key in st.session_state['waste_notepad']:
         del st.session_state['waste_notepad'][dict_key]
 
-# ---> THE CLEAN UI RENDER FUNCTION <---
+# ---> THE UPGRADED RENDER FUNCTION <---
 def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet, assigned_location):
     st.markdown("### 🗑️ Daily Waste & Events")
     supabase = get_supabase()
@@ -47,22 +47,38 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
 
     try:
         # ==========================================
-        # 1. VIEW MODE
+        # 1. VIEW MODE (NOW WITH DATE RANGE!)
         # ==========================================
-        if str(assigned_client).lower() != 'all':
-            archive_res = supabase.table("waste_logs").select("*").ilike("client_name", f"%{str(assigned_client).strip()}%").order("date", desc=True).limit(100).execute()
-        else:
-            archive_res = supabase.table("waste_logs").select("*").order("date", desc=True).limit(100).execute()
-            
-        df_archive = pd.DataFrame(archive_res.data)
-
         if role.lower() == "viewer":
-            st.info("👁️ Viewer Mode: Showing Daily Waste Logs")
-            if not df_archive.empty:
-                st.dataframe(df_archive, use_container_width=True, hide_index=True)
+            st.info("👁️ Viewer Mode: Showing Waste Logs")
+            
+            # Date Range Selector
+            today = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).date()
+            default_start = today - timedelta(days=7)
+            
+            date_range = st.date_input("📅 Select Date Range", value=(default_start, today), max_value=today)
+            
+            if len(date_range) == 2:
+                start_date, end_date = date_range
+                
+                # Build the query with date filters
+                query = supabase.table("waste_logs").select("*").gte("date", str(start_date)).lte("date", str(end_date))
+                
+                # Apply branch filter if they aren't 'All'
+                if str(assigned_client).lower() != 'all':
+                    query = query.ilike("client_name", f"%{str(assigned_client).strip()}%")
+                    
+                archive_res = query.order("date", desc=True).limit(2000).execute()
+                df_archive = pd.DataFrame(archive_res.data)
+
+                if not df_archive.empty:
+                    st.dataframe(df_archive, use_container_width=True, hide_index=True)
+                else:
+                    st.warning(f"No logs found between {start_date} and {end_date}.")
             else:
-                st.write("No logs found.")
-            return
+                st.info("Please select both a Start Date and an End Date.")
+                
+            return  # Stop here for Viewers!
 
         # ==========================================
         # 2. SMART ROUTING & CLEAN SIDEBAR
@@ -70,7 +86,6 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         nav_res = supabase.table("master_items").select("outlet, client_name").execute()
         df_nav = pd.DataFrame(nav_res.data)
         
-        # Sanitizer
         if not df_nav.empty:
             df_nav['client_name'] = df_nav['client_name'].astype(str).str.strip().str.title()
             df_nav['outlet'] = df_nav['outlet'].astype(str).str.strip().str.title()
@@ -80,7 +95,6 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
 
         st.sidebar.markdown("### 📍 Location Details")
 
-        # --- A. BRANCH ROUTING (Formerly Client) ---
         if clean_client.lower() != 'all':
             final_client = clean_client
             st.sidebar.markdown(f"**🏢 Branch:** {final_client}")
@@ -88,7 +102,6 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             c_list = sorted(df_nav['client_name'].unique()) if not df_nav.empty else ["All"]
             final_client = st.sidebar.selectbox("🏢 Select Branch", c_list)
 
-        # --- B. OUTLET ROUTING ---
         if not df_nav.empty:
             outlets_for_client = sorted(df_nav[df_nav['client_name'] == final_client]['outlet'].unique())
         else:
@@ -132,28 +145,29 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         raw_loc = str(assigned_location).strip()
 
         if raw_loc.lower() == 'all':
-            # 1. Admin/Manager: Gets 'All' + every location available
             loc_options = ["All"] + db_locs if db_locs else ["All"]
             loc_filter = st.sidebar.selectbox("📍 Select Location", loc_options)
-            
         elif "," in raw_loc:
-            # 2. Multi-Location User: Splits "A, C" into a dropdown menu of just those options
             allowed_locs = [l.strip().title() for l in raw_loc.split(',')]
-            # Ensure they only see locations that actually exist in the database
             valid_locs = [l for l in allowed_locs if l in db_locs]
-            
             if valid_locs:
                 loc_filter = st.sidebar.selectbox("📍 Select Location", valid_locs)
             else:
                 st.sidebar.warning("Assigned locations not found in database.")
-                loc_filter = allowed_locs[0] # Fallback
-                
+                loc_filter = allowed_locs[0]
         else:
-            # 3. Single-Location User: Locked text, no dropdown
             loc_filter = raw_loc.title()
             st.sidebar.markdown(f"**📍 Location:** {loc_filter}")
             
+        # ==========================================
+        # NEW DECLARATION LOGIC (WITH EVENT INPUT)
+        # ==========================================
         declaration = st.radio("Type", ["🗑️ Daily Waste", "🍽️ Staff Meal", "🎉 Event"], horizontal=True, label_visibility="collapsed")
+        
+        event_name = ""
+        if declaration == "🎉 Event":
+            event_name = st.text_input("🎈 Event Name", placeholder="e.g. Wedding 200 Pax, Corporate Dinner...")
+            
         waste_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")))
 
         st.divider()
@@ -214,7 +228,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
 
                     cq, cr, cb = st.columns([2, 5, 3], vertical_alignment="bottom")
                     cq.number_input("Qty", 0.0, step=1.0, key=qty_key)
-                    cr.text_input("Remark", key=rem_key, placeholder="Reason...")
+                    cr.text_input("Remark", key=rem_key, placeholder="Optional reason...")
                     cb.button("➕ Add", key=f"b_{idx}", on_click=add_waste_entry, 
                               args=(dict_key, row.to_dict(), qty_key, rem_key), 
                               type="primary" if live_input_val > 0 else "secondary", 
@@ -224,20 +238,44 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             st.warning("👆 Please use the search bar or select a category to see items.")
 
         # ==========================================
-        # 6. SUBMIT
+        # 6. SUBMIT & AUTO-REMARKS LOGIC
         # ==========================================
         st.divider()
         if st.session_state['waste_notepad']:
             if st.button("🚀 SUBMIT WASTE TICKET", type="primary", use_container_width=True):
+                
+                # Validation: Make sure they typed an Event Name if it's an event
+                if declaration == "🎉 Event" and not event_name.strip():
+                    st.error("❌ Please enter the Event Name before submitting!")
+                    return
+                
                 submission_data = []
                 for k, v in st.session_state['waste_notepad'].items():
                     r = v['row_data']
                     item_unit_val = str(r.get('count_unit', 'Unit'))
                     if item_unit_val.lower() == 'none': item_unit_val = "Unit"
+                    
+                    # --- THE AUTO-REMARK BRAIN ---
+                    category_str = str(r.get('category', '')).lower()
+                    
+                    # Determine if it is a Beverage (Looking for 'bev', 'drink', 'bar', 'liq')
+                    is_beverage = any(keyword in category_str for keyword in ['bev', 'drink', 'bar', 'liq', 'juice', 'alcohol'])
+                    
+                    if declaration == "🍽️ Staff Meal":
+                        auto_prefix = "SM"
+                    elif declaration == "🎉 Event":
+                        code = "B" if is_beverage else "F"
+                        auto_prefix = f"theo {code} - {event_name.strip()}"
+                    else:  # Daily Waste
+                        auto_prefix = "wb" if is_beverage else "wf"
+
+                    # Combine Auto-Prefix with whatever the user manually typed (if anything)
+                    user_remark = v['remark'].strip()
+                    final_remark = f"{auto_prefix} | {user_remark}" if user_remark else auto_prefix
 
                     submission_data.append({
                         "date": str(waste_date),
-                        "client_name": final_client,  # Even though we call it Branch in UI, DB uses client_name
+                        "client_name": final_client, 
                         "outlet": final_outlet,
                         "location": loc_filter,
                         "item_name": r['item_name'],
@@ -246,7 +284,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                         "sub_category": r.get('sub_category'),
                         "qty": float(v['qty']), 
                         "count_unit": item_unit_val,
-                        "remarks": v['remark'],
+                        "remarks": final_remark,  # <-- Injects the perfect code!
                         "reported_by": user,
                         "status": "Submitted"
                     })
@@ -254,7 +292,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                 try:
                     supabase.table("waste_logs").insert(submission_data).execute()
                     st.session_state['waste_notepad'] = {}
-                    st.success("✅ Logged Successfully!")
+                    st.success("✅ Logged Successfully with Auto-Remarks!")
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Database Error: {e}")
