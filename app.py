@@ -141,7 +141,7 @@ else:
         st.markdown("""
             <style>
             section.main div[data-testid="stButton"] button {
-                height: 200px !important;
+                height: 500px !important;
                 border-radius: 15px !important;
                 border: 1px solid rgba(255,255,255,0.2);
                 transition: all 0.2s ease-in-out;
