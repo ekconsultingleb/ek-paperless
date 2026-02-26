@@ -201,7 +201,7 @@ else:
             render_daily_cash(conn, sheet, outlet,user,role,outlet,location)
             
         elif st.session_state['current_page'] == 'inventory':
-            render_inventory(conn, sheet, user, role, outlet, location)
+            render_inventory(conn, sheet, user, role,client, outlet, location)
             
         elif st.session_state['current_page'] == 'waste':
             # <--- NEW: Now passing 'client' here to match your updated waste.py!
