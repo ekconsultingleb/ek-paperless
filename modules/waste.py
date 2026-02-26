@@ -240,7 +240,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                 df_filtered_type = df_items[df_items['item_type'].str.lower() == 'inventory']
             elif item_type_filter == "🍔 Menu Items":
                 # Updated to match menu_items
-                df_filtered_type = df_items[df_items['item_type'].str.lower().isin(['menu item', 'menu_items'])]
+                df_filtered_type = df_items[df_items['item_type'].str.lower().isin(['menu items', 'menu_items'])]
             else:
                 df_filtered_type = df_items.copy()
         else:
