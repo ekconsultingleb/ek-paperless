@@ -129,14 +129,29 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
 
         # --- C. LOCATION ROUTING ---
         db_locs = sorted(df_items['location'].dropna().astype(str).str.title().unique())
-        clean_loc = str(assigned_location).strip().title()
+        raw_loc = str(assigned_location).strip()
 
-        if clean_loc.lower() != 'all':
-            loc_filter = clean_loc
-            st.sidebar.markdown(f"**📍 Location:** {loc_filter}")
-        else:
+        if raw_loc.lower() == 'all':
+            # 1. Admin/Manager: Gets 'All' + every location available
             loc_options = ["All"] + db_locs if db_locs else ["All"]
             loc_filter = st.sidebar.selectbox("📍 Select Location", loc_options)
+            
+        elif "," in raw_loc:
+            # 2. Multi-Location User: Splits "A, C" into a dropdown menu of just those options
+            allowed_locs = [l.strip().title() for l in raw_loc.split(',')]
+            # Ensure they only see locations that actually exist in the database
+            valid_locs = [l for l in allowed_locs if l in db_locs]
+            
+            if valid_locs:
+                loc_filter = st.sidebar.selectbox("📍 Select Location", valid_locs)
+            else:
+                st.sidebar.warning("Assigned locations not found in database.")
+                loc_filter = allowed_locs[0] # Fallback
+                
+        else:
+            # 3. Single-Location User: Locked text, no dropdown
+            loc_filter = raw_loc.title()
+            st.sidebar.markdown(f"**📍 Location:** {loc_filter}")
             
         declaration = st.radio("Type", ["🗑️ Daily Waste", "🍽️ Staff Meal", "🎉 Event"], horizontal=True, label_visibility="collapsed")
         waste_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")))
