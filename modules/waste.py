@@ -9,7 +9,6 @@ from supabase import create_client, Client
 def get_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
-# --- THE CUMULATIVE WASTE LOGIC ---
 def add_waste_entry(dict_key, row_dict, qty_key, rem_key):
     added_qty = st.session_state.get(qty_key, 0.0)
     added_rem = st.session_state.get(rem_key, "")
@@ -31,7 +30,6 @@ def add_waste_entry(dict_key, row_dict, qty_key, rem_key):
             else:
                 st.session_state['waste_notepad'][dict_key]['remark'] = added_rem.strip()
                 
-        # Reset local inputs
         st.session_state[qty_key] = 0.0
         st.session_state[rem_key] = ""
 
@@ -39,7 +37,7 @@ def undo_waste_entry(dict_key):
     if dict_key in st.session_state['waste_notepad']:
         del st.session_state['waste_notepad'][dict_key]
 
-# ---> HERE IS THE FIX: This now accepts exactly 7 arguments, including assigned_client <---
+# ---> THE SANITIZED RENDER FUNCTION <---
 def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet, assigned_location):
     st.markdown("### 🗑️ Daily Waste & Events")
     supabase = get_supabase()
@@ -49,10 +47,10 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
 
     try:
         # ==========================================
-        # 1. VIEW MODE (KHALDOUN / OPS MANAGERS)
+        # 1. VIEW MODE
         # ==========================================
-        if assigned_client.lower() != 'all':
-            archive_res = supabase.table("waste_logs").select("*").eq("client_name", assigned_client).order("date", desc=True).limit(100).execute()
+        if str(assigned_client).lower() != 'all':
+            archive_res = supabase.table("waste_logs").select("*").ilike("client_name", f"%{str(assigned_client).strip()}%").order("date", desc=True).limit(100).execute()
         else:
             archive_res = supabase.table("waste_logs").select("*").order("date", desc=True).limit(100).execute()
             
@@ -67,52 +65,80 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             return
 
         # ==========================================
-        # 2. SMART ROUTING & SIDEBAR (ENTRY MODE)
+        # 2. SMART ROUTING & DATA SANITIZER
         # ==========================================
         nav_res = supabase.table("master_items").select("outlet, client_name").execute()
         df_nav = pd.DataFrame(nav_res.data)
         
+        # 🚨 THE SANITIZER: Forces everything to Title Case and removes spaces so matching is perfect
+        if not df_nav.empty:
+            df_nav['client_name'] = df_nav['client_name'].astype(str).str.strip().str.title()
+            df_nav['outlet'] = df_nav['outlet'].astype(str).str.strip().str.title()
+            
+        clean_client = str(assigned_client).strip().title()
+        clean_outlet = str(assigned_outlet).strip().title()
+
         st.sidebar.markdown("### 📍 Routing Profile")
 
         # --- A. CLIENT ROUTING ---
-        if assigned_client.lower() != 'all':
-            final_client = assigned_client
+        if clean_client.lower() != 'all':
+            final_client = clean_client
             st.sidebar.info(f"🏢 Client: **{final_client}**")
         else:
-            client_list = sorted(df_nav['client_name'].dropna().unique())
-            final_client = st.sidebar.selectbox("🏢 Select Client", client_list)
+            c_list = sorted(df_nav['client_name'].unique()) if not df_nav.empty else ["All"]
+            final_client = st.sidebar.selectbox("🏢 Select Client", c_list)
 
         # --- B. OUTLET ROUTING ---
-        outlet_options = sorted(df_nav[df_nav['client_name'] == final_client]['outlet'].dropna().unique())
-        
-        if assigned_outlet.lower() != 'all':
-            final_outlet = assigned_outlet
+        if not df_nav.empty:
+            outlets_for_client = sorted(df_nav[df_nav['client_name'] == final_client]['outlet'].unique())
+        else:
+            outlets_for_client = []
+
+        if clean_outlet.lower() != 'all':
+            final_outlet = clean_outlet
             st.sidebar.info(f"🏠 Outlet: **{final_outlet}**")
         else:
-            final_outlet = st.sidebar.selectbox("🏠 Select Outlet", outlet_options)
+            if outlets_for_client:
+                final_outlet = st.sidebar.selectbox("🏠 Select Outlet", outlets_for_client)
+            else:
+                st.sidebar.warning(f"No outlets found for client '{final_client}'")
+                final_outlet = "None"
 
         # ==========================================
-        # 3. MEGA-FETCH LOOP (PAGINATION)
+        # 3. MEGA-FETCH LOOP (WILDCARD PROTECTED)
         # ==========================================
         all_items = []
         page_size, start_row = 1000, 0
-        while True:
-            res = supabase.table("master_items").select("*").eq("outlet", final_outlet).range(start_row, start_row + page_size - 1).execute()
-            if not res.data: break
-            all_items.extend(res.data)
-            if len(res.data) < page_size: break
-            start_row += page_size
-
-        df_items = pd.DataFrame(all_items)
-        df_items.columns = [c.lower() for c in df_items.columns]
         
+        if final_outlet != "None":
+            while True:
+                # WILDCARD SEARCH: Ignores exact casing in Supabase
+                res = supabase.table("master_items").select("*").ilike("outlet", f"%{final_outlet}%").range(start_row, start_row + page_size - 1).execute()
+                if not res.data: break
+                all_items.extend(res.data)
+                if len(res.data) < page_size: break
+                start_row += page_size
+
+        if not all_items:
+            # 🚨 CRASH PREVENTER
+            df_items = pd.DataFrame(columns=['item_name', 'category', 'sub_category', 'count_unit', 'location', 'product_code'])
+            st.error(f"⚠️ No master items found for outlet '{final_outlet}'. Please check your master_items table.")
+        else:
+            df_items = pd.DataFrame(all_items)
+            df_items.columns = [str(c).strip().lower() for c in df_items.columns]
+            if 'location' not in df_items.columns:
+                df_items['location'] = "Main Store"
+
         # --- C. LOCATION ROUTING ---
-        db_locs = sorted(df_items['location'].dropna().astype(str).str.upper().unique())
-        if assigned_location.lower() != 'all':
-            loc_filter = assigned_location.upper()
+        db_locs = sorted(df_items['location'].dropna().astype(str).str.title().unique())
+        clean_loc = str(assigned_location).strip().title()
+
+        if clean_loc.lower() != 'all':
+            loc_filter = clean_loc
             st.sidebar.info(f"📍 Location: **{loc_filter}**")
         else:
-            loc_filter = st.sidebar.selectbox("📍 Select Location", db_locs)
+            loc_options = ["All"] + db_locs if db_locs else ["All"]
+            loc_filter = st.sidebar.selectbox("📍 Select Location", loc_options)
             
         declaration = st.radio("Type", ["🗑️ Daily Waste", "🍽️ Staff Meal", "🎉 Event"], horizontal=True, label_visibility="collapsed")
         waste_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")))
