@@ -5,43 +5,36 @@ import zoneinfo
 from supabase import create_client, Client
 from fpdf import FPDF
 
-# --- SAFELY INITIALIZE SUPABASE ---
 @st.cache_resource
 def get_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
-# --- PDF GENERATOR HELPER FUNCTION ---
 def generate_waste_pdf(df, report_date, client, outlet, location, user_name, waste_type, event_name="", pax=0):
     pdf = FPDF()
     pdf.add_page()
     
-    # Title
     pdf.set_font("helvetica", "B", 16)
     pdf.cell(0, 10, "Official Waste & Spoilage Ticket", ln=True, align="C")
     
-    # Meta Data
     pdf.set_font("helvetica", "", 10)
     pdf.cell(0, 6, f"Date: {report_date}", ln=True)
     pdf.cell(0, 6, f"Branch: {client} | Outlet: {outlet} | Location: {location}", ln=True)
-    pdf.cell(0, 6, f"Logged By: {user_name} | Type: {waste_type}", ln=True)
+    pdf.cell(0, 6, f"Logged By: {user_name} | Ticket Type: {waste_type}", ln=True)
     
-    # Add Event info if applicable
     if waste_type == "Event" and event_name:
         pdf.cell(0, 6, f"Event Name: {event_name} | PAX: {pax}", ln=True)
         
     pdf.cell(0, 6, f"Generated: {datetime.now(zoneinfo.ZoneInfo('Asia/Beirut')).strftime('%Y-%m-%d %H:%M')}", ln=True)
     pdf.ln(5)
     
-    # Table Header
     pdf.set_font("helvetica", "B", 10)
-    pdf.set_fill_color(255, 200, 200) # Light red tint
+    pdf.set_fill_color(255, 200, 200)
     pdf.cell(80, 8, "Item Name", border=1, fill=True)
     pdf.cell(40, 8, "Item Type", border=1, fill=True)
     pdf.cell(30, 8, "Qty Wasted", border=1, align="C", fill=True)
     pdf.cell(30, 8, "Unit", border=1, align="C", fill=True)
     pdf.ln()
     
-    # Table Rows
     pdf.set_font("helvetica", "", 9)
     for _, row in df.iterrows():
         item = str(row.get('item_name', ''))[:40]
@@ -57,7 +50,6 @@ def generate_waste_pdf(df, report_date, client, outlet, location, user_name, was
         
     return bytes(pdf.output())
 
-# --- THE CUMULATIVE COUNTING LOGIC ---
 def add_waste_qty(item_key, row_dict, input_key):
     added_val = st.session_state.get(input_key, 0.0)
     if added_val > 0:
@@ -70,7 +62,6 @@ def undo_waste_count(item_key):
     if item_key in st.session_state['waste_cart']:
         del st.session_state['waste_cart'][item_key]
 
-# ---> THE UPGRADED RENDER FUNCTION <---
 def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet, assigned_location):
     st.markdown("### 🗑️ Log Waste, Meals & Events")
     supabase = get_supabase()
@@ -79,9 +70,6 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         st.session_state['waste_cart'] = {}
 
     try:
-        # ==========================================
-        # 1. VIEW MODE (HISTORY & PDF EXPORT)
-        # ==========================================
         if role.lower() == "viewer":
             st.info("👁️ Viewer Mode: Showing Waste Logs")
             
@@ -121,9 +109,6 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                 st.info("Please select both a Start Date and an End Date.")
             return
 
-        # ==========================================
-        # 2. SMART ROUTING & CLEAN SIDEBAR
-        # ==========================================
         nav_res = supabase.table("master_items").select("outlet, client_name").execute()
         df_nav = pd.DataFrame(nav_res.data)
         
@@ -158,9 +143,6 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                 st.sidebar.warning(f"No outlets found for branch '{final_client}'")
                 final_outlet = "None"
 
-        # ==========================================
-        # 3. POST-SUBMISSION RECEIPT (PDF)
-        # ==========================================
         if 'last_waste_receipt' in st.session_state:
             st.success("✅ **Success!** Waste ticket has been logged.")
             st.download_button(
@@ -176,9 +158,6 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             st.divider()
             return
 
-        # ==========================================
-        # 4. MEGA-FETCH LOOP
-        # ==========================================
         all_items = []
         page_size, start_row = 1000, 0
         
@@ -226,12 +205,28 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         waste_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")))
         st.divider()
 
-        # ==========================================
-        # 5. FILTERS & SEARCH & CARDS
-        # ==========================================
-        st.subheader("🔍 Find Items to Log")
+        # STEP 1: DEFINE TICKET CONTEXT FIRST
+        st.subheader("📝 Step 1: Ticket Details")
+        ticket_type = st.radio(
+            "Select Ticket Context:", 
+            ["Daily Waste", "Staff Meal", "Event"],
+            horizontal=True
+        )
         
-        # --- THE ITEM TYPE TOGGLE ---
+        event_name_val = ""
+        pax_val = 0
+        if ticket_type == "Event":
+            c_ev1, c_ev2 = st.columns(2)
+            with c_ev1:
+                event_name_val = st.text_input("📝 Event Name", placeholder="e.g. Wedding Booking")
+            with c_ev2:
+                pax_val = st.number_input("👥 PAX (Number of Guests)", min_value=1, step=1)
+                
+        st.divider()
+
+        # STEP 2: FIND AND SELECT ITEMS
+        st.subheader("🔍 Step 2: Find Items to Log")
+        
         st.write("**Filter by Type:**")
         item_type_filter = st.radio(
             "Item Type", 
@@ -240,9 +235,8 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             label_visibility="collapsed"
         )
         
-        search_query = st.text_input("🔍 Quick Search", placeholder="Find items to discard...")
+        search_query = st.text_input("🔍 Quick Search", placeholder="Find items...")
         
-        # Apply the item type filter before categories
         if not df_items.empty:
             if item_type_filter == "📦 Inventory Items":
                 df_filtered_type = df_items[df_items['item_type'].str.lower() == 'inventory']
@@ -296,7 +290,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                 
                 with st.container(border=True):
                     if current_total > 0:
-                        st.markdown(f"🔴 **{item_name}** &nbsp;|&nbsp; 🗑️ Wasting: **{current_total}** {row.get('count_unit', 'pcs')}")
+                        st.markdown(f"🔴 **{item_name}** &nbsp;|&nbsp; 🗑️ Qty: **{current_total}** {row.get('count_unit', 'pcs')}")
                     else:
                         st.markdown(f"⚪ **{item_name}** &nbsp;|&nbsp; 📦 {row.get('count_unit', 'pcs')}")
                     
@@ -305,7 +299,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                     
                     with col_add:
                         st.number_input(
-                            "+ Add Waste Qty", 
+                            "+ Add Qty", 
                             value=0.0, min_value=0.0, step=1.0, format="%g", 
                             key=input_key,
                             on_change=add_waste_qty,
@@ -319,34 +313,11 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                                 undo_waste_count(item_name)
                                 st.rerun()
 
-        # ==========================================
-        # 6. SUBMIT TICKET & GENERATE RECEIPT
-        # ==========================================
         st.divider()
         cart_size = len(st.session_state['waste_cart'])
         if cart_size > 0:
-            st.error(f"🗑️ **{cart_size} items** queued for waste.")
-            with st.expander("👀 Review Waste Ticket", expanded=True):
-                
-                # --- YOUR CUSTOM WASTE REASONS ---
-                st.write("### Ticket Details")
-                waste_type = st.radio(
-                    "Select Reason Type:", 
-                    ["WF (Waste Food)", "WB (Waste Beverage)", "SM (Staff Meal)", "Event"],
-                    horizontal=True
-                )
-                
-                # Dynamic fields if Event is chosen
-                event_name_val = ""
-                pax_val = 0
-                if waste_type == "Event":
-                    c_ev1, c_ev2 = st.columns(2)
-                    with c_ev1:
-                        event_name_val = st.text_input("📝 Event Name", placeholder="e.g. Wedding Booking")
-                    with c_ev2:
-                        pax_val = st.number_input("👥 PAX (Number of Guests)", min_value=1, step=1)
-                
-                st.divider()
+            st.error(f"🛒 **{cart_size} items** queued for {ticket_type}.")
+            with st.expander("👀 Review & Submit Ticket", expanded=True):
                 
                 preview_list = []
                 for k, v in st.session_state['waste_cart'].items():
@@ -358,13 +329,25 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                     })
                 st.dataframe(pd.DataFrame(preview_list), use_container_width=True, hide_index=True)
 
-                if st.button("🚀 SUBMIT WASTE TICKET", type="primary", use_container_width=True):
-                    if waste_type == "Event" and not event_name_val.strip():
+                if st.button("🚀 SUBMIT TICKET TO CLOUD", type="primary", use_container_width=True):
+                    if ticket_type == "Event" and not event_name_val.strip():
                         st.error("❌ Please provide an Event Name before submitting.")
                     else:
                         logs = []
                         for i_name, data in st.session_state['waste_cart'].items():
                             r_data = data['row_data']
+                            
+                            # Derive WF or WB based on item type/category if Daily Waste is selected
+                            computed_reason = ticket_type
+                            if ticket_type == "Daily Waste":
+                                cat_lower = str(r_data.get('category', '')).lower()
+                                if 'bev' in cat_lower or 'drink' in cat_lower or 'alcohol' in cat_lower:
+                                    computed_reason = "WB"
+                                else:
+                                    computed_reason = "WF"
+                            elif ticket_type == "Staff Meal":
+                                computed_reason = "SM"
+                            
                             logs.append({
                                 "date": str(waste_date),
                                 "client_name": final_client,
@@ -376,31 +359,30 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                                 "category": r_data.get('category', ''),
                                 "qty": float(data['qty']), 
                                 "unit": r_data.get('count_unit', 'pcs'),
-                                "reason": waste_type,
-                                "event_name": event_name_val,
-                                "pax": pax_val
+                                "reason": computed_reason,
+                                "event_name": event_name_val if ticket_type == "Event" else "",
+                                "pax": pax_val if ticket_type == "Event" else 0
                             })
                         
                         if logs:
                             try:
-                                # Ensure your Supabase waste_logs table has columns for item_type, reason, event_name, and pax
                                 supabase.table("waste_logs").insert(logs).execute()
                                 
                                 df_receipt = pd.DataFrame(logs)
                                 pdf_bytes = generate_waste_pdf(
-                                    df_receipt, str(waste_date), final_client, final_outlet, loc_filter, user, waste_type, event_name_val, pax_val
+                                    df_receipt, str(waste_date), final_client, final_outlet, loc_filter, user, ticket_type, event_name_val, pax_val
                                 )
                                 
                                 st.session_state['last_waste_receipt'] = {
                                     "bytes": pdf_bytes,
-                                    "filename": f"Waste_Ticket_{waste_type.split()[0]}_{str(waste_date)}.pdf"
+                                    "filename": f"{ticket_type.replace(' ', '_')}_{str(waste_date)}.pdf"
                                 }
                                 
                                 st.session_state['waste_cart'] = {}
                                 st.rerun()
                                 
                             except Exception as e:
-                                st.error(f"❌ Database Error: Ensure 'waste_logs' table has columns: item_type, reason, event_name, pax. Details: {e}")
+                                st.error(f"❌ Database Error: {e}")
 
     except Exception as e:
         st.error(f"❌ System Error: {e}")
