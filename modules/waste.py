@@ -31,7 +31,7 @@ def generate_waste_pdf(df, report_date, client, outlet, location, user_name, was
     pdf.set_fill_color(255, 200, 200)
     pdf.cell(80, 8, "Item Name", border=1, fill=True)
     pdf.cell(40, 8, "Item Type", border=1, fill=True)
-    pdf.cell(30, 8, "Qty Wasted", border=1, align="C", fill=True)
+    pdf.cell(30, 8, "Qty", border=1, align="C", fill=True)
     pdf.cell(30, 8, "Unit", border=1, align="C", fill=True)
     pdf.ln()
     
@@ -205,7 +205,6 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         waste_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")))
         st.divider()
 
-        # STEP 1: DEFINE TICKET CONTEXT FIRST
         st.subheader("📝 Step 1: Ticket Details")
         ticket_type = st.radio(
             "Select Ticket Context:", 
@@ -224,7 +223,6 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                 
         st.divider()
 
-        # STEP 2: FIND AND SELECT ITEMS
         st.subheader("🔍 Step 2: Find Items to Log")
         
         st.write("**Filter by Type:**")
@@ -241,7 +239,8 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             if item_type_filter == "📦 Inventory Items":
                 df_filtered_type = df_items[df_items['item_type'].str.lower() == 'inventory']
             elif item_type_filter == "🍔 Menu Items":
-                df_filtered_type = df_items[df_items['item_type'].str.lower() == 'menu items']
+                # Updated to match menu_items
+                df_filtered_type = df_items[df_items['item_type'].str.lower().isin(['menu item', 'menu_items'])]
             else:
                 df_filtered_type = df_items.copy()
         else:
@@ -337,7 +336,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                         for i_name, data in st.session_state['waste_cart'].items():
                             r_data = data['row_data']
                             
-                            # Derive WF or WB based on item type/category if Daily Waste is selected
+                            # Define the reason logic without needing new DB columns
                             computed_reason = ticket_type
                             if ticket_type == "Daily Waste":
                                 cat_lower = str(r_data.get('category', '')).lower()
@@ -347,6 +346,8 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                                     computed_reason = "WF"
                             elif ticket_type == "Staff Meal":
                                 computed_reason = "SM"
+                            elif ticket_type == "Event":
+                                computed_reason = f"Event: {event_name_val} (PAX: {pax_val})"
                             
                             logs.append({
                                 "date": str(waste_date),
@@ -359,9 +360,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                                 "category": r_data.get('category', ''),
                                 "qty": float(data['qty']), 
                                 "unit": r_data.get('count_unit', 'pcs'),
-                                "reason": computed_reason,
-                                "event_name": event_name_val if ticket_type == "Event" else "",
-                                "pax": pax_val if ticket_type == "Event" else 0
+                                "reason": computed_reason
                             })
                         
                         if logs:
