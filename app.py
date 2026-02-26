@@ -208,4 +208,4 @@ else:
             render_waste(conn, sheet, user, role, client, outlet, location)
             
         elif st.session_state['current_page'] == 'transfers':
-            render_transfers(conn, sheet, user, role, outlet, location)
+            render_transfers(conn, sheet, user, role,client, outlet, location)
