@@ -241,7 +241,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             if item_type_filter == "📦 Inventory Items":
                 df_filtered_type = df_items[df_items['item_type'].str.lower() == 'inventory']
             elif item_type_filter == "🍔 Menu Items":
-                df_filtered_type = df_items[df_items['item_type'].str.lower() == 'menu item']
+                df_filtered_type = df_items[df_items['item_type'].str.lower() == 'menu items']
             else:
                 df_filtered_type = df_items.copy()
         else:
