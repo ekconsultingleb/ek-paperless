@@ -44,7 +44,8 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 if 'logged_in' not in st.session_state:
     st.session_state.update({
         'logged_in': False, 'user': None, 'module': None, 'link': None, 
-        'role': None, 'assigned_outlet': 'All', 'assigned_location': 'All', 'current_page': 'home'
+        'role': None, 'assigned_outlet': 'All', 'assigned_location': 'All', 
+        'client_name': 'All', 'current_page': 'home'
     })
 
 # ==========================================
@@ -59,7 +60,7 @@ if not st.session_state.get('logged_in', False):
     
     with st.container(border=True):
         u_input = st.text_input("Username").strip()
-        p_input = st.text_input("Password", type="password").strip() # Added .strip() here too
+        p_input = st.text_input("Password", type="password").strip()
         
         if st.button("Sign In", use_container_width=True):
             try:
@@ -82,7 +83,7 @@ if not st.session_state.get('logged_in', False):
                         'link': match.get('client_sheet_link', ''), 
                         'assigned_outlet': assigned_out,
                         'assigned_location': assigned_loc,
-                        'client_name': match.get('client_name', 'All'), # This is the key!
+                        'client_name': match.get('client_name', 'All'), # Passes Hajj Nasr or La Siesta
                         'current_page': 'home'
                     })
                     st.rerun()
@@ -96,8 +97,10 @@ else:
     st.sidebar.title(f"👤 {st.session_state['user'].title()}")
     st.sidebar.write(f"**Role:** {st.session_state['role'].title()}")
     
+    if st.session_state.get('client_name', 'All').lower() != 'all':
+        st.sidebar.write(f"🏢 **Client:** {st.session_state['client_name']}")
     if st.session_state.get('assigned_outlet', 'All').lower() != 'all':
-        st.sidebar.write(f"🏢 **Outlet:** {st.session_state['assigned_outlet']}")
+        st.sidebar.write(f"🏠 **Outlet:** {st.session_state['assigned_outlet']}")
     if st.session_state.get('assigned_location', 'All').lower() != 'all':
         st.sidebar.write(f"📍 **Location:** {st.session_state['assigned_location']}")
     
@@ -105,15 +108,15 @@ else:
         st.session_state.clear()
         st.rerun()
 
-   # --- TRAFFIC COP (NAVIGATION) ---
+    # --- TRAFFIC COP (NAVIGATION) ---
     role = st.session_state['role']
     sheet = st.session_state['link']
     user = st.session_state['user']
     outlet = st.session_state['assigned_outlet']
     location = st.session_state['assigned_location']
+    client = st.session_state.get('client_name', 'All') # <--- NEW: Pulls client for routing
     
     # 1. PARSE ALLOWED MODULES
-    # This turns "inventory, waste" into a list: ['inventory', 'waste']
     raw_modules = str(st.session_state.get('module', '')).lower().strip()
     
     if raw_modules == "all_modules" or role == "admin":
@@ -128,7 +131,6 @@ else:
         st.markdown(f"##  Welcome, {user.title()}")
         st.subheader("Click for an App Modules")
         
-        # Create a row of 4 columns for the buttons
         col_a, col_b, col_c, col_d = st.columns(4)
         
         if "dashboard" in allowed_modules:
@@ -155,7 +157,6 @@ else:
                     st.session_state['current_page'] = 'transfers'
                     st.rerun()
 
-        # If they have daily cash, put it on a new row
         if "daily_cash" in allowed_modules:
             st.write("")
             col_e, _, _, _ = st.columns(4)
@@ -187,7 +188,6 @@ else:
     # 3. PAGE ROUTING (INSIDE MODULES)
     # ==========================================
     else:
-        # Show a universal "Back" button at the top of every module
         if st.button("⬅️ Back to Main Menu"):
             st.session_state['current_page'] = 'home'
             st.rerun()
@@ -204,7 +204,8 @@ else:
             render_inventory(conn, sheet, user, role, outlet, location)
             
         elif st.session_state['current_page'] == 'waste':
-            render_waste(conn, sheet, user, role, outlet, location)
+            # <--- NEW: Now passing 'client' here to match your updated waste.py!
+            render_waste(conn, sheet, user, role, client, outlet, location)
             
         elif st.session_state['current_page'] == 'transfers':
             render_transfers(conn, sheet, user, role, outlet, location)

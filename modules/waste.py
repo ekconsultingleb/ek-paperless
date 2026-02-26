@@ -40,7 +40,8 @@ def undo_waste_entry(dict_key):
     if dict_key in st.session_state['waste_notepad']:
         del st.session_state['waste_notepad'][dict_key]
 
-def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_location):
+# Notice we added 'assigned_client' to the inputs here!
+def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet, assigned_location):
     st.markdown("### 🗑️ Daily Waste & Events")
     supabase = get_supabase()
     
@@ -54,7 +55,7 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
         archive_res = supabase.table("waste_logs").select("*").order("date", desc=True).limit(100).execute()
         df_archive = pd.DataFrame(archive_res.data)
 
-        if role == "viewer":
+        if role.lower() == "viewer":
             st.info("👁️ Viewer Mode: Showing Daily Waste Logs")
             if not df_archive.empty:
                 st.dataframe(df_archive, use_container_width=True, hide_index=True)
@@ -63,20 +64,38 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
             return
 
         # ==========================================
-        # 2. ENTRY MODE (SAMI)
+        # 2. SMART ROUTING & SIDEBAR (ENTRY MODE)
         # ==========================================
-        
-        # Sidebar setup
         nav_res = supabase.table("master_items").select("outlet, client_name").execute()
         df_nav = pd.DataFrame(nav_res.data)
-        client_filter = st.sidebar.selectbox("🏢 Client", sorted(df_nav['client_name'].dropna().unique()))
-        outlet_options = sorted(df_nav[df_nav['client_name'] == client_filter]['outlet'].dropna().unique())
-        final_outlet = assigned_outlet if assigned_outlet.lower() != 'all' else st.sidebar.selectbox("🏠 Outlet", outlet_options)
+        
+        st.sidebar.markdown("### 📍 Routing Profile")
 
-        # MEGA-FETCH LOOP: Bypasses 1,000 row limit to find Menu Items at row 2000+
+        # --- A. CLIENT ROUTING ---
+        if assigned_client.lower() != 'all':
+            final_client = assigned_client
+            st.sidebar.info(f"🏢 Client: **{final_client}**")
+        else:
+            client_list = sorted(df_nav['client_name'].dropna().unique())
+            final_client = st.sidebar.selectbox("🏢 Select Client", client_list)
+
+        # --- B. OUTLET ROUTING ---
+        # Only show outlets that belong to the final_client
+        outlet_options = sorted(df_nav[df_nav['client_name'] == final_client]['outlet'].dropna().unique())
+        
+        if assigned_outlet.lower() != 'all':
+            final_outlet = assigned_outlet
+            st.sidebar.info(f"🏠 Outlet: **{final_outlet}**")
+        else:
+            final_outlet = st.sidebar.selectbox("🏠 Select Outlet", outlet_options)
+
+        # ==========================================
+        # 3. MEGA-FETCH LOOP (PAGINATION)
+        # ==========================================
         all_items = []
         page_size, start_row = 1000, 0
         while True:
+            # Fetches ONLY the data for the final_outlet
             res = supabase.table("master_items").select("*").eq("outlet", final_outlet).range(start_row, start_row + page_size - 1).execute()
             if not res.data: break
             all_items.extend(res.data)
@@ -86,12 +105,15 @@ def render_waste(conn, sheet_link, user, role, assigned_outlet, assigned_locatio
         df_items = pd.DataFrame(all_items)
         df_items.columns = [c.lower() for c in df_items.columns]
         
+        # --- C. LOCATION ROUTING ---
         db_locs = sorted(df_items['location'].dropna().astype(str).str.upper().unique())
-        loc_filter = st.sidebar.selectbox("📍 Location", [assigned_location.upper()] if assigned_location.lower() != 'all' else db_locs)
-        
-        declaration = st.radio("Type", ["🗑️ Daily Waste", "🍽️ Staff Meal", "🎉 Event"], horizontal=True, label_visibility="collapsed")
+        if assigned_location.lower() != 'all':
+            loc_filter = assigned_location.upper()
+            st.sidebar.info(f"📍 Location: **{loc_filter}**")
+        else:
+            loc_filter = st.sidebar.selectbox("📍 Select Location", db_locs)
+            
         waste_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")))
-
         st.divider()
 
         # 3. FILTERS (Search-First approach to keep UI fast)
