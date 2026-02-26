@@ -141,7 +141,7 @@ else:
         st.markdown("""
             <style>
             section.main div[data-testid="stButton"] button {
-                height: 120px !important;
+                height: 200px !important;
                 border-radius: 15px !important;
                 border: 1px solid rgba(255,255,255,0.2);
                 transition: all 0.2s ease-in-out;
@@ -160,7 +160,7 @@ else:
 
         # --- A Clean, Modern Greeting ---
         st.markdown(f"## Welcome back, {user.title()}! 👋")
-        st.markdown("<h4 style='color: #888888; font-weight: 400; margin-bottom: 30px;'>What would you like to do today?</h4>", unsafe_allow_html=True)
+        st.markdown("<h4 style='color: #888888; font-weight: 400; margin-bottom: 30px;'>Explore</h4>", unsafe_allow_html=True)
         
         col_a, col_b, col_c, col_d = st.columns(4)
         
