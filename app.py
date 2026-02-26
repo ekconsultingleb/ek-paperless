@@ -1,9 +1,10 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-from supabase import create_client, Client  # <-- Add this right here!
+from supabase import create_client, Client
 
 # --- IMPORT YOUR NEW MODULES ---
+from modules.main import render_main
 from modules.dashboard import render_dashboard
 from modules.daily_cash import render_daily_cash
 from modules.inventory import render_inventory
@@ -114,7 +115,7 @@ else:
     user = st.session_state['user']
     outlet = st.session_state['assigned_outlet']
     location = st.session_state['assigned_location']
-    client = st.session_state.get('client_name', 'All') # <--- NEW: Pulls client for routing
+    client = st.session_state.get('client_name', 'All') 
     
     # 1. PARSE ALLOWED MODULES
     raw_modules = str(st.session_state.get('module', '')).lower().strip()
@@ -123,6 +124,13 @@ else:
         allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers"]
     else:
         allowed_modules = [m.strip() for m in raw_modules.split(",") if m.strip()]
+
+    # Secret Admin Panel Button
+    if role == "admin":
+        st.sidebar.divider()
+        if st.sidebar.button("⚙️ Admin Panel", type="primary"):
+            st.session_state['current_page'] = "main"
+            st.rerun()
 
     # ==========================================
     # 2. PAGE: HOME MENU
@@ -165,25 +173,6 @@ else:
                     st.session_state['current_page'] = 'cash'
                     st.rerun()
 
-        # 👑 ADMIN ONLY: MASTER HUB LINKS
-        if role == "admin":
-            st.divider()
-            st.subheader("🔗 Master Database Links")
-            st.info("Direct access to client Google Sheets:")
-            try:
-                users_df = conn.read(spreadsheet=MASTER_HUB_URL, worksheet="users", ttl=600)
-                users_df.columns = [str(c).strip().lower() for c in users_df.columns]
-                
-                clients_with_links = users_df[users_df['client_sheet_link'].notna()]
-                unique_links = clients_with_links['client_sheet_link'].unique()
-                
-                with st.container(border=True):
-                    for link in unique_links:
-                        c_name = clients_with_links[clients_with_links['client_sheet_link'] == link]['clients'].iloc[0]
-                        st.markdown(f"🔹 [{str(c_name).title()} Master Database]({link})")
-            except Exception as e:
-                st.error(f"Could not load Master Hub links: {e}")
-
     # ==========================================
     # 3. PAGE ROUTING (INSIDE MODULES)
     # ==========================================
@@ -198,14 +187,16 @@ else:
             render_dashboard(conn, sheet, user, role, client, outlet, location)
             
         elif st.session_state['current_page'] == 'cash':
-            render_daily_cash(conn, sheet, outlet,user,role,outlet,location)
+            render_daily_cash(conn, sheet, user, role, client, outlet, location)
             
         elif st.session_state['current_page'] == 'inventory':
-            render_inventory(conn, sheet, user, role,client, outlet, location)
+            render_inventory(conn, sheet, user, role, client, outlet, location)
             
         elif st.session_state['current_page'] == 'waste':
-            # <--- NEW: Now passing 'client' here to match your updated waste.py!
             render_waste(conn, sheet, user, role, client, outlet, location)
             
         elif st.session_state['current_page'] == 'transfers':
-            render_transfers(conn, sheet, user, role,client, outlet, location)
+            render_transfers(conn, sheet, user, role, client, outlet, location)
+            
+        elif st.session_state['current_page'] == 'main':
+            render_main(conn, sheet, user, role)
