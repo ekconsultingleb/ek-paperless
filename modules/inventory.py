@@ -51,7 +51,6 @@ def generate_inventory_pdf(df, report_date, client, outlet, location, user_name)
         pdf.cell(30, 8, unit, border=1, align="C")
         pdf.ln()
         
-    # Generate byte string for Streamlit download button
     return bytes(pdf.output())
 
 # --- THE CUMULATIVE COUNTING LOGIC ---
@@ -98,7 +97,6 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                 df_archive = pd.DataFrame(archive_res.data)
 
                 if not df_archive.empty:
-                    # Show Download Button for Viewer
                     pdf_bytes = generate_inventory_pdf(
                         df_archive, f"{start_date} to {end_date}", 
                         assigned_client, assigned_outlet, "Multiple Locations", "System Report"
@@ -172,7 +170,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                 del st.session_state['last_inv_receipt']
                 st.rerun()
             st.divider()
-            return # Stop here so they have to clear the receipt before counting again
+            return
 
         # ==========================================
         # 4. MEGA-FETCH LOOP
@@ -217,6 +215,15 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
             loc_filter = raw_loc.title()
             st.sidebar.markdown(f"**📍 Location:** {loc_filter}")
             
+        # ---> THE DUPLICATE FIX IS HERE <---
+        if not df_items.empty:
+            # 1. First filter by the exact location (e.g. Med)
+            if loc_filter != "All":
+                df_items = df_items[df_items['location'].str.title() == loc_filter]
+            
+            # 2. Ultra-safe: Remove any accidental exact duplicates remaining
+            df_items = df_items.drop_duplicates(subset=['item_name']).copy()
+
         count_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")))
         st.divider()
 

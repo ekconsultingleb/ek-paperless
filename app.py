@@ -140,24 +140,31 @@ else:
         # --- CSS MAGIC: Make the home buttons massive and interactive ---
         st.markdown("""
             <style>
-            section.main div[data-testid="stButton"] button {
-                height: 500px !important;
+            /* Force the button and its container to accept the new height */
+            div[data-testid="stButton"] > button {
+                height: 200px !important;
+                width: 100% !important;
                 border-radius: 15px !important;
-                border: 1px solid rgba(255,255,255,0.2);
-                transition: all 0.2s ease-in-out;
+                border: 2px solid rgba(255,255,255,0.2) !important;
+                transition: all 0.3s ease-in-out !important;
+                padding: 0px !important;
             }
-            section.main div[data-testid="stButton"] button:hover {
+            
+            /* The Hover Glow Effect */
+            div[data-testid="stButton"] > button:hover {
                 border-color: #00ff00 !important;
-                box-shadow: 0 0 15px rgba(0, 255, 0, 0.2);
-                transform: translateY(-3px);
+                box-shadow: 0 0 20px rgba(0, 255, 0, 0.3) !important;
+                transform: translateY(-5px) !important;
             }
-            section.main div[data-testid="stButton"] button p {
-                font-size: 26px !important; /* Doubles the text and emoji size */
-                font-weight: 600 !important;
+            
+            /* The Text inside the button */
+            div[data-testid="stButton"] > button p {
+                font-size: 32px !important; 
+                font-weight: 700 !important;
+                margin: 0 !important;
             }
             </style>
         """, unsafe_allow_html=True)
-
         # --- A Clean, Modern Greeting ---
         st.markdown(f"## Welcome back, {user.title()}! 👋")
         st.markdown("<h4 style='color: #888888; font-weight: 400; margin-bottom: 30px;'>Explore</h4>", unsafe_allow_html=True)
