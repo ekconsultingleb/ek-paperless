@@ -3,23 +3,63 @@ import pandas as pd
 from datetime import datetime, timedelta
 import zoneinfo
 from supabase import create_client, Client
+from fpdf import FPDF
+import io
 
 # --- SAFELY INITIALIZE SUPABASE ---
 @st.cache_resource
 def get_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
+# --- PDF GENERATOR HELPER FUNCTION ---
+def generate_inventory_pdf(df, report_date, client, outlet, location, user_name):
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # Title
+    pdf.set_font("helvetica", "B", 16)
+    pdf.cell(0, 10, "Official Inventory Count Report", ln=True, align="C")
+    
+    # Meta Data
+    pdf.set_font("helvetica", "", 10)
+    pdf.cell(0, 6, f"Date: {report_date}", ln=True)
+    pdf.cell(0, 6, f"Branch: {client} | Outlet: {outlet} | Location: {location}", ln=True)
+    pdf.cell(0, 6, f"Counted By: {user_name} | Generated: {datetime.now(zoneinfo.ZoneInfo('Asia/Beirut')).strftime('%Y-%m-%d %H:%M')}", ln=True)
+    pdf.ln(5)
+    
+    # Table Header
+    pdf.set_font("helvetica", "B", 10)
+    pdf.set_fill_color(200, 200, 200)
+    pdf.cell(80, 8, "Item Name", border=1, fill=True)
+    pdf.cell(50, 8, "Category", border=1, fill=True)
+    pdf.cell(30, 8, "Quantity", border=1, align="C", fill=True)
+    pdf.cell(30, 8, "Unit", border=1, align="C", fill=True)
+    pdf.ln()
+    
+    # Table Rows
+    pdf.set_font("helvetica", "", 9)
+    for _, row in df.iterrows():
+        # Clean up data strings and limit length to avoid text bleeding out of cells
+        item = str(row.get('item_name', ''))[:40]
+        cat = str(row.get('category', ''))[:25]
+        qty = str(row.get('quantity', '0'))
+        unit = str(row.get('count_unit', 'pcs'))[:10]
+        
+        pdf.cell(80, 8, item, border=1)
+        pdf.cell(50, 8, cat, border=1)
+        pdf.cell(30, 8, qty, border=1, align="C")
+        pdf.cell(30, 8, unit, border=1, align="C")
+        pdf.ln()
+        
+    # Generate byte string for Streamlit download button
+    return bytes(pdf.output())
+
 # --- THE CUMULATIVE COUNTING LOGIC ---
 def add_inventory_qty(item_key, row_dict, input_key):
     added_val = st.session_state.get(input_key, 0.0)
-    
     if added_val > 0:
         if item_key not in st.session_state['mobile_counts']:
-            st.session_state['mobile_counts'][item_key] = {
-                'row_data': row_dict,
-                'qty': 0.0
-            }
-        
+            st.session_state['mobile_counts'][item_key] = {'row_data': row_dict, 'qty': 0.0}
         st.session_state['mobile_counts'][item_key]['qty'] += added_val
         st.session_state[input_key] = 0.0
 
@@ -37,7 +77,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
 
     try:
         # ==========================================
-        # 1. VIEW MODE (HISTORY & DATE RANGE)
+        # 1. VIEW MODE (HISTORY & PDF EXPORT)
         # ==========================================
         if role.lower() == "viewer":
             st.info("👁️ Viewer Mode: Showing Inventory Logs")
@@ -58,8 +98,21 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                 df_archive = pd.DataFrame(archive_res.data)
 
                 if not df_archive.empty:
+                    # Show Download Button for Viewer
+                    pdf_bytes = generate_inventory_pdf(
+                        df_archive, f"{start_date} to {end_date}", 
+                        assigned_client, assigned_outlet, "Multiple Locations", "System Report"
+                    )
+                    
+                    st.download_button(
+                        label="🖨️ Download PDF Report",
+                        data=pdf_bytes,
+                        file_name=f"Inventory_Report_{start_date}_to_{end_date}.pdf",
+                        mime="application/pdf",
+                        type="primary"
+                    )
+                    
                     st.dataframe(df_archive, use_container_width=True, hide_index=True)
-                    # NOTE: This is where we will add the "🖨️ Generate PDF Report" button in the next step!
                 else:
                     st.warning(f"No logs found between {start_date} and {end_date}.")
             else:
@@ -104,7 +157,25 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                 final_outlet = "None"
 
         # ==========================================
-        # 3. MEGA-FETCH LOOP
+        # 3. POST-SUBMISSION RECEIPT (PDF)
+        # ==========================================
+        if 'last_inv_receipt' in st.session_state:
+            st.success("✅ **Success!** Your count was safely stored in the cloud.")
+            st.download_button(
+                label="🖨️ Download Proof of Count (PDF Receipt)",
+                data=st.session_state['last_inv_receipt']['bytes'],
+                file_name=st.session_state['last_inv_receipt']['filename'],
+                mime="application/pdf",
+                type="primary"
+            )
+            if st.button("Start New Count", use_container_width=True):
+                del st.session_state['last_inv_receipt']
+                st.rerun()
+            st.divider()
+            return # Stop here so they have to clear the receipt before counting again
+
+        # ==========================================
+        # 4. MEGA-FETCH LOOP
         # ==========================================
         all_items = []
         page_size, start_row = 1000, 0
@@ -125,12 +196,9 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
             df_items.columns = [str(c).strip().lower() for c in df_items.columns]
             if 'location' not in df_items.columns:
                 df_items['location'] = "Main Store"
-            
-            # Filter specifically for 'inventory' items if the column exists
             if 'item_type' in df_items.columns:
                 df_items = df_items[df_items['item_type'].astype(str).str.lower() == 'inventory']
 
-        # --- C. LOCATION ROUTING ---
         db_locs = sorted(df_items['location'].dropna().astype(str).str.title().unique())
         raw_loc = str(assigned_location).strip()
 
@@ -153,7 +221,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
         st.divider()
 
         # ==========================================
-        # 4. MISSING ITEM FEATURE
+        # 5. FILTERS & CARDS & MISSING ITEM
         # ==========================================
         with st.expander("➕ Missing an item? Add it manually here"):
             c_name = st.text_input("Item Name (e.g., Redbull)")
@@ -184,9 +252,6 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                     st.success(f"Added {c_name} to cart!")
                     st.rerun()
 
-        # ==========================================
-        # 5. FILTERS & SEARCH
-        # ==========================================
         st.subheader("🔍 Filter & Count")
         search_query = st.text_input("🔍 Quick Search", placeholder="Find items...")
         
@@ -213,7 +278,6 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
         else:
             df_display = pd.DataFrame()
 
-        # --- 🟢 LIVE PROGRESS BADGES ---
         total_items = len(df_display)
         counted_in_view = sum(1 for item in df_display['item_name'] if item in st.session_state['mobile_counts']) if not df_display.empty else 0
         
@@ -224,15 +288,11 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
             </div>
         """, unsafe_allow_html=True)
 
-        # ==========================================
-        # 6. RENDER CARDS
-        # ==========================================
         if df_display.empty:
             st.info("No items found.")
         else:
             for index, row in df_display.iterrows():
                 item_name = row['item_name']
-                
                 cart_data = st.session_state['mobile_counts'].get(item_name)
                 current_total = cart_data['qty'] if cart_data else 0.0
                 
@@ -243,7 +303,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                         st.markdown(f"🔴 **{item_name}** &nbsp;|&nbsp; 📦 {row.get('count_unit', 'pcs')}")
                     
                     col_add, col_btn = st.columns([3, 1], vertical_alignment="center")
-                    input_key = f"inv_add_{row.get('id', index)}_{item_name}" # Unique key
+                    input_key = f"inv_add_{row.get('id', index)}_{item_name}"
                     
                     with col_add:
                         st.number_input(
@@ -262,7 +322,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                                 st.rerun()
 
         # ==========================================
-        # 7. SUBMIT TO CLOUD
+        # 6. SUBMIT TO CLOUD & GENERATE RECEIPT
         # ==========================================
         st.divider()
         cart_size = len(st.session_state['mobile_counts'])
@@ -287,28 +347,40 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                             "date": str(count_date),
                             "client_name": final_client,
                             "outlet": final_outlet,
-                            "location": loc_filter,  # Using the clean location variable
+                            "location": loc_filter,
                             "counted_by": user,
-                            
                             "item_name": r_data.get('item_name', i_name),
                             "product_code": str(r_data.get('product_code', '')),
                             "item_type": r_data.get('item_type', ''),
                             "category": r_data.get('category', ''),
                             "sub_category": r_data.get('sub_category', ''),
-                            
                             "quantity": float(data['qty']),
                             "count_unit": r_data.get('count_unit', 'pcs')
                         })
                     
                     if logs:
                         try:
-                            # Note: Ensure your Supabase table is named 'inventory_logs'
+                            # 1. Insert to Database
                             supabase.table("inventory_logs").insert(logs).execute()
-                            st.success("✅ Saved to Cloud securely!")
+                            
+                            # 2. Generate PDF Receipt Bytes
+                            df_receipt = pd.DataFrame(logs)
+                            pdf_bytes = generate_inventory_pdf(
+                                df_receipt, str(count_date), final_client, final_outlet, loc_filter, user
+                            )
+                            
+                            # 3. Save receipt to session state so it appears on next reload
+                            st.session_state['last_inv_receipt'] = {
+                                "bytes": pdf_bytes,
+                                "filename": f"Inventory_Receipt_{final_outlet.replace(' ', '_')}_{str(count_date)}.pdf"
+                            }
+                            
+                            # 4. Clear the shopping cart
                             st.session_state['mobile_counts'] = {}
                             st.rerun()
+                            
                         except Exception as e:
-                            st.error(f"❌ Error: {e}")
+                            st.error(f"❌ Database Error: {e}")
 
     except Exception as e:
         st.error(f"❌ System Error: {e}")
