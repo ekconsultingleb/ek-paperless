@@ -198,7 +198,7 @@ else:
             render_dashboard(conn, sheet, outlet)
             
         elif st.session_state['current_page'] == 'cash':
-            render_daily_cash(conn, sheet, outlet)
+            render_daily_cash(conn, sheet, outlet,user,role,outlet,location)
             
         elif st.session_state['current_page'] == 'inventory':
             render_inventory(conn, sheet, user, role, outlet, location)
