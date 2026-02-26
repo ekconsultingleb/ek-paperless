@@ -5,7 +5,7 @@ from supabase import create_client, Client  # <-- Add this right here!
 
 # --- IMPORT YOUR NEW MODULES ---
 from modules.dashboard import render_dashboard
-from modules.daily_cash import render_cash
+from modules.daily_cash import render_daily_cash
 from modules.inventory import render_inventory
 from modules.waste import render_waste
 from modules.transfers import render_transfers
@@ -198,7 +198,7 @@ else:
             render_dashboard(conn, sheet, outlet)
             
         elif st.session_state['current_page'] == 'cash':
-            render_cash(conn, sheet, outlet)
+            render_daily_cash(conn, sheet, outlet)
             
         elif st.session_state['current_page'] == 'inventory':
             render_inventory(conn, sheet, user, role, outlet, location)
