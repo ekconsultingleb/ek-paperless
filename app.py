@@ -142,7 +142,7 @@ else:
             <style>
             /* Force the button and its container to accept the new height */
             div[data-testid="stButton"] > button {
-                height: 200px !important;
+                height: 140px !important;
                 width: 100% !important;
                 border-radius: 15px !important;
                 border: 2px solid rgba(255,255,255,0.2) !important;
@@ -159,8 +159,8 @@ else:
             
             /* The Text inside the button */
             div[data-testid="stButton"] > button p {
-                font-size: 32px !important; 
-                font-weight: 700 !important;
+                font-size: 24px !important; 
+                font-weight: 500 !important;
                 margin: 0 !important;
             }
             </style>
