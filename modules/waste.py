@@ -3,56 +3,88 @@ import pandas as pd
 from datetime import datetime, timedelta
 import zoneinfo
 from supabase import create_client, Client
+from fpdf import FPDF
 
 # --- SAFELY INITIALIZE SUPABASE ---
 @st.cache_resource
 def get_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
-def add_waste_entry(dict_key, row_dict, qty_key, rem_key):
-    added_qty = st.session_state.get(qty_key, 0.0)
-    added_rem = st.session_state.get(rem_key, "")
+# --- PDF GENERATOR HELPER FUNCTION ---
+def generate_waste_pdf(df, report_date, client, outlet, location, user_name, waste_type, event_name="", pax=0):
+    pdf = FPDF()
+    pdf.add_page()
     
-    if added_qty > 0:
-        if dict_key not in st.session_state['waste_notepad']:
-            st.session_state['waste_notepad'][dict_key] = {
-                'row_data': row_dict,
-                'qty': 0.0,
-                'remark': ""
-            }
+    # Title
+    pdf.set_font("helvetica", "B", 16)
+    pdf.cell(0, 10, "Official Waste & Spoilage Ticket", ln=True, align="C")
+    
+    # Meta Data
+    pdf.set_font("helvetica", "", 10)
+    pdf.cell(0, 6, f"Date: {report_date}", ln=True)
+    pdf.cell(0, 6, f"Branch: {client} | Outlet: {outlet} | Location: {location}", ln=True)
+    pdf.cell(0, 6, f"Logged By: {user_name} | Type: {waste_type}", ln=True)
+    
+    # Add Event info if applicable
+    if waste_type == "Event" and event_name:
+        pdf.cell(0, 6, f"Event Name: {event_name} | PAX: {pax}", ln=True)
         
-        st.session_state['waste_notepad'][dict_key]['qty'] += added_qty
+    pdf.cell(0, 6, f"Generated: {datetime.now(zoneinfo.ZoneInfo('Asia/Beirut')).strftime('%Y-%m-%d %H:%M')}", ln=True)
+    pdf.ln(5)
+    
+    # Table Header
+    pdf.set_font("helvetica", "B", 10)
+    pdf.set_fill_color(255, 200, 200) # Light red tint
+    pdf.cell(80, 8, "Item Name", border=1, fill=True)
+    pdf.cell(40, 8, "Item Type", border=1, fill=True)
+    pdf.cell(30, 8, "Qty Wasted", border=1, align="C", fill=True)
+    pdf.cell(30, 8, "Unit", border=1, align="C", fill=True)
+    pdf.ln()
+    
+    # Table Rows
+    pdf.set_font("helvetica", "", 9)
+    for _, row in df.iterrows():
+        item = str(row.get('item_name', ''))[:40]
+        i_type = str(row.get('item_type', ''))[:20]
+        qty = str(row.get('qty', '0'))
+        unit = str(row.get('unit', 'pcs'))[:10]
         
-        current_rem = st.session_state['waste_notepad'][dict_key]['remark']
-        if added_rem.strip():
-            if current_rem:
-                st.session_state['waste_notepad'][dict_key]['remark'] = f"{current_rem} | {added_rem.strip()}"
-            else:
-                st.session_state['waste_notepad'][dict_key]['remark'] = added_rem.strip()
-                
-        st.session_state[qty_key] = 0.0
-        st.session_state[rem_key] = ""
+        pdf.cell(80, 8, item, border=1)
+        pdf.cell(40, 8, i_type, border=1)
+        pdf.cell(30, 8, qty, border=1, align="C")
+        pdf.cell(30, 8, unit, border=1, align="C")
+        pdf.ln()
+        
+    return bytes(pdf.output())
 
-def undo_waste_entry(dict_key):
-    if dict_key in st.session_state['waste_notepad']:
-        del st.session_state['waste_notepad'][dict_key]
+# --- THE CUMULATIVE COUNTING LOGIC ---
+def add_waste_qty(item_key, row_dict, input_key):
+    added_val = st.session_state.get(input_key, 0.0)
+    if added_val > 0:
+        if item_key not in st.session_state['waste_cart']:
+            st.session_state['waste_cart'][item_key] = {'row_data': row_dict, 'qty': 0.0}
+        st.session_state['waste_cart'][item_key]['qty'] += added_val
+        st.session_state[input_key] = 0.0
+
+def undo_waste_count(item_key):
+    if item_key in st.session_state['waste_cart']:
+        del st.session_state['waste_cart'][item_key]
 
 # ---> THE UPGRADED RENDER FUNCTION <---
 def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet, assigned_location):
-    st.markdown("### 🗑️ Daily Waste & Events")
+    st.markdown("### 🗑️ Log Waste, Meals & Events")
     supabase = get_supabase()
-    
-    if 'waste_notepad' not in st.session_state:
-        st.session_state['waste_notepad'] = {}
+
+    if 'waste_cart' not in st.session_state:
+        st.session_state['waste_cart'] = {}
 
     try:
         # ==========================================
-        # 1. VIEW MODE (NOW WITH DATE RANGE!)
+        # 1. VIEW MODE (HISTORY & PDF EXPORT)
         # ==========================================
         if role.lower() == "viewer":
             st.info("👁️ Viewer Mode: Showing Waste Logs")
             
-            # Date Range Selector
             today = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).date()
             default_start = today - timedelta(days=7)
             
@@ -61,10 +93,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             if len(date_range) == 2:
                 start_date, end_date = date_range
                 
-                # Build the query with date filters
                 query = supabase.table("waste_logs").select("*").gte("date", str(start_date)).lte("date", str(end_date))
-                
-                # Apply branch filter if they aren't 'All'
                 if str(assigned_client).lower() != 'all':
                     query = query.ilike("client_name", f"%{str(assigned_client).strip()}%")
                     
@@ -72,13 +101,25 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                 df_archive = pd.DataFrame(archive_res.data)
 
                 if not df_archive.empty:
+                    pdf_bytes = generate_waste_pdf(
+                        df_archive, f"{start_date} to {end_date}", 
+                        assigned_client, assigned_outlet, "Multiple Locations", "System Report", "Historical Report"
+                    )
+                    
+                    st.download_button(
+                        label="🖨️ Download Waste Report (PDF)",
+                        data=pdf_bytes,
+                        file_name=f"Waste_Report_{start_date}_to_{end_date}.pdf",
+                        mime="application/pdf",
+                        type="primary"
+                    )
+                    
                     st.dataframe(df_archive, use_container_width=True, hide_index=True)
                 else:
-                    st.warning(f"No logs found between {start_date} and {end_date}.")
+                    st.warning(f"No waste logs found between {start_date} and {end_date}.")
             else:
                 st.info("Please select both a Start Date and an End Date.")
-                
-            return  # Stop here for Viewers!
+            return
 
         # ==========================================
         # 2. SMART ROUTING & CLEAN SIDEBAR
@@ -118,7 +159,25 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                 final_outlet = "None"
 
         # ==========================================
-        # 3. MEGA-FETCH LOOP
+        # 3. POST-SUBMISSION RECEIPT (PDF)
+        # ==========================================
+        if 'last_waste_receipt' in st.session_state:
+            st.success("✅ **Success!** Waste ticket has been logged.")
+            st.download_button(
+                label="🖨️ Download Waste Ticket (PDF)",
+                data=st.session_state['last_waste_receipt']['bytes'],
+                file_name=st.session_state['last_waste_receipt']['filename'],
+                mime="application/pdf",
+                type="primary"
+            )
+            if st.button("Log More Waste", use_container_width=True):
+                del st.session_state['last_waste_receipt']
+                st.rerun()
+            st.divider()
+            return
+
+        # ==========================================
+        # 4. MEGA-FETCH LOOP
         # ==========================================
         all_items = []
         page_size, start_row = 1000, 0
@@ -132,15 +191,16 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                 start_row += page_size
 
         if not all_items:
-            df_items = pd.DataFrame(columns=['item_name', 'category', 'sub_category', 'count_unit', 'location', 'product_code'])
-            st.error(f"⚠️ No master items found for outlet '{final_outlet}'.")
+            df_items = pd.DataFrame(columns=['item_name', 'category', 'sub_category', 'count_unit', 'location', 'item_type'])
+            st.warning(f"⚠️ No items found for {final_outlet}.")
         else:
             df_items = pd.DataFrame(all_items)
             df_items.columns = [str(c).strip().lower() for c in df_items.columns]
             if 'location' not in df_items.columns:
                 df_items['location'] = "Main Store"
+            if 'item_type' not in df_items.columns:
+                df_items['item_type'] = "Inventory"
 
-        # --- C. LOCATION ROUTING ---
         db_locs = sorted(df_items['location'].dropna().astype(str).str.title().unique())
         raw_loc = str(assigned_location).strip()
 
@@ -153,149 +213,194 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             if valid_locs:
                 loc_filter = st.sidebar.selectbox("📍 Select Location", valid_locs)
             else:
-                st.sidebar.warning("Assigned locations not found in database.")
-                loc_filter = allowed_locs[0]
+                loc_filter = allowed_locs[0] if allowed_locs else "Main Store"
         else:
             loc_filter = raw_loc.title()
             st.sidebar.markdown(f"**📍 Location:** {loc_filter}")
             
-        # ==========================================
-        # NEW DECLARATION LOGIC (WITH EVENT INPUT)
-        # ==========================================
-        declaration = st.radio("Type", ["🗑️ Daily Waste", "🍽️ Staff Meal", "🎉 Event"], horizontal=True, label_visibility="collapsed")
-        
-        event_name = ""
-        if declaration == "🎉 Event":
-            event_name = st.text_input("🎈 Event Name", placeholder="e.g. Wedding 200 Pax, Corporate Dinner...")
-            
+        if not df_items.empty:
+            if loc_filter != "All":
+                df_items = df_items[df_items['location'].str.title() == loc_filter]
+            df_items = df_items.drop_duplicates(subset=['item_name']).copy()
+
         waste_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")))
-
         st.divider()
 
         # ==========================================
-        # 4. FILTERS
+        # 5. FILTERS & SEARCH & CARDS
         # ==========================================
-        st.subheader("🔍 Find Items")
-        search_q = st.text_input("🔍 Quick Search", placeholder="Find items...")
-
-        col1, col2 = st.columns(2)
-        with col1:
-            cats = sorted(df_items['category'].dropna().unique())
-            cat_filter = st.selectbox("📂 Category", ["None"] + cats, index=0)
-        with col2:
-            df_temp = df_items if cat_filter == "None" else df_items[df_items['category'] == cat_filter]
-            sub_filter = st.selectbox("🏷️ Sub Category", ["All"] + sorted(df_temp['sub_category'].dropna().unique()))
-
-        if search_q:
-            filtered_df = df_items[df_items['item_name'].str.contains(search_q, case=False, na=False)]
-        elif cat_filter != "None":
-            filtered_df = df_items[df_items['category'] == cat_filter]
-            if sub_filter != "All": filtered_df = filtered_df[filtered_df['sub_category'] == sub_filter]
-        else:
-            filtered_df = pd.DataFrame() 
-
-        # ==========================================
-        # 5. RENDER CARDS
-        # ==========================================
-        st.info(f"📊 System Status: Loaded {len(df_items)} items for {final_outlet}.")
+        st.subheader("🔍 Find Items to Log")
         
-        if not filtered_df.empty:
-            for idx, row in filtered_df.head(60).iterrows():
+        # --- THE ITEM TYPE TOGGLE ---
+        st.write("**Filter by Type:**")
+        item_type_filter = st.radio(
+            "Item Type", 
+            ["📦 Inventory Items", "🍔 Menu Items", "All Items"], 
+            horizontal=True, 
+            label_visibility="collapsed"
+        )
+        
+        search_query = st.text_input("🔍 Quick Search", placeholder="Find items to discard...")
+        
+        # Apply the item type filter before categories
+        if not df_items.empty:
+            if item_type_filter == "📦 Inventory Items":
+                df_filtered_type = df_items[df_items['item_type'].str.lower() == 'inventory']
+            elif item_type_filter == "🍔 Menu Items":
+                df_filtered_type = df_items[df_items['item_type'].str.lower() == 'menu item']
+            else:
+                df_filtered_type = df_items.copy()
+        else:
+            df_filtered_type = pd.DataFrame()
+
+        c1, c2 = st.columns(2)
+        with c1:
+            cats = sorted(list(df_filtered_type['category'].dropna().astype(str).unique())) if not df_filtered_type.empty else []
+            cat_options = ["All"] + cats
+            selected_category = st.selectbox("📂 Category", cat_options, index=1 if cats else 0)
+        with c2:
+            df_grp_list = df_filtered_type if selected_category == "All" else df_filtered_type[df_filtered_type['category'] == selected_category]
+            grps = sorted(list(df_grp_list['sub_category'].dropna().astype(str).unique())) if not df_grp_list.empty else []
+            grp_options = ["All"] + grps
+            selected_group = st.selectbox("🏷️ Sub Category", grp_options, index=1 if grps else 0)
+
+        if not df_filtered_type.empty:
+            if search_query:
+                df_display = df_filtered_type[df_filtered_type['item_name'].str.contains(search_query, case=False, na=False)].copy()
+            else:
+                df_display = df_filtered_type.copy()
+                if selected_category != "All":
+                    df_display = df_display[df_display['category'] == selected_category]
+                if selected_group != "All":
+                    df_display = df_display[df_display['sub_category'] == selected_group]
+        else:
+            df_display = pd.DataFrame()
+
+        total_items = len(df_display)
+        wasted_in_view = sum(1 for item in df_display['item_name'] if item in st.session_state['waste_cart']) if not df_display.empty else 0
+        
+        st.markdown(f"""
+            <div style='display: flex; justify-content: space-between; background-color: #3b1c1c; padding: 10px; border-radius: 10px; margin-bottom: 20px;'>
+                <span style='color: #ff6b6b;'>🗑️ {wasted_in_view} Selected</span>
+                <span style='color: white;'>📝 {total_items} Items in {selected_group}</span>
+            </div>
+        """, unsafe_allow_html=True)
+
+        if df_display.empty:
+            st.info("No items found matching criteria.")
+        else:
+            for index, row in df_display.iterrows():
                 item_name = row['item_name']
-                unit = row.get('count_unit', 'Unit')
-                if not unit or str(unit).lower() == 'none': unit = "Unit"
+                cart_data = st.session_state['waste_cart'].get(item_name)
+                current_total = cart_data['qty'] if cart_data else 0.0
                 
-                dict_key = f"{final_outlet}_{loc_filter}_{item_name}"
-                qty_key, rem_key = f"q_{idx}", f"r_{idx}"
-                
-                cart = st.session_state['waste_notepad'].get(dict_key)
-                current_total = cart['qty'] if cart else 0.0
-                live_input_val = st.session_state.get(qty_key, 0.0)
-
                 with st.container(border=True):
-                    c_t, c_u = st.columns([8, 2])
-                    with c_t:
-                        if current_total > 0:
-                            st.markdown(f"🟢 **{item_name}** | ✅ **Total: {current_total} {unit}**")
-                        elif live_input_val > 0:
-                            st.markdown(f"🟠 **{item_name}** | ⚠️ *Ready to add {live_input_val} {unit}...*")
-                        else:
-                            st.markdown(f"⚪ **{item_name}** | {unit}")
+                    if current_total > 0:
+                        st.markdown(f"🔴 **{item_name}** &nbsp;|&nbsp; 🗑️ Wasting: **{current_total}** {row.get('count_unit', 'pcs')}")
+                    else:
+                        st.markdown(f"⚪ **{item_name}** &nbsp;|&nbsp; 📦 {row.get('count_unit', 'pcs')}")
                     
-                    if current_total > 0 and c_u.button("🗑️ Undo", key=f"un_{idx}"):
-                        undo_waste_entry(dict_key)
-                        st.rerun()
-
-                    cq, cr, cb = st.columns([2, 5, 3], vertical_alignment="bottom")
-                    cq.number_input("Qty", 0.0, step=1.0, key=qty_key)
-                    cr.text_input("Remark", key=rem_key, placeholder="Optional reason...")
-                    cb.button("➕ Add", key=f"b_{idx}", on_click=add_waste_entry, 
-                              args=(dict_key, row.to_dict(), qty_key, rem_key), 
-                              type="primary" if live_input_val > 0 else "secondary", 
-                              use_container_width=True)
-
-        elif not search_q and cat_filter == "None":
-            st.warning("👆 Please use the search bar or select a category to see items.")
+                    col_add, col_btn = st.columns([3, 1], vertical_alignment="center")
+                    input_key = f"waste_add_{row.get('id', index)}_{item_name}"
+                    
+                    with col_add:
+                        st.number_input(
+                            "+ Add Waste Qty", 
+                            value=0.0, min_value=0.0, step=1.0, format="%g", 
+                            key=input_key,
+                            on_change=add_waste_qty,
+                            args=(item_name, row.to_dict(), input_key),
+                            label_visibility="collapsed",
+                            placeholder="Type amount and press Enter"
+                        )
+                    with col_btn:
+                        if current_total > 0:
+                            if st.button("♻️ Undo", key=f"undo_{row.get('id', index)}_{item_name}"):
+                                undo_waste_count(item_name)
+                                st.rerun()
 
         # ==========================================
-        # 6. SUBMIT & AUTO-REMARKS LOGIC
+        # 6. SUBMIT TICKET & GENERATE RECEIPT
         # ==========================================
         st.divider()
-        if st.session_state['waste_notepad']:
-            if st.button("🚀 SUBMIT WASTE TICKET", type="primary", use_container_width=True):
+        cart_size = len(st.session_state['waste_cart'])
+        if cart_size > 0:
+            st.error(f"🗑️ **{cart_size} items** queued for waste.")
+            with st.expander("👀 Review Waste Ticket", expanded=True):
                 
-                # Validation: Make sure they typed an Event Name if it's an event
-                if declaration == "🎉 Event" and not event_name.strip():
-                    st.error("❌ Please enter the Event Name before submitting!")
-                    return
+                # --- YOUR CUSTOM WASTE REASONS ---
+                st.write("### Ticket Details")
+                waste_type = st.radio(
+                    "Select Reason Type:", 
+                    ["WF (Waste Food)", "WB (Waste Beverage)", "SM (Staff Meal)", "Event"],
+                    horizontal=True
+                )
                 
-                submission_data = []
-                for k, v in st.session_state['waste_notepad'].items():
-                    r = v['row_data']
-                    item_unit_val = str(r.get('count_unit', 'Unit'))
-                    if item_unit_val.lower() == 'none': item_unit_val = "Unit"
-                    
-                    # --- THE AUTO-REMARK BRAIN ---
-                    category_str = str(r.get('category', '')).lower()
-                    
-                    # Determine if it is a Beverage (Looking for 'bev', 'drink', 'bar', 'liq')
-                    is_beverage = any(keyword in category_str for keyword in ['bev', 'drink', 'bar', 'liq', 'juice', 'alcohol'])
-                    
-                    if declaration == "🍽️ Staff Meal":
-                        auto_prefix = "SM"
-                    elif declaration == "🎉 Event":
-                        code = "B" if is_beverage else "F"
-                        auto_prefix = f"theo {code} - {event_name.strip()}"
-                    else:  # Daily Waste
-                        auto_prefix = "wb" if is_beverage else "wf"
-
-                    # Combine Auto-Prefix with whatever the user manually typed (if anything)
-                    user_remark = v['remark'].strip()
-                    final_remark = f"{auto_prefix} | {user_remark}" if user_remark else auto_prefix
-
-                    submission_data.append({
-                        "date": str(waste_date),
-                        "client_name": final_client, 
-                        "outlet": final_outlet,
-                        "location": loc_filter,
-                        "item_name": r['item_name'],
-                        "product_code": str(r.get('product_code', '')),
-                        "category": r.get('category'),
-                        "sub_category": r.get('sub_category'),
-                        "qty": float(v['qty']), 
-                        "count_unit": item_unit_val,
-                        "remarks": final_remark,  # <-- Injects the perfect code!
-                        "reported_by": user,
-                        "status": "Submitted"
+                # Dynamic fields if Event is chosen
+                event_name_val = ""
+                pax_val = 0
+                if waste_type == "Event":
+                    c_ev1, c_ev2 = st.columns(2)
+                    with c_ev1:
+                        event_name_val = st.text_input("📝 Event Name", placeholder="e.g. Wedding Booking")
+                    with c_ev2:
+                        pax_val = st.number_input("👥 PAX (Number of Guests)", min_value=1, step=1)
+                
+                st.divider()
+                
+                preview_list = []
+                for k, v in st.session_state['waste_cart'].items():
+                    preview_list.append({
+                        "Item": v['row_data'].get('item_name', k),
+                        "Type": v['row_data'].get('item_type', 'Inventory'),
+                        "Qty": v['qty'],
+                        "Unit": v['row_data'].get('count_unit', '')
                     })
-                
-                try:
-                    supabase.table("waste_logs").insert(submission_data).execute()
-                    st.session_state['waste_notepad'] = {}
-                    st.success("✅ Logged Successfully with Auto-Remarks!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Database Error: {e}")
+                st.dataframe(pd.DataFrame(preview_list), use_container_width=True, hide_index=True)
+
+                if st.button("🚀 SUBMIT WASTE TICKET", type="primary", use_container_width=True):
+                    if waste_type == "Event" and not event_name_val.strip():
+                        st.error("❌ Please provide an Event Name before submitting.")
+                    else:
+                        logs = []
+                        for i_name, data in st.session_state['waste_cart'].items():
+                            r_data = data['row_data']
+                            logs.append({
+                                "date": str(waste_date),
+                                "client_name": final_client,
+                                "outlet": final_outlet,
+                                "location": loc_filter,
+                                "logged_by": user,
+                                "item_name": r_data.get('item_name', i_name),
+                                "item_type": r_data.get('item_type', 'Inventory'),
+                                "category": r_data.get('category', ''),
+                                "qty": float(data['qty']), 
+                                "unit": r_data.get('count_unit', 'pcs'),
+                                "reason": waste_type,
+                                "event_name": event_name_val,
+                                "pax": pax_val
+                            })
+                        
+                        if logs:
+                            try:
+                                # Ensure your Supabase waste_logs table has columns for item_type, reason, event_name, and pax
+                                supabase.table("waste_logs").insert(logs).execute()
+                                
+                                df_receipt = pd.DataFrame(logs)
+                                pdf_bytes = generate_waste_pdf(
+                                    df_receipt, str(waste_date), final_client, final_outlet, loc_filter, user, waste_type, event_name_val, pax_val
+                                )
+                                
+                                st.session_state['last_waste_receipt'] = {
+                                    "bytes": pdf_bytes,
+                                    "filename": f"Waste_Ticket_{waste_type.split()[0]}_{str(waste_date)}.pdf"
+                                }
+                                
+                                st.session_state['waste_cart'] = {}
+                                st.rerun()
+                                
+                            except Exception as e:
+                                st.error(f"❌ Database Error: Ensure 'waste_logs' table has columns: item_type, reason, event_name, pax. Details: {e}")
 
     except Exception as e:
         st.error(f"❌ System Error: {e}")
