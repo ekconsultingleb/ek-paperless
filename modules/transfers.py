@@ -44,6 +44,14 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
         # ==========================================
         # 2. SMART ROUTING & CLEAN SIDEBAR
         # ==========================================
+        # PRO TIP: Query the small users table for instant navigation
+        nav_res = supabase.table("users").select("client_name, outlet").execute()
+        df_nav = pd.DataFrame(nav_res.data)
+        
+        if not df_nav.empty:
+            df_nav['client_name'] = df_nav['client_name'].astype(str).str.strip().str.title()
+            df_nav['outlet'] = df_nav['outlet'].astype(str).str.strip().str.title()
+
         clean_client = str(assigned_client).strip().title()
         clean_outlet = str(assigned_outlet).strip().title()
 
@@ -54,25 +62,37 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
             final_client = clean_client
             st.sidebar.markdown(f"**🏢 Branch:** {final_client}")
         else:
-            # For Admins: Fetch a quick list of unique clients
-            nav_res = supabase.table("master_items").select("client_name").limit(5000).execute()
-            df_nav = pd.DataFrame(nav_res.data)
-            c_list = sorted(df_nav['client_name'].dropna().astype(str).str.strip().str.title().unique()) if not df_nav.empty else ["All"]
+            c_list = sorted([c for c in df_nav['client_name'].unique() if c.lower() != 'all']) if not df_nav.empty else ["Select Branch"]
             final_client = st.sidebar.selectbox("🏢 Select Branch", c_list)
+
+        # B. Determine Outlet
+        if clean_outlet.lower() != 'all':
+            final_outlet = clean_outlet
+            st.sidebar.markdown(f"**🏠 Outlet:** {final_outlet}")
+        else:
+            if final_client != "Select Branch" and not df_nav.empty:
+                outlets_for_client = sorted([o for o in df_nav[df_nav['client_name'] == final_client]['outlet'].unique() if o.lower() != 'all'])
+            elif not df_nav.empty:
+                outlets_for_client = sorted([o for o in df_nav['outlet'].unique() if o.lower() != 'all'])
+            else:
+                outlets_for_client = []
+                
+            final_outlet = st.sidebar.selectbox("🏠 Select Outlet", outlets_for_client) if outlets_for_client else "None"
 
         # ==========================================
         # 3. MEGA-FETCH FOR MASTER ITEMS
         # ==========================================
-        # Safely pull ALL items for this specific client, bypassing the 1000-row limit
+        # Safely pull items for this specific client to enable cross-outlet transfers
         all_items = []
         page_size, start_row = 1000, 0
         
-        while True:
-            res = supabase.table("master_items").select("client_name, outlet, location, item_name, count_unit").ilike("client_name", f"%{final_client}%").range(start_row, start_row + page_size - 1).execute()
-            if not res.data: break
-            all_items.extend(res.data)
-            if len(res.data) < page_size: break
-            start_row += page_size
+        if final_client != "Select Branch":
+            while True:
+                res = supabase.table("master_items").select("client_name, outlet, location, item_name, count_unit").ilike("client_name", f"%{final_client}%").range(start_row, start_row + page_size - 1).execute()
+                if not res.data: break
+                all_items.extend(res.data)
+                if len(res.data) < page_size: break
+                start_row += page_size
 
         if not all_items:
             df_inv = pd.DataFrame(columns=['client_name', 'outlet', 'location', 'item_name', 'count_unit'])
@@ -81,22 +101,10 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
             df_inv['client_name'] = df_inv['client_name'].astype(str).str.strip().str.title()
             df_inv['outlet'] = df_inv['outlet'].astype(str).str.strip().str.title()
             df_inv['location'] = df_inv['location'].astype(str).str.strip().str.title()
-
-        # B. Determine Outlet
-        outlets_for_client = sorted(df_inv['outlet'].unique()) if not df_inv.empty else []
-
-        if clean_outlet.lower() != 'all':
-            final_outlet = clean_outlet
-            st.sidebar.markdown(f"**🏠 Outlet:** {final_outlet}")
-        else:
-            if outlets_for_client:
-                final_outlet = st.sidebar.selectbox("🏠 Select Outlet", outlets_for_client)
-            else:
-                st.sidebar.warning(f"No outlets found for branch '{final_client}'")
-                final_outlet = "None"
+            df_inv = df_inv.drop_duplicates().copy() # Keep memory clean
 
         # C. Determine Location
-        db_locs = sorted(list(df_inv[df_inv['outlet'] == final_outlet]['location'].dropna().unique())) if final_outlet != "None" else []
+        db_locs = sorted(list(df_inv[df_inv['outlet'] == final_outlet]['location'].dropna().unique())) if final_outlet != "None" and not df_inv.empty else []
         raw_loc = str(assigned_location).strip()
 
         if raw_loc.lower() == 'all':
@@ -154,9 +162,11 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
             if final_outlet == "None":
                 st.error("No valid outlet assigned. Cannot create requests.")
             else:
+                outlets_in_branch = sorted(df_inv['outlet'].unique()) if not df_inv.empty else []
+                
                 col_o1, col_o2 = st.columns(2)
                 with col_o1:
-                    from_outlet = st.selectbox("Request From (Outlet)", outlets_for_client, key="t_from_out")
+                    from_outlet = st.selectbox("Request From (Outlet)", outlets_in_branch if outlets_in_branch else [final_outlet], key="t_from_out")
                 with col_o2:
                     to_outlet = st.selectbox("Request For (Outlet)", [final_outlet], disabled=True, key="t_to_out")
                 
