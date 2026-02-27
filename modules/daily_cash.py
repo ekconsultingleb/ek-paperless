@@ -35,7 +35,7 @@ def render_daily_cash(conn, sheet_link, user, role, assigned_client, assigned_ou
                 if str(assigned_client).lower() != 'all':
                     query = query.ilike("client_name", f"%{str(assigned_client).strip()}%")
                     
-                archive_res = query.order("date", desc=True).limit(1000).execute()
+                archive_res = query.order("date", desc=True).limit(2000).execute()
                 df_archive = pd.DataFrame(archive_res.data)
 
                 if not df_archive.empty:
@@ -55,7 +55,8 @@ def render_daily_cash(conn, sheet_link, user, role, assigned_client, assigned_ou
         # ==========================================
         # 2. SMART ROUTING & CLEAN SIDEBAR
         # ==========================================
-        nav_res = supabase.table("master_items").select("client_name, outlet").execute()
+        # PRO TIP: Query the small users table for instant navigation
+        nav_res = supabase.table("users").select("client_name, outlet").execute()
         df_nav = pd.DataFrame(nav_res.data)
         
         if not df_nav.empty:
@@ -71,23 +72,21 @@ def render_daily_cash(conn, sheet_link, user, role, assigned_client, assigned_ou
             final_client = clean_client
             st.sidebar.markdown(f"**🏢 Branch:** {final_client}")
         else:
-            c_list = sorted(df_nav['client_name'].unique()) if not df_nav.empty else ["All"]
+            c_list = sorted([c for c in df_nav['client_name'].unique() if c.lower() != 'all']) if not df_nav.empty else ["Select Branch"]
             final_client = st.sidebar.selectbox("🏢 Select Branch", c_list)
-
-        if not df_nav.empty:
-            outlets_for_client = sorted(df_nav[df_nav['client_name'] == final_client]['outlet'].unique())
-        else:
-            outlets_for_client = []
 
         if clean_outlet.lower() != 'all':
             final_outlet = clean_outlet
             st.sidebar.markdown(f"**🏠 Outlet:** {final_outlet}")
         else:
-            if outlets_for_client:
-                final_outlet = st.sidebar.selectbox("🏠 Select Outlet", outlets_for_client)
+            if final_client != "Select Branch" and not df_nav.empty:
+                outlets_for_client = sorted([o for o in df_nav[df_nav['client_name'] == final_client]['outlet'].unique() if o.lower() != 'all'])
+            elif not df_nav.empty:
+                outlets_for_client = sorted([o for o in df_nav['outlet'].unique() if o.lower() != 'all'])
             else:
-                st.sidebar.warning(f"No outlets found for branch '{final_client}'")
-                final_outlet = "None"
+                outlets_for_client = []
+                
+            final_outlet = st.sidebar.selectbox("🏠 Select Outlet", outlets_for_client) if outlets_for_client else "None"
                 
         # Cash is usually tracked at the Outlet level, but we display location routing just in case
         raw_loc = str(assigned_location).strip().title()
@@ -127,8 +126,8 @@ def render_daily_cash(conn, sheet_link, user, role, assigned_client, assigned_ou
         # 4. SUBMIT DATA
         # ==========================================
         if st.button("🚀 SUBMIT DAILY REPORT", type="primary", use_container_width=True):
-            if final_outlet == "None":
-                st.error("❌ Cannot submit without a valid outlet.")
+            if final_outlet == "None" or final_client == "Select Branch":
+                st.error("❌ Cannot submit without a valid Branch and Outlet.")
             else:
                 submission_data = {
                     "date": str(entry_date), 
@@ -145,7 +144,6 @@ def render_daily_cash(conn, sheet_link, user, role, assigned_client, assigned_ou
                 }
                 
                 try:
-                    # Make sure your Supabase table is named 'daily_cash'
                     supabase.table("daily_cash").insert([submission_data]).execute()
                     st.success(f"✅ Data saved securely for {final_outlet}! Variance: {over_short:,.2f}")
                     # Optional: Add st.balloons() here for a fun UI touch when they submit perfectly
