@@ -1,9 +1,8 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from supabase import create_client, Client
 
-# --- IMPORT YOUR NEW MODULES ---
+# --- IMPORT YOUR MODULES ---
 from modules.main import render_main
 from modules.dashboard import render_dashboard
 from modules.daily_cash import render_daily_cash
@@ -20,15 +19,13 @@ def init_supabase():
 
 supabase: Client = init_supabase()
 
-# --- CONFIGURATION ---
-MASTER_HUB_URL = "https://docs.google.com/spreadsheets/d/1Bwk2UYwtLrg5bOzAbzF834aIlnCPBVYU4hAiaW26Fec"
-
 st.set_page_config(page_title="EK Consulting Portal", layout="wide")
 
 # --- BRANDING & LOGO ---
 st.sidebar.image("EK-Logo.png", use_container_width=True)
 st.sidebar.divider()
 st.sidebar.success("✅ LIVE!")
+
 custom_css = """
             <style>
             .block-container { padding-top: 2rem !important; padding-bottom: 1rem !important; }
@@ -38,8 +35,6 @@ custom_css = """
             </style>
             """
 st.markdown(custom_css, unsafe_allow_html=True)
-
-conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- SESSION STATE INITIALIZATION ---
 if 'logged_in' not in st.session_state:
@@ -71,20 +66,20 @@ if not st.session_state.get('logged_in', False):
                 if len(response.data) > 0:
                     match = response.data[0] 
                     
-                    # 1. Clean up Outlet and Location
+                    # Clean up Outlet and Location
                     assigned_out = str(match.get('outlet', 'All')).strip() if match.get('outlet') else "All"
                     assigned_loc = str(match.get('location', 'All')).strip() if match.get('location') else "All"
 
-                    # 2. Save EVERYTHING to Session State
+                    # Save EVERYTHING to Session State
                     st.session_state.update({
                         'logged_in': True,
                         'user': match.get('username', u_input),
                         'role': str(match.get('role', 'staff')).lower().strip(),
                         'module': match.get('module', 'All'), 
-                        'link': match.get('client_sheet_link', ''), 
+                        'link': None, # Google Sheets link no longer needed
                         'assigned_outlet': assigned_out,
                         'assigned_location': assigned_loc,
-                        'client_name': match.get('client_name', 'All'), # Passes Hajj Nasr or La Siesta
+                        'client_name': match.get('client_name', 'All'), 
                         'current_page': 'home'
                     })
                     st.rerun()
@@ -109,15 +104,14 @@ else:
         st.session_state.clear()
         st.rerun()
 
-    # --- TRAFFIC COP (NAVIGATION) ---
+    # --- NAVIGATION LOGIC ---
     role = st.session_state['role']
-    sheet = st.session_state['link']
     user = st.session_state['user']
     outlet = st.session_state['assigned_outlet']
     location = st.session_state['assigned_location']
     client = st.session_state.get('client_name', 'All') 
     
-    # 1. PARSE ALLOWED MODULES
+    # PARSE ALLOWED MODULES
     raw_modules = str(st.session_state.get('module', '')).lower().strip()
     
     if raw_modules == "all_modules" or role == "admin":
@@ -133,14 +127,12 @@ else:
             st.rerun()
 
     # ==========================================
-    # 2. PAGE: HOME MENU
+    # PAGE: HOME MENU
     # ==========================================
     if st.session_state['current_page'] == 'home':
         
-        # --- CSS MAGIC: Make the home buttons massive and interactive ---
         st.markdown("""
             <style>
-            /* Force the button and its container to accept the new height */
             div[data-testid="stButton"] > button {
                 height: 100px !important;
                 width: 100% !important;
@@ -149,15 +141,11 @@ else:
                 transition: all 0.3s ease-in-out !important;
                 padding: 0px !important;
             }
-            
-            /* The Hover Glow Effect */
             div[data-testid="stButton"] > button:hover {
                 border-color: #00ff00 !important;
                 box-shadow: 0 0 20px rgba(0, 255, 0, 0.3) !important;
                 transform: translateY(-5px) !important;
             }
-            
-            /* The Text inside the button */
             div[data-testid="stButton"] > button p {
                 font-size: 24px !important; 
                 font-weight: 500 !important;
@@ -165,7 +153,7 @@ else:
             }
             </style>
         """, unsafe_allow_html=True)
-        # --- A Clean, Modern Greeting ---
+
         st.markdown(f"## Welcome back, {user.title()}! 👋")
         st.markdown("<h4 style='color: #888888; font-weight: 400; margin-bottom: 30px;'>Explore</h4>", unsafe_allow_html=True)
         
@@ -196,34 +184,15 @@ else:
                     st.rerun()
 
         if "cash" in allowed_modules:
-            st.write("") # Adds a tiny bit of spacing before the next row
+            st.write("") 
             col_e, _, _, _ = st.columns(4)
             with col_e:
                 if st.button("🏦 Daily Cash", use_container_width=True):
                     st.session_state['current_page'] = 'cash'
                     st.rerun()
 
-        # 👑 ADMIN ONLY: MASTER HUB LINKS
-        if role == "admin":
-            st.divider()
-            st.subheader("🔗 Master Database Links")
-            st.info("Direct access to client Google Sheets:")
-            try:
-                users_df = conn.read(spreadsheet=MASTER_HUB_URL, worksheet="users", ttl=600)
-                users_df.columns = [str(c).strip().lower() for c in users_df.columns]
-                
-                clients_with_links = users_df[users_df['client_sheet_link'].notna()]
-                unique_links = clients_with_links['client_sheet_link'].unique()
-                
-                with st.container(border=True):
-                    for link in unique_links:
-                        c_name = clients_with_links[clients_with_links['client_sheet_link'] == link]['client_name'].iloc[0]
-                        st.markdown(f"🔹 [{str(c_name).title()} Master Database]({link})")
-            except Exception as e:
-                st.error(f"Could not load Master Hub links: {e}")
-
     # ==========================================
-    # 3. PAGE ROUTING (INSIDE MODULES)
+    # PAGE ROUTING (INSIDE MODULES)
     # ==========================================
     else:
         if st.button("⬅️ Back to Main Menu"):
@@ -233,19 +202,19 @@ else:
 
         # Route to the correct file
         if st.session_state['current_page'] == 'dashboard':
-            render_dashboard(conn, sheet, user, role, client, outlet, location)
+            render_dashboard(None, None, user, role, client, outlet, location)
             
         elif st.session_state['current_page'] == 'cash':
-            render_daily_cash(conn, sheet, user, role, client, outlet, location)
+            render_daily_cash(None, None, user, role, client, outlet, location)
             
         elif st.session_state['current_page'] == 'inventory':
-            render_inventory(conn, sheet, user, role, client, outlet, location)
+            render_inventory(None, None, user, role, client, outlet, location)
             
         elif st.session_state['current_page'] == 'waste':
-            render_waste(conn, sheet, user, role, client, outlet, location)
+            render_waste(None, None, user, role, client, outlet, location)
             
         elif st.session_state['current_page'] == 'transfers':
-            render_transfers(conn, sheet, user, role, client, outlet, location)
+            render_transfers(None, None, user, role, client, outlet, location)
             
         elif st.session_state['current_page'] == 'main':
-            render_main(conn, sheet, user, role)
+            render_main(None, None, user, role)
