@@ -18,7 +18,7 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
         # ==========================================
         # 1. SMART ROUTING & CLEAN SIDEBAR
         # ==========================================
-        # PRO TIP FIX: We query the USERS table for the dropdowns instead of the 50,000 item table. It is instantly fast!
+        # PRO TIP: Query the small users table for instant navigation
         nav_res = supabase.table("users").select("client_name, outlet").execute()
         df_nav = pd.DataFrame(nav_res.data)
         
@@ -60,7 +60,7 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
         # 2. GLOBAL DATE FILTER
         # ==========================================
         today = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).date()
-        default_start = today - timedelta(days=7) 
+        default_start = today - timedelta(days=7) # Default to last 7 days
         
         col_date, col_blank = st.columns([1, 2])
         with col_date:
@@ -85,12 +85,15 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
             return query
 
         with st.spinner("⏳ Fetching live analytics..."):
+            # Fetch Cash
             res_cash = secure_query("daily_cash").limit(5000).execute()
             df_cash = pd.DataFrame(res_cash.data)
             
+            # Fetch Waste
             res_waste = secure_query("waste_logs").limit(5000).execute()
             df_waste = pd.DataFrame(res_waste.data)
             
+            # Fetch Inventory (Just counting rows)
             res_inv = secure_query("inventory_logs").limit(5000).execute()
             df_inv = pd.DataFrame(res_inv.data)
 
@@ -99,6 +102,7 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
         # ==========================================
         col1, col2, col3, col4 = st.columns(4)
         
+        # Cash Math
         if not df_cash.empty:
             total_rev = pd.to_numeric(df_cash['revenue'], errors='coerce').sum()
             total_variance = pd.to_numeric(df_cash['over_short'], errors='coerce').sum()
@@ -108,6 +112,7 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
         col1.metric("Total Revenue", f"{total_rev:,.2f}")
         col2.metric("Cash Variance", f"{total_variance:,.2f}", delta=f"{total_variance:,.2f}", delta_color="normal")
             
+        # Waste Math
         if not df_waste.empty:
             total_waste_qty = pd.to_numeric(df_waste['qty'], errors='coerce').sum()
         else:
@@ -115,6 +120,7 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
             
         col3.metric("Waste (Qty)", f"{total_waste_qty:,.0f}")
 
+        # Inventory Math
         items_counted = len(df_inv) if not df_inv.empty else 0
         col4.metric("Inventory Items Logged", f"{items_counted:,.0f}")
             
@@ -125,6 +131,7 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
         # ==========================================
         if not df_cash.empty:
             st.subheader("🏢 Revenue Breakdown")
+            
             df_cash['revenue'] = pd.to_numeric(df_cash['revenue'], errors='coerce').fillna(0)
             df_cash['over_short'] = pd.to_numeric(df_cash['over_short'], errors='coerce').fillna(0)
             
@@ -177,21 +184,33 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
             db_table_name = table_map[table_to_export]
             
             if st.button(f"🔍 Fetch {table_to_export} Data", type="primary"):
-                with st.spinner(f"Pulling all {table_to_export} records..."):
-                    # Fetching directly from the logs table based on the date range
-                    export_res = supabase.table(db_table_name).select("*").gte("date", str(start_date)).lte("date", str(end_date)).execute()
+                with st.spinner(f"Pulling {table_to_export} records..."):
+                    
+                    # 1. Start with the date filter
+                    export_query = supabase.table(db_table_name).select("*").gte("date", str(start_date)).lte("date", str(end_date))
+                    
+                    # 2. Apply the sidebar Client filter
+                    if final_client != 'All':
+                        export_query = export_query.ilike("client_name", f"%{final_client}%")
+                        
+                    # 3. Apply the sidebar Outlet filter
+                    if final_outlet != 'All':
+                        export_query = export_query.ilike("outlet", f"%{final_outlet}%")
+                        
+                    # 4. Fetch the data with a massive limit to bypass limits
+                    export_res = export_query.limit(50000).execute()
                     df_export = pd.DataFrame(export_res.data)
                     
                     if not df_export.empty:
                         st.success(f"✅ Found {len(df_export)} records.")
                         
-                        # Generate CSV for download (Opens automatically in Excel)
+                        # Generate CSV for download
                         csv_data = df_export.to_csv(index=False).encode('utf-8')
                         
                         st.download_button(
                             label=f"💾 Download {table_to_export} as CSV",
                             data=csv_data,
-                            file_name=f"{db_table_name}_export_{start_date}_to_{end_date}.csv",
+                            file_name=f"{db_table_name}_export_{final_client}_{start_date}_to_{end_date}.csv",
                             mime="text/csv",
                             type="primary",
                             use_container_width=True
@@ -201,7 +220,7 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
                         with st.expander("👀 Preview Data"):
                             st.dataframe(df_export.head(10), use_container_width=True)
                     else:
-                        st.warning(f"No records found in {table_to_export} for the selected dates.")
-
+                        st.warning(f"No records found for the selected filters and dates.")
+                        
     except Exception as e:
         st.error(f"❌ Error loading Dashboard analytics: {e}")
