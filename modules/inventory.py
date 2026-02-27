@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 import zoneinfo
 from supabase import create_client, Client
 from fpdf import FPDF
-import io
 
 # --- SAFELY INITIALIZE SUPABASE ---
 @st.cache_resource
@@ -16,18 +15,15 @@ def generate_inventory_pdf(df, report_date, client, outlet, location, user_name)
     pdf = FPDF()
     pdf.add_page()
     
-    # Title
     pdf.set_font("helvetica", "B", 16)
     pdf.cell(0, 10, "Official Inventory Count Report", ln=True, align="C")
     
-    # Meta Data
     pdf.set_font("helvetica", "", 10)
     pdf.cell(0, 6, f"Date: {report_date}", ln=True)
     pdf.cell(0, 6, f"Branch: {client} | Outlet: {outlet} | Location: {location}", ln=True)
-    pdf.cell(0, 6, f"Counted By: {user_name} | Generated: {datetime.now(zoneinfo.ZoneInfo('Asia/Beirut')).strftime('%Y-%m-%d %H:%M')}", ln=True)
+    pdf.cell(0, 6, f"Generated: {datetime.now(zoneinfo.ZoneInfo('Asia/Beirut')).strftime('%Y-%m-%d %H:%M')}", ln=True)
     pdf.ln(5)
     
-    # Table Header
     pdf.set_font("helvetica", "B", 10)
     pdf.set_fill_color(200, 200, 200)
     pdf.cell(80, 8, "Item Name", border=1, fill=True)
@@ -36,10 +32,8 @@ def generate_inventory_pdf(df, report_date, client, outlet, location, user_name)
     pdf.cell(30, 8, "Unit", border=1, align="C", fill=True)
     pdf.ln()
     
-    # Table Rows
     pdf.set_font("helvetica", "", 9)
     for _, row in df.iterrows():
-        # Clean up data strings and limit length to avoid text bleeding out of cells
         item = str(row.get('item_name', ''))[:40]
         cat = str(row.get('category', ''))[:25]
         qty = str(row.get('quantity', '0'))
@@ -66,7 +60,9 @@ def undo_inventory_count(item_key):
     if item_key in st.session_state['mobile_counts']:
         del st.session_state['mobile_counts'][item_key]
 
-# ---> THE UPGRADED RENDER FUNCTION <---
+# ==========================================
+# MAIN RENDER FUNCTION
+# ==========================================
 def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_outlet, assigned_location):
     st.markdown("### 📋 Inventory Count")
     supabase = get_supabase()
@@ -74,53 +70,84 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
     if 'mobile_counts' not in st.session_state:
         st.session_state['mobile_counts'] = {}
 
-    try:
-        # ==========================================
-        # 1. VIEW MODE (HISTORY & PDF EXPORT)
-        # ==========================================
-        if role.lower() == "viewer":
-            st.info("👁️ Viewer Mode: Showing Inventory Logs")
+    # ---------------------------------------------------------
+    # SUB-VIEW A: THE REPORTS & CONSOLIDATED TOTALS (CHEF VIEW)
+    # ---------------------------------------------------------
+    def show_reports():
+        st.info("👁️ Viewing Inventory Logs & Totals")
+        
+        today = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).date()
+        default_start = today - timedelta(days=7)
+        
+        date_range = st.date_input("📅 Select Date Range", value=(default_start, today), max_value=today, key="report_dates")
+        
+        if len(date_range) == 2:
+            start_date, end_date = date_range
             
-            today = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).date()
-            default_start = today - timedelta(days=7)
+            # 🔒 The Security Lock remains untouched: They can only pull their assigned data
+            query = supabase.table("inventory_logs").select("*").gte("date", str(start_date)).lte("date", str(end_date))
             
-            date_range = st.date_input("📅 Select Date Range", value=(default_start, today), max_value=today)
-            
-            if len(date_range) == 2:
-                start_date, end_date = date_range
+            if str(assigned_client).lower() != 'all':
+                query = query.ilike("client_name", f"%{str(assigned_client).strip()}%")
+            if str(assigned_outlet).lower() != 'all':
+                query = query.ilike("outlet", f"%{str(assigned_outlet).strip()}%")
                 
-                query = supabase.table("inventory_logs").select("*").gte("date", str(start_date)).lte("date", str(end_date))
-                if str(assigned_client).lower() != 'all':
-                    query = query.ilike("client_name", f"%{str(assigned_client).strip()}%")
-                    
-                archive_res = query.order("date", desc=True).limit(2000).execute()
-                df_archive = pd.DataFrame(archive_res.data)
+            archive_res = query.order("date", desc=True).limit(5000).execute()
+            df_archive = pd.DataFrame(archive_res.data)
 
-                if not df_archive.empty:
+            if not df_archive.empty:
+                tab_raw, tab_total = st.tabs(["📜 Raw Logs (By User)", "📊 Consolidated Totals (Chef's View)"])
+                
+                with tab_raw:
+                    st.write("### Individual Staff Counts")
                     pdf_bytes = generate_inventory_pdf(
                         df_archive, f"{start_date} to {end_date}", 
                         assigned_client, assigned_outlet, "Multiple Locations", "System Report"
                     )
-                    
                     st.download_button(
-                        label="🖨️ Download PDF Report",
+                        label="🖨️ Download Raw PDF Report",
                         data=pdf_bytes,
                         file_name=f"Inventory_Report_{start_date}_to_{end_date}.pdf",
                         mime="application/pdf",
-                        type="primary"
+                        type="primary",
+                        key="raw_pdf_btn"
                     )
-                    
                     st.dataframe(df_archive, use_container_width=True, hide_index=True)
-                else:
-                    st.warning(f"No logs found between {start_date} and {end_date}.")
+                    
+                with tab_total:
+                    st.write("### Total Inventory by Item")
+                    st.info("💡 This view merges counts from all staff and locations into one final total per item.")
+                    
+                    df_math = df_archive.copy()
+                    df_math['quantity'] = pd.to_numeric(df_math['quantity'], errors='coerce').fillna(0)
+                    
+                    df_totals = df_math.groupby(
+                        ['category', 'sub_category', 'item_name', 'count_unit'], 
+                        dropna=False
+                    )['quantity'].sum().reset_index()
+                    
+                    df_totals = df_totals.sort_values(by=['category', 'item_name'])
+                    st.dataframe(df_totals, use_container_width=True, hide_index=True)
+                    
+                    csv_totals = df_totals.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="💾 Download Consolidated Totals (CSV)",
+                        data=csv_totals,
+                        file_name=f"Consolidated_Inventory_{start_date}_to_{end_date}.csv",
+                        mime="text/csv",
+                        type="primary",
+                        key="totals_csv_btn"
+                    )
             else:
-                st.info("Please select both a Start Date and an End Date.")
-            return
+                st.warning(f"No logs found between {start_date} and {end_date}.")
+        else:
+            st.info("Please select both a Start Date and an End Date.")
 
-        # ==========================================
-        # 2. SMART ROUTING & CLEAN SIDEBAR
-        # ==========================================
-        # PRO TIP: Query the small users table for instant navigation
+    # ---------------------------------------------------------
+    # SUB-VIEW B: THE COUNTING INTERFACE (STAFF VIEW)
+    # ---------------------------------------------------------
+    def show_counting():
+        # 1. SMART ROUTING
         nav_res = supabase.table("users").select("client_name, outlet").execute()
         df_nav = pd.DataFrame(nav_res.data)
         
@@ -138,7 +165,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
             st.sidebar.markdown(f"**🏢 Branch:** {final_client}")
         else:
             c_list = sorted([c for c in df_nav['client_name'].unique() if c.lower() != 'all']) if not df_nav.empty else ["Select Branch"]
-            final_client = st.sidebar.selectbox("🏢 Select Branch", c_list)
+            final_client = st.sidebar.selectbox("🏢 Select Branch", c_list, key="c_branch")
 
         if clean_outlet.lower() != 'all':
             final_outlet = clean_outlet
@@ -148,12 +175,8 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                 outlets_for_client = sorted([o for o in df_nav[df_nav['client_name'] == final_client]['outlet'].unique() if o.lower() != 'all'])
             else:
                 outlets_for_client = []
-                
-            final_outlet = st.sidebar.selectbox("🏠 Select Outlet", outlets_for_client) if outlets_for_client else "None"
+            final_outlet = st.sidebar.selectbox("🏠 Select Outlet", outlets_for_client, key="c_outlet") if outlets_for_client else "None"
 
-        # ==========================================
-        # 3. POST-SUBMISSION RECEIPT (PDF)
-        # ==========================================
         if 'last_inv_receipt' in st.session_state:
             st.success("✅ **Success!** Your count was safely stored in the cloud.")
             st.download_button(
@@ -161,33 +184,25 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                 data=st.session_state['last_inv_receipt']['bytes'],
                 file_name=st.session_state['last_inv_receipt']['filename'],
                 mime="application/pdf",
-                type="primary"
+                type="primary",
+                key="receipt_btn"
             )
-            if st.button("Start New Count", use_container_width=True):
+            if st.button("Start New Count", use_container_width=True, key="new_count_btn"):
                 del st.session_state['last_inv_receipt']
                 st.rerun()
             st.divider()
             return
 
-        # ==========================================
-        # 4. MEGA-FETCH LOOP
-        # ==========================================
+        # 3. MEGA-FETCH LOOP (DOUBLE LOCKED - 100% SAFE)
         all_items = []
         page_size, start_row = 1000, 0
         
         if final_outlet and str(final_outlet).strip() != "" and final_outlet != "None":
             while True:
-                # Start the query
                 query = supabase.table("master_items").select("*")
-                
-                # 🔒 DOUBLE LOCK 1: Lock the Client (Branch)
                 if final_client and final_client not in ["All", "Select Branch", "All Branches"]:
                     query = query.ilike("client_name", f"%{final_client}%")
-                    
-                # 🔒 DOUBLE LOCK 2: Lock the Outlet
                 query = query.ilike("outlet", f"%{final_outlet}%")
-                
-                # Execute the fetch
                 res = query.range(start_row, start_row + page_size - 1).execute()
                 
                 if not res.data: break
@@ -196,28 +211,25 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                 start_row += page_size
 
         if not all_items:
-            df_items = pd.DataFrame(columns=['item_name', 'category', 'sub_category', 'count_unit', 'location', 'product_code', 'item_type'])
+            df_items = pd.DataFrame(columns=['item_name', 'category', 'sub_category', 'count_unit', 'location', 'item_type'])
             st.warning(f"⚠️ No items found for {final_outlet}.")
         else:
             df_items = pd.DataFrame(all_items)
             df_items.columns = [str(c).strip().lower() for c in df_items.columns]
-            if 'location' not in df_items.columns:
-                df_items['location'] = "Main Store"
-            if 'item_type' in df_items.columns:
-                df_items = df_items[df_items['item_type'].astype(str).str.lower() == 'inventory']
+            if 'location' not in df_items.columns: df_items['location'] = "Main Store"
+            if 'item_type' in df_items.columns: df_items = df_items[df_items['item_type'].astype(str).str.lower() == 'inventory']
 
         db_locs = sorted(df_items['location'].dropna().astype(str).str.title().unique())
         raw_loc = str(assigned_location).strip()
 
-        # Location Dropdown Logic (Handles multi-location commas safely)
         if raw_loc.lower() == 'all':
             loc_options = ["All"] + db_locs if db_locs else ["All"]
-            loc_filter = st.sidebar.selectbox("📍 Select Location", loc_options)
+            loc_filter = st.sidebar.selectbox("📍 Select Location", loc_options, key="c_loc")
         elif "," in raw_loc:
             allowed_locs = [l.strip().title() for l in raw_loc.split(',')]
             valid_locs = [l for l in allowed_locs if l in db_locs]
             if valid_locs:
-                loc_filter = st.sidebar.selectbox("📍 Select Location", valid_locs)
+                loc_filter = st.sidebar.selectbox("📍 Select Location", valid_locs, key="c_loc")
             else:
                 st.sidebar.warning("Assigned locations not found in database.")
                 loc_filter = allowed_locs[0] if allowed_locs else "Main Store"
@@ -225,23 +237,16 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
             loc_filter = raw_loc.title()
             st.sidebar.markdown(f"**📍 Location:** {loc_filter}")
             
-        # ---> THE DUPLICATE FIX IS HERE <---
         if not df_items.empty:
-            # 1. First filter by the exact location (e.g. Med or Coffee Shop)
             if loc_filter != "All":
                 df_items = df_items[df_items['location'].str.title() == loc_filter]
-            
-            # 2. Ultra-safe: Remove any accidental exact duplicates remaining
             df_items = df_items.drop_duplicates(subset=['item_name']).copy()
 
-        count_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")))
+        count_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")), key="count_date")
         st.divider()
 
-        # ==========================================
-        # 5. FILTERS & CARDS & MISSING ITEM
-        # ==========================================
         with st.expander("➕ Missing an item? Add it manually here"):
-            c_name = st.text_input("Item Name (e.g., Redbull)")
+            c_name = st.text_input("Item Name (e.g., Redbull)", key="custom_name")
             col_cat, col_grp = st.columns(2)
             with col_cat:
                 cat_options = list(df_items['category'].dropna().unique()) if not df_items.empty else ["General"]
@@ -257,31 +262,28 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
             with col_qty:
                 c_qty = st.number_input("Quantity", min_value=0.0, step=1.0, format="%g", key="custom_qty")
             with col_unit:
-                c_unit = st.text_input("Unit (e.g., Can, Kg)")
+                c_unit = st.text_input("Unit (e.g., Can, Kg)", key="custom_unit")
                 
-            if st.button("Save Custom Item", use_container_width=True):
+            if st.button("Save Custom Item", use_container_width=True, key="custom_save"):
                 if c_name and c_qty > 0:
-                    fake_row = {
-                        "item_name": c_name.upper(), "category": c_cat, 
-                        "sub_category": c_grp, "count_unit": c_unit.title() if c_unit else "Pcs"
-                    }
+                    fake_row = {"item_name": c_name.upper(), "category": c_cat, "sub_category": c_grp, "count_unit": c_unit.title() if c_unit else "Pcs"}
                     st.session_state['mobile_counts'][f"CUSTOM_{c_name}"] = {'row_data': fake_row, 'qty': c_qty}
                     st.success(f"Added {c_name} to cart!")
                     st.rerun()
 
         st.subheader("🔍 Filter & Count")
-        search_query = st.text_input("🔍 Quick Search", placeholder="Find items...")
+        search_query = st.text_input("🔍 Quick Search", placeholder="Find items...", key="search_bar")
         
         c1, c2 = st.columns(2)
         with c1:
             cats = sorted(list(df_items['category'].dropna().astype(str).unique())) if not df_items.empty else []
             cat_options = ["All"] + cats
-            selected_category = st.selectbox("📂 Category", cat_options, index=1 if cats else 0)
+            selected_category = st.selectbox("📂 Category", cat_options, index=1 if cats else 0, key="cat_filter")
         with c2:
             df_grp_list = df_items if selected_category == "All" else df_items[df_items['category'] == selected_category]
             grps = sorted(list(df_grp_list['sub_category'].dropna().astype(str).unique())) if not df_grp_list.empty else []
             grp_options = ["All"] + grps
-            selected_group = st.selectbox("🏷️ Sub Category", grp_options, index=1 if grps else 0)
+            selected_group = st.selectbox("🏷️ Sub Category", grp_options, index=1 if grps else 0, key="sub_filter")
 
         if not df_items.empty:
             if search_query:
@@ -338,25 +340,15 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                                 undo_inventory_count(item_name)
                                 st.rerun()
 
-        # ==========================================
-        # 6. SUBMIT TO CLOUD & GENERATE RECEIPT
-        # ==========================================
         st.divider()
         cart_size = len(st.session_state['mobile_counts'])
         if cart_size > 0:
             st.success(f"🛒 **{cart_size} items** ready to submit.")
             with st.expander("👀 Review & Submit Count", expanded=True):
-                
-                preview_list = []
-                for k, v in st.session_state['mobile_counts'].items():
-                    preview_list.append({
-                        "Item": v['row_data'].get('item_name', k),
-                        "Total Counted": v['qty'],
-                        "Unit": v['row_data'].get('count_unit', '')
-                    })
+                preview_list = [{"Item": v['row_data'].get('item_name', k), "Total Counted": v['qty'], "Unit": v['row_data'].get('count_unit', '')} for k, v in st.session_state['mobile_counts'].items()]
                 st.dataframe(pd.DataFrame(preview_list), use_container_width=True, hide_index=True)
 
-                if st.button("🚀 SUBMIT ALL COUNTS TO CLOUD", type="primary", use_container_width=True):
+                if st.button("🚀 SUBMIT ALL COUNTS TO CLOUD", type="primary", use_container_width=True, key="submit_cloud_btn"):
                     logs = []
                     for i_name, data in st.session_state['mobile_counts'].items():
                         r_data = data['row_data']
@@ -377,27 +369,36 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                     
                     if logs:
                         try:
-                            # 1. Insert to Database
                             supabase.table("inventory_logs").insert(logs).execute()
-                            
-                            # 2. Generate PDF Receipt Bytes
                             df_receipt = pd.DataFrame(logs)
-                            pdf_bytes = generate_inventory_pdf(
-                                df_receipt, str(count_date), final_client, final_outlet, loc_filter, user
-                            )
-                            
-                            # 3. Save receipt to session state so it appears on next reload
-                            st.session_state['last_inv_receipt'] = {
-                                "bytes": pdf_bytes,
-                                "filename": f"Inventory_Receipt_{final_outlet.replace(' ', '_')}_{str(count_date)}.pdf"
-                            }
-                            
-                            # 4. Clear the shopping cart
+                            pdf_bytes = generate_inventory_pdf(df_receipt, str(count_date), final_client, final_outlet, loc_filter, user)
+                            st.session_state['last_inv_receipt'] = {"bytes": pdf_bytes, "filename": f"Inventory_Receipt_{final_outlet.replace(' ', '_')}_{str(count_date)}.pdf"}
                             st.session_state['mobile_counts'] = {}
                             st.rerun()
-                            
                         except Exception as e:
                             st.error(f"❌ Database Error: {e}")
 
+    # ---------------------------------------------------------
+    # TRAFFIC COP: DECIDE WHAT TO SHOW BASED ON ROLE
+    # ---------------------------------------------------------
+    try:
+        user_role = role.lower()
+        
+        # 1. Viewers ONLY see reports
+        if user_role == "viewer":
+            show_reports()
+            
+        # 2. Staff, Chefs, Managers, and Admins get BOTH tabs
+        # This guarantees Staff can always verify their own counts in the Raw Logs tab!
+        elif user_role in ["staff", "chef", "manager", "admin", "admin_all"]:
+            tab_c, tab_r = st.tabs(["✍️ Count Inventory", "📊 View Reports & Totals"])
+            with tab_c:
+                show_counting()
+            with tab_r:
+                show_reports()
+                
+        else:
+            st.warning("⚠️ Unrecognized user role. Please contact your administrator.")
+            
     except Exception as e:
         st.error(f"❌ System Error: {e}")

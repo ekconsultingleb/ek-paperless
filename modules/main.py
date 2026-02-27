@@ -31,7 +31,7 @@ def render_main(conn, sheet_link, user, role):
                 new_username = st.text_input("👤 Username", placeholder="e.g. Sami_LaSiesta")
                 new_password = st.text_input("🔑 Password", placeholder="Enter password")
                 new_fullname = st.text_input("📝 Full Name", placeholder="e.g. Jacob Joshua")
-                new_role = st.selectbox("🛡️ Role", ["staff", "manager", "viewer", "admin", "admin_all"])
+                new_role = st.selectbox("🛡️ Role", ["staff", "chef","manager", "viewer", "admin", "admin_all"])
             
             with col2:
                 available_modules = ["waste", "cash", "inventory", "transfers", "dashboard"]
@@ -106,7 +106,7 @@ def render_main(conn, sheet_link, user, role):
                             
                             # Handle role dropdown safely
                             current_role = str(user_data.get('role', 'staff')).lower()
-                            roles = ["staff", "manager", "viewer", "admin", "admin_all"]
+                            roles = ["staff", "chef", "manager", "viewer", "admin", "admin_all"]
                             r_idx = roles.index(current_role) if current_role in roles else 0
                             e_role = st.selectbox("🛡️ Role", roles, index=r_idx)
                             
