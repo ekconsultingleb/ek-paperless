@@ -30,14 +30,13 @@ def render_main(conn, sheet_link, user, role):
             with col1:
                 new_username = st.text_input("👤 Username", placeholder="e.g. Sami_LaSiesta")
                 new_password = st.text_input("🔑 Password", placeholder="Enter password")
-                new_fullname = st.text_input("📝 Full Name", placeholder="e.g. Sami Ahmed")
+                new_fullname = st.text_input("📝 Full Name", placeholder="e.g. Jacob Joshua")
                 new_role = st.selectbox("🛡️ Role", ["Staff", "Manager", "Viewer", "Admin", "Admin_All"])
             
             with col2:
-                # We pull the available modules based on your exact app.py code
                 available_modules = ["waste", "cash", "inventory", "transfers", "dashboard"]
                 new_modules = st.multiselect("📱 App Access (Modules)", available_modules, default=["waste"])
-                new_sheet_link = st.text_input("🔗 Client Sheet Link", placeholder="Optional Google Sheet Link")
+                # Removed the Google Sheet link input entirely
 
             st.divider()
             st.subheader("Routing & Security Assignments")
@@ -57,10 +56,9 @@ def render_main(conn, sheet_link, user, role):
                 if not new_username.strip() or not new_password.strip():
                     st.error("❌ Username and Password are required!")
                 else:
-                    # Convert the multiselect array into a clean comma-separated string for the database
                     module_string = ", ".join(new_modules) if new_modules else ""
                     
-                    # This dictionary now EXACTLY matches your Supabase columns
+                    # Cleaned dictionary - no sheet links
                     new_user_data = {
                         "username": new_username.strip(),
                         "password": new_password.strip(),
@@ -69,13 +67,11 @@ def render_main(conn, sheet_link, user, role):
                         "client_name": new_client.strip().title() if new_client.strip().lower() != 'all' else 'All',
                         "outlet": new_outlet.strip().title() if new_outlet.strip().lower() != 'all' else 'All',
                         "location": new_location.strip().title() if new_location.strip().lower() != 'all' else 'All',
-                        "module": module_string,
-                        "client_sheet_link": new_sheet_link.strip()
+                        "module": module_string
                     }
                     try:
                         supabase.table("users").insert([new_user_data]).execute()
                         st.success(f"✅ User '{new_username}' has been successfully created and deployed!")
-                        # Fun UI touch for the admin
                         st.balloons()
                     except Exception as e:
                         st.error(f"❌ Database Error: {e}. Check if that username already exists.")
@@ -86,12 +82,9 @@ def render_main(conn, sheet_link, user, role):
     with tab_view:
         st.subheader("Registered Users Directory")
         try:
-            # Fetch all users EXCEPT their passwords for safety
             res = supabase.table("users").select("username, full_name, role, client_name, outlet, location, module").execute()
             if res.data:
                 df_users = pd.DataFrame(res.data)
-                
-                # Make the table look professional
                 df_users.columns = [col.replace("_", " ").title() for col in df_users.columns]
                 st.dataframe(df_users, use_container_width=True, hide_index=True)
             else:
