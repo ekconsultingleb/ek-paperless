@@ -75,67 +75,86 @@ def render_main(conn, sheet_link, user, role):
                         st.error(f"❌ Database Error: {e}. Check if that username already exists.")
 
     # ==========================================
-    # TAB 2: MANAGE EXISTING USERS (LIVE EDITOR)
+    # TAB 2: MANAGE EXISTING USERS (FORM EDITOR)
     # ==========================================
     with tab_view:
-        st.subheader("Registered Users Directory")
-        st.info("✏️ Edit user details directly in the table below, then click **Save Changes**.")
+        st.subheader("Edit User Profiles")
         
         try:
-            # We pull ALL columns we want them to be able to edit, including password
-            res = supabase.table("users").select("username, password, full_name, role, client_name, outlet, location, module").execute()
+            # Fetch all users
+            res = supabase.table("users").select("*").execute()
             
             if res.data:
                 df_users = pd.DataFrame(res.data)
                 
-                # Display the data editor grid
-                edited_df = st.data_editor(
-                    df_users, 
-                    use_container_width=True, 
-                    hide_index=True,
-                    column_config={
-                        "username": st.column_config.TextColumn("Username", disabled=True), # Lock username so we don't break the DB link
-                        "password": st.column_config.TextColumn("Password"),
-                        "full_name": st.column_config.TextColumn("Full Name"),
-                        "role": st.column_config.SelectboxColumn("Role", options=["staff", "manager", "viewer", "admin", "admin_all"]),
-                        "client_name": st.column_config.TextColumn("Client (Branch)"),
-                        "outlet": st.column_config.TextColumn("Outlet"),
-                        "location": st.column_config.TextColumn("Location(s)"),
-                        "module": st.column_config.TextColumn("Modules")
-                    }
-                )
+                # 1. Dropdown to select which user to edit
+                user_list = sorted(df_users['username'].tolist())
+                selected_user = st.selectbox("👤 Select a User to Edit", options=["-- Select a User --"] + user_list)
                 
-                if st.button("💾 Save Changes", type="primary"):
-                    with st.spinner("Pushing updates to cloud..."):
-                        changes_made = 0
+                if selected_user != "-- Select a User --":
+                    # Get the current data for the selected user
+                    user_data = df_users[df_users['username'] == selected_user].iloc[0]
+                    
+                    # 2. Open the edit form populated with their current data
+                    with st.form("edit_user_form"):
+                        st.markdown(f"**Editing Profile:** `{selected_user}`")
                         
-                        # Loop through and compare the original data with the edited data
-                        for i in range(len(df_users)):
-                            orig_row = df_users.iloc[i]
-                            new_row = edited_df.iloc[i]
+                        e_col1, e_col2 = st.columns(2)
+                        with e_col1:
+                            e_password = st.text_input("🔑 Password", value=user_data.get('password', ''))
+                            e_fullname = st.text_input("📝 Full Name", value=user_data.get('full_name', ''))
                             
-                            # If anything in this row changed, push the update to Supabase
-                            if not orig_row.equals(new_row):
-                                update_payload = {
-                                    "password": new_row["password"],
-                                    "full_name": new_row["full_name"],
-                                    "role": new_row["role"],
-                                    "client_name": new_row["client_name"],
-                                    "outlet": new_row["outlet"],
-                                    "location": new_row["location"],
-                                    "module": new_row["module"]
-                                }
-                                # Update the specific user based on their unique username
-                                supabase.table("users").update(update_payload).eq("username", orig_row["username"]).execute()
-                                changes_made += 1
-                                
-                        if changes_made > 0:
-                            st.success(f"✅ Successfully updated {changes_made} user(s)!")
-                            st.rerun() # Refresh to show clean state
-                        else:
-                            st.warning("No changes were detected.")
+                            # Handle role dropdown safely
+                            current_role = str(user_data.get('role', 'staff')).lower()
+                            roles = ["staff", "manager", "viewer", "admin", "admin_all"]
+                            r_idx = roles.index(current_role) if current_role in roles else 0
+                            e_role = st.selectbox("🛡️ Role", roles, index=r_idx)
+                            
+                        with e_col2:
+                            # Handle modules multiselect safely
+                            current_modules = str(user_data.get('module', ''))
+                            all_mods = ["waste", "cash", "inventory", "transfers", "dashboard"]
+                            selected_mods = [m.strip() for m in current_modules.split(',')] if current_modules else []
+                            # Filter out any weird strings that aren't in the official list
+                            valid_selected_mods = [m for m in selected_mods if m in all_mods]
+                            
+                            e_modules = st.multiselect("📱 App Access (Modules)", all_mods, default=valid_selected_mods)
+                            
+                        st.divider()
+                        st.subheader("Routing & Security Assignments")
+                        e_col3, e_col4, e_col5 = st.columns(3)
+                        
+                        with e_col3:
+                            e_client = st.text_input("🏢 Client Name", value=user_data.get('client_name', 'All'))
+                        with e_col4:
+                            e_outlet = st.text_input("🏠 Outlet", value=user_data.get('outlet', 'All'))
+                        with e_col5:
+                            e_location = st.text_input("📍 Location(s)", value=user_data.get('location', 'All'))
+                            
+                        # Submit Button
+                        update_btn = st.form_submit_button("💾 Update User Settings", type="primary", use_container_width=True)
+                        
+                        if update_btn:
+                            mod_str = ", ".join(e_modules) if e_modules else ""
+                            
+                            update_payload = {
+                                "password": e_password.strip(),
+                                "full_name": e_fullname.strip(),
+                                "role": e_role,
+                                "client_name": e_client.strip().title() if e_client.strip().lower() != 'all' else 'All',
+                                "outlet": e_outlet.strip().title() if e_outlet.strip().lower() != 'all' else 'All',
+                                "location": e_location.strip().title() if e_location.strip().lower() != 'all' else 'All',
+                                "module": mod_str
+                            }
+                            
+                            try:
+                                supabase.table("users").update(update_payload).eq("username", selected_user).execute()
+                                st.success(f"✅ Changes for '{selected_user}' saved successfully!")
+                                st.rerun() # Refresh to show the updated data
+                            except Exception as e:
+                                st.error(f"❌ Database Error: {e}")
             else:
                 st.info("No users found in database.")
                 
         except Exception as e:
-            st.error(f"❌ Could not load user directory: {e}")
+            st.error(f"❌ Error loading users: {e}")
