@@ -120,7 +120,8 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
         # ==========================================
         # 2. SMART ROUTING & CLEAN SIDEBAR
         # ==========================================
-        nav_res = supabase.table("master_items").select("client_name, outlet").execute()
+        # PRO TIP: Query the small users table for instant navigation
+        nav_res = supabase.table("users").select("client_name, outlet").execute()
         df_nav = pd.DataFrame(nav_res.data)
         
         if not df_nav.empty:
@@ -136,23 +137,19 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
             final_client = clean_client
             st.sidebar.markdown(f"**🏢 Branch:** {final_client}")
         else:
-            c_list = sorted(df_nav['client_name'].unique()) if not df_nav.empty else ["All"]
+            c_list = sorted([c for c in df_nav['client_name'].unique() if c.lower() != 'all']) if not df_nav.empty else ["Select Branch"]
             final_client = st.sidebar.selectbox("🏢 Select Branch", c_list)
-
-        if not df_nav.empty:
-            outlets_for_client = sorted(df_nav[df_nav['client_name'] == final_client]['outlet'].unique())
-        else:
-            outlets_for_client = []
 
         if clean_outlet.lower() != 'all':
             final_outlet = clean_outlet
             st.sidebar.markdown(f"**🏠 Outlet:** {final_outlet}")
         else:
-            if outlets_for_client:
-                final_outlet = st.sidebar.selectbox("🏠 Select Outlet", outlets_for_client)
+            if not df_nav.empty:
+                outlets_for_client = sorted([o for o in df_nav[df_nav['client_name'] == final_client]['outlet'].unique() if o.lower() != 'all'])
             else:
-                st.sidebar.warning(f"No outlets found for branch '{final_client}'")
-                final_outlet = "None"
+                outlets_for_client = []
+                
+            final_outlet = st.sidebar.selectbox("🏠 Select Outlet", outlets_for_client) if outlets_for_client else "None"
 
         # ==========================================
         # 3. POST-SUBMISSION RECEIPT (PDF)
@@ -200,6 +197,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
         db_locs = sorted(df_items['location'].dropna().astype(str).str.title().unique())
         raw_loc = str(assigned_location).strip()
 
+        # Location Dropdown Logic (Handles multi-location commas safely)
         if raw_loc.lower() == 'all':
             loc_options = ["All"] + db_locs if db_locs else ["All"]
             loc_filter = st.sidebar.selectbox("📍 Select Location", loc_options)
@@ -217,7 +215,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
             
         # ---> THE DUPLICATE FIX IS HERE <---
         if not df_items.empty:
-            # 1. First filter by the exact location (e.g. Med)
+            # 1. First filter by the exact location (e.g. Med or Coffee Shop)
             if loc_filter != "All":
                 df_items = df_items[df_items['location'].str.title() == loc_filter]
             
