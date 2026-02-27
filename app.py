@@ -66,9 +66,10 @@ if not st.session_state.get('logged_in', False):
                 if len(response.data) > 0:
                     match = response.data[0] 
                     
-                    # Clean up Outlet and Location
-                    assigned_out = str(match.get('outlet', 'All')).strip() if match.get('outlet') else "All"
-                    assigned_loc = str(match.get('location', 'All')).strip() if match.get('location') else "All"
+                    # Clean up data from database
+                    assigned_out = str(match.get('outlet', 'All')).strip()
+                    assigned_loc = str(match.get('location', 'All')).strip()
+                    assigned_cli = str(match.get('client_name', 'All')).strip()
 
                     # Save EVERYTHING to Session State
                     st.session_state.update({
@@ -76,10 +77,10 @@ if not st.session_state.get('logged_in', False):
                         'user': match.get('username', u_input),
                         'role': str(match.get('role', 'staff')).lower().strip(),
                         'module': match.get('module', 'All'), 
-                        'link': None, # Google Sheets link no longer needed
+                        'link': None, 
                         'assigned_outlet': assigned_out,
                         'assigned_location': assigned_loc,
-                        'client_name': match.get('client_name', 'All'), 
+                        'client_name': assigned_cli,
                         'current_page': 'home'
                     })
                     st.rerun()
@@ -93,33 +94,43 @@ else:
     st.sidebar.title(f"👤 {st.session_state['user'].title()}")
     st.sidebar.write(f"**Role:** {st.session_state['role'].title()}")
     
-    if st.session_state.get('client_name', 'All').lower() != 'all':
+    # Show specifics in sidebar if not 'All'
+    if st.session_state['client_name'].lower() != 'all':
         st.sidebar.write(f"🏢 **Client:** {st.session_state['client_name']}")
-    if st.session_state.get('assigned_outlet', 'All').lower() != 'all':
+    if st.session_state['assigned_outlet'].lower() != 'all':
         st.sidebar.write(f"🏠 **Outlet:** {st.session_state['assigned_outlet']}")
-    if st.session_state.get('assigned_location', 'All').lower() != 'all':
+    if st.session_state['assigned_location'].lower() != 'all':
         st.sidebar.write(f"📍 **Location:** {st.session_state['assigned_location']}")
     
     if st.sidebar.button("Logout", use_container_width=True):
         st.session_state.clear()
         st.rerun()
 
-    # --- NAVIGATION LOGIC ---
+    # --- TRAFFIC COP (NAVIGATION LOGIC) ---
     role = st.session_state['role']
     user = st.session_state['user']
-    outlet = st.session_state['assigned_outlet']
+    
+    # CRITICAL FIX: If assigned 'All', we send 'All' to the module to unlock dropdowns
+    if role == "admin" or st.session_state['client_name'].lower() == "all":
+        client = "All"
+    else:
+        client = st.session_state['client_name']
+
+    if role == "admin" or st.session_state['assigned_outlet'].lower() == "all":
+        outlet = "All"
+    else:
+        outlet = st.session_state['assigned_outlet']
+        
     location = st.session_state['assigned_location']
-    client = st.session_state.get('client_name', 'All') 
     
-    # PARSE ALLOWED MODULES
+    # Parse allowed modules
     raw_modules = str(st.session_state.get('module', '')).lower().strip()
-    
     if raw_modules == "all_modules" or role == "admin":
         allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers"]
     else:
         allowed_modules = [m.strip() for m in raw_modules.split(",") if m.strip()]
 
-    # Secret Admin Panel Button
+    # Secret Admin Panel Button (Role-based)
     if role == "admin":
         st.sidebar.divider()
         if st.sidebar.button("⚙️ Admin Panel", type="primary"):
@@ -130,7 +141,6 @@ else:
     # PAGE: HOME MENU
     # ==========================================
     if st.session_state['current_page'] == 'home':
-        
         st.markdown("""
             <style>
             div[data-testid="stButton"] > button {
@@ -200,7 +210,7 @@ else:
             st.rerun()
         st.divider()
 
-        # Route to the correct file
+        # Route to the correct module file
         if st.session_state['current_page'] == 'dashboard':
             render_dashboard(None, None, user, role, client, outlet, location)
             
