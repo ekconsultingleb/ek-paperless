@@ -136,10 +136,22 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
 
         all_items = []
         page_size, start_row = 1000, 0
-        if final_outlet != "None":
+        
+        if final_outlet and str(final_outlet).strip() != "" and final_outlet != "None":
             while True:
-                # The pagination loop handles big data perfectly without a single limit trap
-                res = supabase.table("master_items").select("*").ilike("outlet", f"%{final_outlet}%").range(start_row, start_row + page_size - 1).execute()
+                # Start the query
+                query = supabase.table("master_items").select("*")
+                
+                # 🔒 DOUBLE LOCK 1: Lock the Client (Branch)
+                if final_client and final_client not in ["All", "Select Branch", "All Branches"]:
+                    query = query.ilike("client_name", f"%{final_client}%")
+                    
+                # 🔒 DOUBLE LOCK 2: Lock the Outlet
+                query = query.ilike("outlet", f"%{final_outlet}%")
+                
+                # Execute the fetch
+                res = query.range(start_row, start_row + page_size - 1).execute()
+                
                 if not res.data: break
                 all_items.extend(res.data)
                 if len(res.data) < page_size: break
