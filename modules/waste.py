@@ -270,7 +270,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                             logs.append({
                                 "date": str(waste_date), "client_name": final_client, "outlet": final_outlet, "location": loc_filter, "reported_by": user,
                                 "item_name": i_name, "item_type": r_data.get('item_type', 'inventory'), "category": r_data.get('category', ''),
-                                "qty": float(data['qty']), "unit": r_data.get('count_unit', 'Unit'), "reason": reason_code
+                                "qty": float(data['qty']), "unit": r_data.get('count_unit', 'Unit'), "remarks": reason_code
                             })
                         
                         try:
