@@ -96,8 +96,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
             df_archive = pd.DataFrame(archive_res.data)
 
             if not df_archive.empty:
-                tab_raw, tab_total = st.tabs(["📜 Raw Logs (By User)", "📊 Consolidated Totals"])
-                
+                tab_raw, tab_total = st.tabs(["📜 Raw Logs (By User)", "📊 Consolidated Totals"]) 
                 with tab_raw:
                     st.write("### Individual Staff Counts")
                     pdf_bytes = generate_inventory_pdf(
