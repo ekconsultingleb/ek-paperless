@@ -9,7 +9,7 @@ from fpdf import FPDF
 def get_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
-def generate_waste_pdf(df, report_date, client, outlet, location, user_name, waste_type, event_name=""):
+def generate_waste_pdf(df, report_date, client, outlet, location, user_name, waste_type, event_name="", pax=0):
     pdf = FPDF()
     pdf.add_page()
     
@@ -22,7 +22,7 @@ def generate_waste_pdf(df, report_date, client, outlet, location, user_name, was
     pdf.cell(0, 6, f"Logged By: {user_name} | Ticket Type: {waste_type}", ln=True)
     
     if waste_type == "Event" and event_name:
-        pdf.cell(0, 6, f"Event Detail: {event_name}", ln=True)
+        pdf.cell(0, 6, f"Event Name: {event_name} | PAX: {pax}", ln=True)
         
     pdf.cell(0, 6, f"Generated: {datetime.now(zoneinfo.ZoneInfo('Asia/Beirut')).strftime('%Y-%m-%d %H:%M')}", ln=True)
     pdf.ln(5)
@@ -151,15 +151,19 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         waste_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")))
         st.divider()
 
+        # STEP 1
         st.subheader("📝 Step 1: Ticket Details")
         ticket_type = st.radio("Select Ticket Context:", ["Daily Waste", "Staff Meal", "Event"], horizontal=True)
         event_name_val = ""
+        pax_val = 0
         if ticket_type == "Event":
-            event_name_val = st.text_input("📝 Event Name (e.g. Jacob Event 100)", placeholder="Type event details here")
-                
+            c_ev1, c_ev2 = st.columns(2)
+            with c_ev1: event_name_val = st.text_input("📝 Event Name")
+            with c_ev2: pax_val = st.number_input("👥 PAX", min_value=1, step=1)
         st.divider()
 
-        st.subheader("🔍 Step 2: Find Items to Log")
+        # STEP 2
+        st.subheader("🔍 Step 2: Find Items")
         item_type_filter = st.radio("Item Type", ["📦 Inventory Items", "🍔 Menu Items", "All Items"], horizontal=True)
         search_query = st.text_input("🔍 Quick Search")
 
@@ -170,13 +174,43 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                 df_filtered_type = df_items[df_items['item_type'].str.lower().str.contains('menu', na=False)]
             else:
                 df_filtered_type = df_items.copy()
-            
+        else:
+            df_filtered_type = pd.DataFrame()
+
+        # Category and Sub Category Filters
+        c1, c2 = st.columns(2)
+        with c1:
+            cats = sorted(list(df_filtered_type['category'].dropna().astype(str).unique())) if not df_filtered_type.empty else []
+            cat_options = ["All"] + cats
+            selected_category = st.selectbox("📂 Category", cat_options, index=1 if cats else 0)
+        with c2:
+            df_grp_list = df_filtered_type if selected_category == "All" else df_filtered_type[df_filtered_type['category'] == selected_category]
+            grps = sorted(list(df_grp_list['sub_category'].dropna().astype(str).unique())) if not df_grp_list.empty else []
+            grp_options = ["All"] + grps
+            selected_group = st.selectbox("🏷️ Sub Category", grp_options, index=1 if grps else 0)
+
+        # Apply Filters
+        if not df_filtered_type.empty:
             if search_query:
-                df_display = df_filtered_type[df_filtered_type['item_name'].str.contains(search_query, case=False, na=False)]
+                df_display = df_filtered_type[df_filtered_type['item_name'].str.contains(search_query, case=False, na=False)].copy()
             else:
-                df_display = df_filtered_type
+                df_display = df_filtered_type.copy()
+                if selected_category != "All":
+                    df_display = df_display[df_display['category'] == selected_category]
+                if selected_group != "All":
+                    df_display = df_display[df_display['sub_category'] == selected_group]
         else:
             df_display = pd.DataFrame()
+
+        total_items = len(df_display)
+        wasted_in_view = sum(1 for item in df_display['item_name'] if item in st.session_state['waste_cart']) if not df_display.empty else 0
+
+        st.markdown(f"""
+            <div style='display: flex; justify-content: space-between; background-color: #3b1c1c; padding: 10px; border-radius: 10px; margin-bottom: 20px;'>
+                <span style='color: #ff6b6b;'>🗑️ {wasted_in_view} Selected</span>
+                <span style='color: white;'>📝 {total_items} Items in {selected_group}</span>
+            </div>
+        """, unsafe_allow_html=True)
 
         if df_display.empty:
             st.info("No items found.")
@@ -187,29 +221,52 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                 current_total = cart_data['qty'] if cart_data else 0.0
                 
                 with st.container(border=True):
-                    st.markdown(f"**{item_name}** ({row.get('count_unit', 'pcs')}) | Current: **{current_total}**")
-                    input_key = f"waste_add_{index}"
-                    st.number_input("+ Add Qty", value=0.0, min_value=0.0, step=1.0, key=input_key, on_change=add_waste_qty, args=(item_name, row.to_dict(), input_key), label_visibility="collapsed")
+                    # Green Badge for selected items
                     if current_total > 0:
-                        if st.button(f"Undo {item_name}", key=f"undo_{index}"):
-                            undo_waste_count(item_name)
-                            st.rerun()
+                        st.markdown(f"🟢 **{item_name}** &nbsp;|&nbsp; <span style='color:#00ff00; font-weight:bold;'>✅ Qty: {current_total} {row.get('count_unit', 'pcs')}</span>", unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"⚪ **{item_name}** &nbsp;|&nbsp; 📦 {row.get('count_unit', 'pcs')}")
+                        
+                    input_key = f"waste_add_{index}_{item_name}"
+                    col_add, col_btn = st.columns([3, 1], vertical_alignment="center")
+                    
+                    with col_add:
+                        st.number_input("+ Add Qty", value=0.0, min_value=0.0, step=1.0, format="%g", key=input_key, on_change=add_waste_qty, args=(item_name, row.to_dict(), input_key), label_visibility="collapsed")
+                    with col_btn:
+                        if current_total > 0:
+                            if st.button("♻️ Undo", key=f"undo_{index}_{item_name}"):
+                                undo_waste_count(item_name)
+                                st.rerun()
 
+        # Review & Submit Dataframe display
         st.divider()
         if len(st.session_state['waste_cart']) > 0:
-            with st.expander("👀 Review & Submit", expanded=True):
-                if st.button("🚀 SUBMIT TICKET", type="primary", use_container_width=True):
+            with st.expander("👀 Review & Submit Ticket", expanded=True):
+                preview_list = []
+                for k, v in st.session_state['waste_cart'].items():
+                    preview_list.append({
+                        "Item Name": v['row_data'].get('item_name', k),
+                        "Type": v['row_data'].get('item_type', 'Inventory'),
+                        "Qty Wasted": v['qty'],
+                        "Unit": v['row_data'].get('count_unit', '')
+                    })
+                st.dataframe(pd.DataFrame(preview_list), use_container_width=True, hide_index=True)
+
+                if st.button("🚀 SUBMIT TICKET TO CLOUD", type="primary", use_container_width=True):
                     if ticket_type == "Event" and not event_name_val.strip():
-                        st.error("❌ Please provide an Event Name.")
+                        st.error("❌ Please provide an Event Name before submitting.")
                     else:
                         logs = []
                         for i_name, data in st.session_state['waste_cart'].items():
                             r_data = data['row_data']
                             reason_code = ticket_type
                             if ticket_type == "Daily Waste":
-                                reason_code = "WB" if any(x in str(r_data.get('category','')).lower() for x in ['bev','drink','alcohol']) else "WF"
-                            elif ticket_type == "Staff Meal": reason_code = "SM"
-                            elif ticket_type == "Event": reason_code = f"Event: {event_name_val}"
+                                cat_lower = str(r_data.get('category','')).lower()
+                                reason_code = "WB" if any(x in cat_lower for x in ['bev','drink','alcohol']) else "WF"
+                            elif ticket_type == "Staff Meal": 
+                                reason_code = "SM"
+                            elif ticket_type == "Event": 
+                                reason_code = f"Event: {event_name_val} (PAX: {pax_val})"
                             
                             logs.append({
                                 "date": str(waste_date), "client_name": final_client, "outlet": final_outlet, "location": loc_filter, "logged_by": user,
@@ -217,10 +274,13 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                                 "qty": float(data['qty']), "unit": r_data.get('count_unit', 'pcs'), "reason": reason_code
                             })
                         
-                        supabase.table("waste_logs").insert(logs).execute()
-                        st.session_state['last_waste_receipt'] = {"bytes": generate_waste_pdf(pd.DataFrame(logs), str(waste_date), final_client, final_outlet, loc_filter, user, ticket_type, event_name_val), "filename": f"{ticket_type}_{waste_date}.pdf"}
-                        st.session_state['waste_cart'] = {}
-                        st.rerun()
+                        try:
+                            supabase.table("waste_logs").insert(logs).execute()
+                            st.session_state['last_waste_receipt'] = {"bytes": generate_waste_pdf(pd.DataFrame(logs), str(waste_date), final_client, final_outlet, loc_filter, user, ticket_type, event_name_val, pax_val), "filename": f"{ticket_type}_{waste_date}.pdf"}
+                            st.session_state['waste_cart'] = {}
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Database Error: {e}")
 
     except Exception as e:
         st.error(f"❌ Error: {e}")
