@@ -55,7 +55,7 @@ def render_daily_cash(conn, sheet_link, user, role, assigned_client, assigned_ou
         # ==========================================
         # 2. SMART ROUTING & CLEAN SIDEBAR
         # ==========================================
-        nav_res = supabase.table("master_items").select("outlet, client_name").execute()
+        nav_res = supabase.table("master_items").select("client_name, outlet").execute()
         df_nav = pd.DataFrame(nav_res.data)
         
         if not df_nav.empty:
