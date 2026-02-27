@@ -93,8 +93,11 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                     st.warning(f"No waste logs found between {start_date} and {end_date}.")
             return
 
-        # --- DATA FETCHING & DYNAMIC NAVIGATION ---
-        nav_res = supabase.table("master_items").select("client_name, outlet").execute()
+        # ==========================================
+        # 1. DATA FETCHING & DYNAMIC NAVIGATION
+        # ==========================================
+        # PRO TIP: Query the small users table for instant navigation
+        nav_res = supabase.table("users").select("client_name, outlet").execute()
         df_nav = pd.DataFrame(nav_res.data)
         if not df_nav.empty:
             df_nav['client_name'] = df_nav['client_name'].astype(str).str.strip().str.title()
@@ -106,7 +109,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             final_client = user_client_access
             st.sidebar.info(f"🏢 Branch: {final_client}")
         else:
-            c_list = sorted(df_nav['client_name'].unique()) if not df_nav.empty else ["All"]
+            c_list = sorted([c for c in df_nav['client_name'].unique() if c.lower() != 'all']) if not df_nav.empty else ["All Branches"]
             final_client = st.sidebar.selectbox("🏢 Select Branch", c_list)
 
         user_outlet_access = str(assigned_outlet).strip().title()
@@ -114,7 +117,13 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             final_outlet = user_outlet_access
             st.sidebar.info(f"🏠 Outlet: {final_outlet}")
         else:
-            outlets_for_client = sorted(df_nav[df_nav['client_name'] == final_client]['outlet'].unique()) if not df_nav.empty else []
+            if final_client != "All Branches" and not df_nav.empty:
+                outlets_for_client = sorted([o for o in df_nav[df_nav['client_name'] == final_client]['outlet'].unique() if o.lower() != 'all'])
+            elif not df_nav.empty:
+                outlets_for_client = sorted([o for o in df_nav['outlet'].unique() if o.lower() != 'all'])
+            else:
+                outlets_for_client = []
+                
             final_outlet = st.sidebar.selectbox("🏠 Select Outlet", outlets_for_client) if outlets_for_client else "None"
 
         if 'last_waste_receipt' in st.session_state:
@@ -129,6 +138,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         page_size, start_row = 1000, 0
         if final_outlet != "None":
             while True:
+                # The pagination loop handles big data perfectly without a single limit trap
                 res = supabase.table("master_items").select("*").ilike("outlet", f"%{final_outlet}%").range(start_row, start_row + page_size - 1).execute()
                 if not res.data: break
                 all_items.extend(res.data)
