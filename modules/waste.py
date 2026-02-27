@@ -19,7 +19,7 @@ def generate_waste_pdf(df, report_date, client, outlet, location, user_name, was
     pdf.set_font("helvetica", "", 10)
     pdf.cell(0, 6, f"Date: {report_date}", ln=True)
     pdf.cell(0, 6, f"Branch: {client} | Outlet: {outlet} | Location: {location}", ln=True)
-    pdf.cell(0, 6, f"Logged By: {user_name} | Ticket Type: {waste_type}", ln=True)
+    pdf.cell(0, 6, f"Reported By: {user_name} | Ticket Type: {waste_type}", ln=True)
     
     if waste_type == "Event" and event_name:
         pdf.cell(0, 6, f"Event Name: {event_name}", ln=True)
@@ -137,11 +137,9 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             df_items = pd.DataFrame(all_items)
             df_items.columns = [str(c).strip().lower() for c in df_items.columns]
             
-            # Clean up missing columns
             if 'location' not in df_items.columns: df_items['location'] = "Main Store"
             if 'item_type' not in df_items.columns: df_items['item_type'] = "inventory"
             
-            # Change None/NaN/empty units to "Unit"
             if 'count_unit' in df_items.columns:
                 df_items['count_unit'] = df_items['count_unit'].apply(
                     lambda x: "Unit" if pd.isna(x) or str(x).strip().lower() in ['none', 'nan', ''] else str(x)
@@ -159,17 +157,15 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         waste_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")))
         st.divider()
 
-        # STEP 1
         st.subheader("📝 Step 1: Ticket Details")
         ticket_type = st.radio("Select Ticket Context:", ["Daily Waste", "Staff Meal", "Event"], horizontal=True)
         event_name_val = ""
         
         if ticket_type == "Event":
-            event_name_val = st.text_input("📝 Event Name", placeholder="e.g. Brunch/ Jacob's wedding/ etc.")
+            event_name_val = st.text_input("📝 Event Name", placeholder="e.g. Wedding Booking")
             
         st.divider()
 
-        # STEP 2
         st.subheader("🔍 Step 2: Find Items")
         item_type_filter = st.radio("Item Type", ["📦 Inventory Items", "🍔 Menu Items", "All Items"], horizontal=True)
         search_query = st.text_input("🔍 Quick Search")
@@ -184,7 +180,6 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         else:
             df_filtered_type = pd.DataFrame()
 
-        # Category and Sub Category Filters
         c1, c2 = st.columns(2)
         with c1:
             cats = sorted(list(df_filtered_type['category'].dropna().astype(str).unique())) if not df_filtered_type.empty else []
@@ -196,7 +191,6 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             grp_options = ["All"] + grps
             selected_group = st.selectbox("🏷️ Sub Category", grp_options, index=1 if grps else 0)
 
-        # Apply Filters
         if not df_filtered_type.empty:
             if search_query:
                 df_display = df_filtered_type[df_filtered_type['item_name'].str.contains(search_query, case=False, na=False)].copy()
@@ -228,7 +222,6 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                 current_total = cart_data['qty'] if cart_data else 0.0
                 
                 with st.container(border=True):
-                    # Green Badge for selected items
                     if current_total > 0:
                         st.markdown(f"🟢 **{item_name}** &nbsp;|&nbsp; <span style='color:#00ff00; font-weight:bold;'>✅ Qty: {current_total} {row.get('count_unit', 'Unit')}</span>", unsafe_allow_html=True)
                     else:
@@ -245,7 +238,6 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                                 undo_waste_count(item_name)
                                 st.rerun()
 
-        # Review & Submit Dataframe display
         st.divider()
         if len(st.session_state['waste_cart']) > 0:
             with st.expander("👀 Review & Submit Ticket", expanded=True):
@@ -276,7 +268,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                                 reason_code = f"Event: {event_name_val}"
                             
                             logs.append({
-                                "date": str(waste_date), "client_name": final_client, "outlet": final_outlet, "location": loc_filter, "logged_by": user,
+                                "date": str(waste_date), "client_name": final_client, "outlet": final_outlet, "location": loc_filter, "reported_by": user,
                                 "item_name": i_name, "item_type": r_data.get('item_type', 'inventory'), "category": r_data.get('category', ''),
                                 "qty": float(data['qty']), "unit": r_data.get('count_unit', 'Unit'), "reason": reason_code
                             })
