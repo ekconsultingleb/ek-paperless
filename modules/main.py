@@ -31,12 +31,11 @@ def render_main(conn, sheet_link, user, role):
                 new_username = st.text_input("👤 Username", placeholder="e.g. Sami_LaSiesta")
                 new_password = st.text_input("🔑 Password", placeholder="Enter password")
                 new_fullname = st.text_input("📝 Full Name", placeholder="e.g. Jacob Joshua")
-                new_role = st.selectbox("🛡️ Role", ["Staff", "Manager", "Viewer", "Admin", "Admin_All"])
+                new_role = st.selectbox("🛡️ Role", ["staff", "manager", "viewer", "admin", "admin_all"])
             
             with col2:
                 available_modules = ["waste", "cash", "inventory", "transfers", "dashboard"]
                 new_modules = st.multiselect("📱 App Access (Modules)", available_modules, default=["waste"])
-                # Removed the Google Sheet link input entirely
 
             st.divider()
             st.subheader("Routing & Security Assignments")
@@ -58,7 +57,6 @@ def render_main(conn, sheet_link, user, role):
                 else:
                     module_string = ", ".join(new_modules) if new_modules else ""
                     
-                    # Cleaned dictionary - no sheet links
                     new_user_data = {
                         "username": new_username.strip(),
                         "password": new_password.strip(),
@@ -77,17 +75,67 @@ def render_main(conn, sheet_link, user, role):
                         st.error(f"❌ Database Error: {e}. Check if that username already exists.")
 
     # ==========================================
-    # TAB 2: VIEW EXISTING USERS
+    # TAB 2: MANAGE EXISTING USERS (LIVE EDITOR)
     # ==========================================
     with tab_view:
         st.subheader("Registered Users Directory")
+        st.info("✏️ Edit user details directly in the table below, then click **Save Changes**.")
+        
         try:
-            res = supabase.table("users").select("username, full_name, role, client_name, outlet, location, module").execute()
+            # We pull ALL columns we want them to be able to edit, including password
+            res = supabase.table("users").select("username, password, full_name, role, client_name, outlet, location, module").execute()
+            
             if res.data:
                 df_users = pd.DataFrame(res.data)
-                df_users.columns = [col.replace("_", " ").title() for col in df_users.columns]
-                st.dataframe(df_users, use_container_width=True, hide_index=True)
+                
+                # Display the data editor grid
+                edited_df = st.data_editor(
+                    df_users, 
+                    use_container_width=True, 
+                    hide_index=True,
+                    column_config={
+                        "username": st.column_config.TextColumn("Username", disabled=True), # Lock username so we don't break the DB link
+                        "password": st.column_config.TextColumn("Password"),
+                        "full_name": st.column_config.TextColumn("Full Name"),
+                        "role": st.column_config.SelectboxColumn("Role", options=["staff", "manager", "viewer", "admin", "admin_all"]),
+                        "client_name": st.column_config.TextColumn("Client (Branch)"),
+                        "outlet": st.column_config.TextColumn("Outlet"),
+                        "location": st.column_config.TextColumn("Location(s)"),
+                        "module": st.column_config.TextColumn("Modules")
+                    }
+                )
+                
+                if st.button("💾 Save Changes", type="primary"):
+                    with st.spinner("Pushing updates to cloud..."):
+                        changes_made = 0
+                        
+                        # Loop through and compare the original data with the edited data
+                        for i in range(len(df_users)):
+                            orig_row = df_users.iloc[i]
+                            new_row = edited_df.iloc[i]
+                            
+                            # If anything in this row changed, push the update to Supabase
+                            if not orig_row.equals(new_row):
+                                update_payload = {
+                                    "password": new_row["password"],
+                                    "full_name": new_row["full_name"],
+                                    "role": new_row["role"],
+                                    "client_name": new_row["client_name"],
+                                    "outlet": new_row["outlet"],
+                                    "location": new_row["location"],
+                                    "module": new_row["module"]
+                                }
+                                # Update the specific user based on their unique username
+                                supabase.table("users").update(update_payload).eq("username", orig_row["username"]).execute()
+                                changes_made += 1
+                                
+                        if changes_made > 0:
+                            st.success(f"✅ Successfully updated {changes_made} user(s)!")
+                            st.rerun() # Refresh to show clean state
+                        else:
+                            st.warning("No changes were detected.")
             else:
-                st.info("No users found.")
+                st.info("No users found in database.")
+                
         except Exception as e:
             st.error(f"❌ Could not load user directory: {e}")
