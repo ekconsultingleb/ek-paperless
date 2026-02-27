@@ -40,6 +40,7 @@ def generate_waste_pdf(df, report_date, client, outlet, location, user_name, was
         item = str(row.get('item_name', ''))[:40]
         i_type = str(row.get('item_type', ''))[:20]
         qty = str(row.get('qty', '0'))
+        # FIXED: PDF now correctly pulls count_unit
         unit = str(row.get('count_unit', 'Unit'))[:10]
         
         pdf.cell(80, 8, item, border=1)
@@ -93,26 +94,27 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                     st.warning(f"No waste logs found between {start_date} and {end_date}.")
             return
 
-        # --- DATA FETCHING ---
+        # --- DATA FETCHING & NAVIGATION ---
         nav_res = supabase.table("master_items").select("outlet, client_name").execute()
         df_nav = pd.DataFrame(nav_res.data)
         if not df_nav.empty:
             df_nav['client_name'] = df_nav['client_name'].astype(str).str.strip().str.title()
             df_nav['outlet'] = df_nav['outlet'].astype(str).str.strip().str.title()
         
-        clean_client = str(assigned_client).strip().title()
-        clean_outlet = str(assigned_outlet).strip().title()
-
-        if clean_client.lower() != 'all':
-            final_client = clean_client
+        # Determine Client Access (Manager Logic Included)
+        user_client_access = str(assigned_client).strip().title()
+        if user_client_access != 'All':
+            final_client = user_client_access
         else:
             c_list = sorted(df_nav['client_name'].unique()) if not df_nav.empty else ["All"]
             final_client = st.sidebar.selectbox("🏢 Select Branch", c_list)
 
-        outlets_for_client = sorted(df_nav[df_nav['client_name'] == final_client]['outlet'].unique()) if not df_nav.empty else []
-        if clean_outlet.lower() != 'all':
-            final_outlet = clean_outlet
+        # Determine Outlet Access
+        user_outlet_access = str(assigned_outlet).strip().title()
+        if user_outlet_access != 'All':
+            final_outlet = user_outlet_access
         else:
+            outlets_for_client = sorted(df_nav[df_nav['client_name'] == final_client]['outlet'].unique()) if not df_nav.empty else []
             final_outlet = st.sidebar.selectbox("🏠 Select Outlet", outlets_for_client) if outlets_for_client else "None"
 
         if 'last_waste_receipt' in st.session_state:
@@ -139,10 +141,11 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             df_items = pd.DataFrame(all_items)
             df_items.columns = [str(c).strip().lower() for c in df_items.columns]
             
-            # --- FIXING MULTI-LOCATION FILTERING ---
+            # --- CASE-INSENSITIVE MULTI-LOCATION FILTER ---
             user_loc_raw = str(assigned_location).strip().lower()
             if user_loc_raw != 'all':
-                allowed_locs = [loc.strip() for loc in user_loc_raw.split(',')]
+                allowed_locs = [loc.strip().lower() for loc in user_loc_raw.split(',')]
+                # Filter database items based on allowed list
                 df_items = df_items[df_items['location'].str.lower().isin(allowed_locs)]
             
             if 'item_type' not in df_items.columns: df_items['item_type'] = "inventory"
@@ -174,7 +177,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             else:
                 df_filtered_type = df_items.copy()
             
-            # SAFETY: Handle missing categories
+            # SAFETY: Handle missing categories for Menu Items
             df_filtered_type['category'] = df_filtered_type['category'].replace(['', 'nan', 'None'], 'Uncategorized').fillna('Uncategorized')
             df_filtered_type['sub_category'] = df_filtered_type['sub_category'].replace(['', 'nan', 'None'], 'Uncategorized').fillna('Uncategorized')
         else:
@@ -191,7 +194,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             grp_options = ["All"] + grps
             selected_group = st.selectbox("🏷️ Sub Category", grp_options, index=0)
 
-        # Apply Filters
+        # Apply Filters to Display
         df_display = df_filtered_type.copy()
         if search_query:
             df_display = df_display[df_display['item_name'].str.contains(search_query, case=False, na=False)]
@@ -211,7 +214,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         """, unsafe_allow_html=True)
 
         if df_display.empty:
-            st.info("No items found.")
+            st.info("No items found. Check if the Location spelling matches the database.")
         else:
             for index, row in df_display.iterrows():
                 item_name = row['item_name']
