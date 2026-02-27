@@ -9,7 +9,7 @@ from fpdf import FPDF
 def get_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
-def generate_waste_pdf(df, report_date, client, outlet, location, user_name, waste_type, event_name="", pax=0):
+def generate_waste_pdf(df, report_date, client, outlet, location, user_name, waste_type, event_name=""):
     pdf = FPDF()
     pdf.add_page()
     
@@ -22,7 +22,7 @@ def generate_waste_pdf(df, report_date, client, outlet, location, user_name, was
     pdf.cell(0, 6, f"Logged By: {user_name} | Ticket Type: {waste_type}", ln=True)
     
     if waste_type == "Event" and event_name:
-        pdf.cell(0, 6, f"Event Name: {event_name} | PAX: {pax}", ln=True)
+        pdf.cell(0, 6, f"Event Name: {event_name}", ln=True)
         
     pdf.cell(0, 6, f"Generated: {datetime.now(zoneinfo.ZoneInfo('Asia/Beirut')).strftime('%Y-%m-%d %H:%M')}", ln=True)
     pdf.ln(5)
@@ -40,7 +40,7 @@ def generate_waste_pdf(df, report_date, client, outlet, location, user_name, was
         item = str(row.get('item_name', ''))[:40]
         i_type = str(row.get('item_type', ''))[:20]
         qty = str(row.get('qty', '0'))
-        unit = str(row.get('unit', 'pcs'))[:10]
+        unit = str(row.get('unit', 'Unit'))[:10]
         
         pdf.cell(80, 8, item, border=1)
         pdf.cell(40, 8, i_type, border=1)
@@ -136,8 +136,16 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         else:
             df_items = pd.DataFrame(all_items)
             df_items.columns = [str(c).strip().lower() for c in df_items.columns]
+            
+            # Clean up missing columns
             if 'location' not in df_items.columns: df_items['location'] = "Main Store"
             if 'item_type' not in df_items.columns: df_items['item_type'] = "inventory"
+            
+            # Change None/NaN/empty units to "Unit"
+            if 'count_unit' in df_items.columns:
+                df_items['count_unit'] = df_items['count_unit'].apply(
+                    lambda x: "Unit" if pd.isna(x) or str(x).strip().lower() in ['none', 'nan', ''] else str(x)
+                )
 
         db_locs = sorted(df_items['location'].dropna().astype(str).str.title().unique())
         raw_loc = str(assigned_location).strip()
@@ -155,11 +163,10 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         st.subheader("📝 Step 1: Ticket Details")
         ticket_type = st.radio("Select Ticket Context:", ["Daily Waste", "Staff Meal", "Event"], horizontal=True)
         event_name_val = ""
-        pax_val = 0
+        
         if ticket_type == "Event":
-            c_ev1, c_ev2 = st.columns(2)
-            with c_ev1: event_name_val = st.text_input("📝 Event Name")
-            with c_ev2: pax_val = st.number_input("👥 PAX", min_value=1, step=1)
+            event_name_val = st.text_input("📝 Event Name", placeholder="e.g. Brunch/ Jacob's wedding/ etc.")
+            
         st.divider()
 
         # STEP 2
@@ -223,9 +230,9 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                 with st.container(border=True):
                     # Green Badge for selected items
                     if current_total > 0:
-                        st.markdown(f"🟢 **{item_name}** &nbsp;|&nbsp; <span style='color:#00ff00; font-weight:bold;'>✅ Qty: {current_total} {row.get('count_unit', 'pcs')}</span>", unsafe_allow_html=True)
+                        st.markdown(f"🟢 **{item_name}** &nbsp;|&nbsp; <span style='color:#00ff00; font-weight:bold;'>✅ Qty: {current_total} {row.get('count_unit', 'Unit')}</span>", unsafe_allow_html=True)
                     else:
-                        st.markdown(f"⚪ **{item_name}** &nbsp;|&nbsp; 📦 {row.get('count_unit', 'pcs')}")
+                        st.markdown(f"⚪ **{item_name}** &nbsp;|&nbsp; 📦 {row.get('count_unit', 'Unit')}")
                         
                     input_key = f"waste_add_{index}_{item_name}"
                     col_add, col_btn = st.columns([3, 1], vertical_alignment="center")
@@ -248,7 +255,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                         "Item Name": v['row_data'].get('item_name', k),
                         "Type": v['row_data'].get('item_type', 'Inventory'),
                         "Qty Wasted": v['qty'],
-                        "Unit": v['row_data'].get('count_unit', '')
+                        "Unit": v['row_data'].get('count_unit', 'Unit')
                     })
                 st.dataframe(pd.DataFrame(preview_list), use_container_width=True, hide_index=True)
 
@@ -266,17 +273,17 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                             elif ticket_type == "Staff Meal": 
                                 reason_code = "SM"
                             elif ticket_type == "Event": 
-                                reason_code = f"Event: {event_name_val} (PAX: {pax_val})"
+                                reason_code = f"Event: {event_name_val}"
                             
                             logs.append({
                                 "date": str(waste_date), "client_name": final_client, "outlet": final_outlet, "location": loc_filter, "logged_by": user,
                                 "item_name": i_name, "item_type": r_data.get('item_type', 'inventory'), "category": r_data.get('category', ''),
-                                "qty": float(data['qty']), "unit": r_data.get('count_unit', 'pcs'), "reason": reason_code
+                                "qty": float(data['qty']), "unit": r_data.get('count_unit', 'Unit'), "reason": reason_code
                             })
                         
                         try:
                             supabase.table("waste_logs").insert(logs).execute()
-                            st.session_state['last_waste_receipt'] = {"bytes": generate_waste_pdf(pd.DataFrame(logs), str(waste_date), final_client, final_outlet, loc_filter, user, ticket_type, event_name_val, pax_val), "filename": f"{ticket_type}_{waste_date}.pdf"}
+                            st.session_state['last_waste_receipt'] = {"bytes": generate_waste_pdf(pd.DataFrame(logs), str(waste_date), final_client, final_outlet, loc_filter, user, ticket_type, event_name_val), "filename": f"{ticket_type}_{waste_date}.pdf"}
                             st.session_state['waste_cart'] = {}
                             st.rerun()
                         except Exception as e:
