@@ -27,25 +27,28 @@ def generate_waste_pdf(df, report_date, client, outlet, location, user_name, was
     pdf.cell(0, 6, f"Generated: {datetime.now(zoneinfo.ZoneInfo('Asia/Beirut')).strftime('%Y-%m-%d %H:%M')}", ln=True)
     pdf.ln(5)
     
-    pdf.set_font("helvetica", "B", 10)
+    pdf.set_font("helvetica", "B", 9)
     pdf.set_fill_color(255, 200, 200)
-    pdf.cell(80, 8, "Item Name", border=1, fill=True)
-    pdf.cell(40, 8, "Item Type", border=1, fill=True)
-    pdf.cell(30, 8, "Qty", border=1, align="C", fill=True)
-    pdf.cell(30, 8, "Unit", border=1, align="C", fill=True)
+    pdf.cell(70, 8, "Item Name", border=1, fill=True)
+    pdf.cell(30, 8, "Item Type", border=1, fill=True)
+    pdf.cell(20, 8, "Qty", border=1, align="C", fill=True)
+    pdf.cell(20, 8, "Unit", border=1, align="C", fill=True)
+    pdf.cell(50, 8, "Remarks", border=1, fill=True)
     pdf.ln()
     
-    pdf.set_font("helvetica", "", 9)
+    pdf.set_font("helvetica", "", 8)
     for _, row in df.iterrows():
-        item = str(row.get('item_name', ''))[:40]
-        i_type = str(row.get('item_type', ''))[:20]
+        item = str(row.get('item_name', ''))[:35]
+        i_type = str(row.get('item_type', ''))[:15]
         qty = str(row.get('qty', '0'))
         unit = str(row.get('count_unit', 'Unit'))[:10]
+        remarks = str(row.get('remarks', ''))[:35]
         
-        pdf.cell(80, 8, item, border=1)
-        pdf.cell(40, 8, i_type, border=1)
-        pdf.cell(30, 8, qty, border=1, align="C")
-        pdf.cell(30, 8, unit, border=1, align="C")
+        pdf.cell(70, 8, item, border=1)
+        pdf.cell(30, 8, i_type, border=1)
+        pdf.cell(20, 8, qty, border=1, align="C")
+        pdf.cell(20, 8, unit, border=1, align="C")
+        pdf.cell(50, 8, remarks, border=1)
         pdf.ln()
         
     return bytes(pdf.output())
