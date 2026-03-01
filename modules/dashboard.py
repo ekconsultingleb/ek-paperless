@@ -3,6 +3,8 @@ import pandas as pd
 from datetime import datetime, timedelta
 import zoneinfo
 from supabase import create_client, Client
+import plotly.express as px
+import plotly.graph_objects as go
 
 # --- SAFELY INITIALIZE SUPABASE ---
 @st.cache_resource
@@ -10,15 +12,13 @@ def get_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
 def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_outlet, assigned_location):
-    st.markdown("### 📊 Management Dashboard")
-    st.info("Live overview of daily operations and financial metrics.")
+    st.markdown("### 📈 Executive Operations Dashboard")
     supabase = get_supabase()
     
     try:
         # ==========================================
         # 1. SMART ROUTING & CLEAN SIDEBAR
         # ==========================================
-        # PRO TIP: Query the small users table for instant navigation
         nav_res = supabase.table("users").select("client_name, outlet").execute()
         df_nav = pd.DataFrame(nav_res.data)
         
@@ -31,7 +31,6 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
 
         st.sidebar.markdown("### 📍 Filter Dashboard")
 
-        # --- Branch Selection ---
         if clean_client.lower() != 'all':
             final_client = clean_client
             st.sidebar.markdown(f"**🏢 Branch:** {final_client}")
@@ -40,12 +39,11 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
             selected_branch = st.sidebar.selectbox("🏢 Select Branch", c_list)
             final_client = "All" if selected_branch == "All Branches" else selected_branch
 
-        # --- Outlet Selection ---
         if clean_outlet.lower() != 'all':
             final_outlet = clean_outlet
             st.sidebar.markdown(f"**🏠 Outlet:** {final_outlet}")
         else:
-            if final_client != "All" and not df_nav.empty:
+            if final_client != "All Branches" and final_client != "All" and not df_nav.empty:
                 outlets_for_client = sorted([o for o in df_nav[df_nav['client_name'] == final_client]['outlet'].unique() if o.lower() != 'all'])
             elif not df_nav.empty:
                 outlets_for_client = sorted([o for o in df_nav['outlet'].unique() if o.lower() != 'all'])
@@ -60,7 +58,7 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
         # 2. GLOBAL DATE FILTER
         # ==========================================
         today = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).date()
-        default_start = today - timedelta(days=7) # Default to last 7 days
+        default_start = today - timedelta(days=7) 
         
         col_date, col_blank = st.columns([1, 2])
         with col_date:
@@ -84,89 +82,116 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
                 query = query.ilike("outlet", f"%{final_outlet}%")
             return query
 
-        with st.spinner("⏳ Fetching live analytics..."):
-            # Fetch Cash
+        with st.spinner("⏳ Fetching executive analytics..."):
             res_cash = secure_query("daily_cash").limit(5000).execute()
             df_cash = pd.DataFrame(res_cash.data)
             
-            # Fetch Waste
             res_waste = secure_query("waste_logs").limit(5000).execute()
             df_waste = pd.DataFrame(res_waste.data)
             
-            # Fetch Inventory (Just counting rows)
             res_inv = secure_query("inventory_logs").limit(5000).execute()
             df_inv = pd.DataFrame(res_inv.data)
 
         # ==========================================
-        # 4. TOP-LEVEL METRICS
+        # 4. HERO METRICS (THE KPI RIBBON)
         # ==========================================
+        st.markdown("##### 🏆 Performance Snapshot")
         col1, col2, col3, col4 = st.columns(4)
         
-        # Cash Math
+        # Safe math conversions
+        total_rev, total_variance, total_waste_qty = 0.0, 0.0, 0.0
         if not df_cash.empty:
-            total_rev = pd.to_numeric(df_cash['revenue'], errors='coerce').sum()
-            total_variance = pd.to_numeric(df_cash['over_short'], errors='coerce').sum()
-        else:
-            total_rev, total_variance = 0.0, 0.0
+            df_cash['revenue'] = pd.to_numeric(df_cash['revenue'], errors='coerce').fillna(0)
+            df_cash['over_short'] = pd.to_numeric(df_cash['over_short'], errors='coerce').fillna(0)
+            total_rev = df_cash['revenue'].sum()
+            total_variance = df_cash['over_short'].sum()
             
-        col1.metric("Total Revenue", f"{total_rev:,.2f}")
-        col2.metric("Cash Variance", f"{total_variance:,.2f}", delta=f"{total_variance:,.2f}", delta_color="normal")
-            
-        # Waste Math
         if not df_waste.empty:
-            total_waste_qty = pd.to_numeric(df_waste['qty'], errors='coerce').sum()
-        else:
-            total_waste_qty = 0.0
-            
-        col3.metric("Waste (Qty)", f"{total_waste_qty:,.0f}")
+            df_waste['qty'] = pd.to_numeric(df_waste['qty'], errors='coerce').fillna(0)
+            total_waste_qty = df_waste['qty'].sum()
 
-        # Inventory Math
         items_counted = len(df_inv) if not df_inv.empty else 0
-        col4.metric("Inventory Items Logged", f"{items_counted:,.0f}")
+
+        # Build visual cards
+        col1.metric("💵 Total Revenue", f"{total_rev:,.2f}")
+        
+        # Color code variance dynamically
+        var_color = "normal" if total_variance >= 0 else "inverse"
+        col2.metric("⚖️ Cash Variance", f"{total_variance:,.2f}", delta=f"{total_variance:,.2f}", delta_color=var_color)
+            
+        col3.metric("🗑️ Total Waste (Qty)", f"{total_waste_qty:,.0f}")
+        col4.metric("📋 Inventory Logs", f"{items_counted:,.0f} counts")
             
         st.divider()
         
         # ==========================================
-        # 5. REVENUE BREAKDOWN & CHARTS
+        # 5. VISUAL ANALYTICS (PLOTLY)
         # ==========================================
-        if not df_cash.empty:
-            st.subheader("🏢 Revenue Breakdown")
-            
-            df_cash['revenue'] = pd.to_numeric(df_cash['revenue'], errors='coerce').fillna(0)
-            df_cash['over_short'] = pd.to_numeric(df_cash['over_short'], errors='coerce').fillna(0)
-            
-            outlet_summary = df_cash.groupby('outlet')[['revenue', 'over_short']].sum().reset_index()
-            outlets_list = outlet_summary.to_dict('records')
-            
-            if outlets_list:
-                cols_per_row = 4
-                for i in range(0, len(outlets_list), cols_per_row):
-                    row_cols = st.columns(cols_per_row)
-                    for j, out_data in enumerate(outlets_list[i:i+cols_per_row]):
-                        with row_cols[j]:
-                            with st.container(border=True):
-                                st.markdown(f"**{str(out_data['outlet']).title()}**")
-                                st.metric(
-                                    label="Revenue", 
-                                    value=f"{out_data['revenue']:,.2f}", 
-                                    delta=f"Var: {out_data['over_short']:,.2f}",
-                                    delta_color="normal"
-                                )
-                                
-            st.subheader("📈 Revenue Trend")
-            chart_data = df_cash.groupby('date')['revenue'].sum().reset_index()
-            chart_data = chart_data.sort_values(by='date')
-            st.bar_chart(chart_data, x='date', y='revenue', color="#00ff00")
-        else:
-            st.info("No revenue data logged for this timeframe.")
+        chart_col1, chart_col2 = st.columns([2, 1])
+        
+        with chart_col1:
+            st.markdown("##### 📈 Revenue & Collection Trend")
+            if not df_cash.empty:
+                # Group by date for the chart
+                trend_data = df_cash.groupby('date')[['revenue', 'cash', 'visa']].sum().reset_index()
+                trend_data = trend_data.sort_values('date')
+                
+                # Create a beautiful interactive line chart
+                fig_rev = px.area(trend_data, x="date", y="revenue", markers=True, title="Daily Gross Revenue")
+                fig_rev.update_traces(line_color="#00ff00", fill='tozeroy', fillcolor="rgba(0,255,0,0.1)")
+                fig_rev.update_layout(xaxis_title="", yaxis_title="Amount", margin=dict(l=0, r=0, t=30, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig_rev, use_container_width=True)
+            else:
+                st.info("No revenue data logged for this timeframe.")
+
+        with chart_col2:
+            st.markdown("##### 🚨 Top 5 Wasted Items")
+            if not df_waste.empty:
+                # Calculate the worst offenders for waste
+                top_waste = df_waste.groupby('item_name')['qty'].sum().reset_index().sort_values('qty', ascending=False).head(5)
+                
+                # Horizontal bar chart for easy reading
+                fig_waste = px.bar(top_waste, x='qty', y='item_name', orientation='h', text_auto='.0f')
+                fig_waste.update_traces(marker_color='#ff4b4b')
+                fig_waste.update_layout(yaxis={'categoryorder':'total ascending'}, xaxis_title="Qty Wasted", yaxis_title="", margin=dict(l=0, r=0, t=0, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig_waste, use_container_width=True)
+            else:
+                st.success("No waste logged! Excellent job.")
 
         # ==========================================
-        # 6. 📥 GLOBAL DATA EXPORT (POWER USERS ONLY)
+        # 6. EXCEPTION REPORTING (RED FLAGS)
+        # ==========================================
+        st.markdown("##### ⚠️ Exceptions & Discrepancies")
+        exc_col1, exc_col2 = st.columns(2)
+        
+        with exc_col1:
+            st.markdown("**Cash Shortages**")
+            if not df_cash.empty:
+                shortages = df_cash[df_cash['over_short'] < 0][['date', 'outlet', 'over_short', 'reported_by']]
+                if not shortages.empty:
+                    shortages = shortages.sort_values('over_short').head(5) # Top 5 worst shortages
+                    st.dataframe(shortages, use_container_width=True, hide_index=True)
+                else:
+                    st.success("All registers balanced perfectly!")
+            else:
+                st.caption("No cash data.")
+                
+        with exc_col2:
+            st.markdown("**Largest Spoilage Events**")
+            if not df_waste.empty:
+                # Find single entries where qty was unusually high
+                big_waste = df_waste.sort_values('qty', ascending=False)[['date', 'item_name', 'qty', 'remarks', 'reported_by']].head(5)
+                st.dataframe(big_waste, use_container_width=True, hide_index=True)
+            else:
+                st.caption("No waste data.")
+
+        # ==========================================
+        # 7. 📥 GLOBAL DATA EXPORT (POWER USERS ONLY)
         # ==========================================
         if clean_client.lower() == 'all' or role.lower() == 'admin':
             st.divider()
-            st.markdown("### 📥 Global Data Export (Excel/CSV)")
-            st.info("Bypass all app limits. Download the raw database logs here and use Excel to filter by Client, Date, or Item.")
+            st.markdown("### 📥 Deep-Dive Data Export")
+            st.info("Bypass visual limits. Download the raw database logs here and use Excel to run deep pivot tables.")
             
             exp_col1, exp_col2 = st.columns([1, 2])
             with exp_col1:
@@ -183,28 +208,20 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
             }
             db_table_name = table_map[table_to_export]
             
-            if st.button(f"🔍 Fetch {table_to_export} Data", type="primary"):
+            if st.button(f"🔍 Generate {table_to_export} Export", type="primary"):
                 with st.spinner(f"Pulling {table_to_export} records..."):
                     
-                    # 1. Start with the date filter
                     export_query = supabase.table(db_table_name).select("*").gte("date", str(start_date)).lte("date", str(end_date))
-                    
-                    # 2. Apply the sidebar Client filter
-                    if final_client != 'All':
+                    if final_client != 'All' and final_client != 'All Branches':
                         export_query = export_query.ilike("client_name", f"%{final_client}%")
-                        
-                    # 3. Apply the sidebar Outlet filter
-                    if final_outlet != 'All':
+                    if final_outlet != 'All' and final_outlet != 'All Outlets':
                         export_query = export_query.ilike("outlet", f"%{final_outlet}%")
                         
-                    # 4. Fetch the data with a massive limit to bypass limits
                     export_res = export_query.limit(50000).execute()
                     df_export = pd.DataFrame(export_res.data)
                     
                     if not df_export.empty:
                         st.success(f"✅ Found {len(df_export)} records.")
-                        
-                        # Generate CSV for download
                         csv_data = df_export.to_csv(index=False).encode('utf-8')
                         
                         st.download_button(
@@ -215,10 +232,6 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
                             type="primary",
                             use_container_width=True
                         )
-                        
-                        # Show a quick preview
-                        with st.expander("👀 Preview Data"):
-                            st.dataframe(df_export.head(10), use_container_width=True)
                     else:
                         st.warning(f"No records found for the selected filters and dates.")
                         
