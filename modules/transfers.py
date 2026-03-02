@@ -236,8 +236,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                                             "action_by": ""
                                         }
                                         supabase.table("transfers").insert(new_req).execute()
-                                        st.success("✅ AI successfully processed and sent your order!")
-                                        st.balloons()
+                                        st.toast("AI successfully processed your order!", icon="🤖")
                                         # st.rerun() # Uncomment if you want it to refresh instantly
                                     else:
                                         st.error("AI couldn't find any food items in your text. Try again!")
