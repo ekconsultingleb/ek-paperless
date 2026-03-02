@@ -22,17 +22,32 @@ supabase: Client = init_supabase()
 
 st.set_page_config(page_title="EK Consulting Portal", layout="wide")
 
-# --- SAFETY NET FOR MOBILE BACK BUTTON ---
+# --- BULLETPROOF MOBILE BACK BUTTON PROTECTION ---
 def inject_back_button_protection():
     components.html(
         """
         <script>
-        // Intercept the browser trying to leave the page
+        // 1. Standard protection for refreshing or closing the tab
         window.parent.addEventListener('beforeunload', function (e) {
-            // Cancel the event
             e.preventDefault();
-            // Chrome requires returnValue to be set
             e.returnValue = '';
+        });
+
+        // 2. Mobile Hardware Back Button trick (History API)
+        // Push a fake state into the phone's memory
+        window.parent.history.pushState('fake-route', null, '');
+        
+        // Listen for the user hitting the Android back button
+        window.parent.addEventListener('popstate', function (e) {
+            // Ask for confirmation
+            var stay = window.parent.confirm("⚠️ Warning: Leaving this page will erase unsaved work! Do you want to stay?");
+            if (stay) {
+                // If they want to stay, push the fake state again to trap the back button
+                window.parent.history.pushState('fake-route', null, '');
+            } else {
+                // If they want to leave, let them go back again
+                window.parent.history.back();
+            }
         });
         </script>
         """,
