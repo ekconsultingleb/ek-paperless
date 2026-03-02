@@ -4,11 +4,34 @@ from datetime import datetime, timedelta
 import zoneinfo
 import uuid
 from supabase import create_client, Client
+import google.generativeai as genai
+import json
 
 # --- SAFELY INITIALIZE SUPABASE ---
 @st.cache_resource
 def get_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+
+# --- AI HELPER FUNCTION ---
+def analyze_chef_request(user_text):
+    # Configure API Key securely from secrets
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    
+    system_prompt = """
+    You are an AI assistant for a Lebanese restaurant kitchen. 
+    Analyze the user's text (which may be in Lebanese Arabizi, Arabic, or English).
+    Extract the requested inventory items and their quantities.
+    Translate item names to standard English database names (e.g., 'batata' -> 'Potato', 'malfouf' -> 'Cabbage', 'shrim' -> 'Shrimp').
+    Return ONLY a valid JSON array. Do not return markdown, do not return explanations. 
+    Format exactly like this: [{"item_name": "Shrimp", "qty": "5kg"}, {"item_name": "Potato", "qty": "2 box"}]
+    """
+    
+    model = genai.GenerativeModel('gemini-2.5-flash')
+    response = model.generate_content(f"{system_prompt}\n\nChef's request: {user_text}")
+    
+    # Clean the response to ensure it's pure JSON
+    clean_text = response.text.replace("```json", "").replace("```", "").strip()
+    return json.loads(clean_text)
 
 def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_outlet, assigned_location):
     st.markdown("### 🔄 Transfers & Requisitions")
@@ -44,7 +67,6 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
         # ==========================================
         # 2. SMART ROUTING & CLEAN SIDEBAR
         # ==========================================
-        # PRO TIP: Query the small users table for instant navigation
         nav_res = supabase.table("users").select("client_name, outlet").execute()
         df_nav = pd.DataFrame(nav_res.data)
         
@@ -82,7 +104,6 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
         # ==========================================
         # 3. MEGA-FETCH FOR MASTER ITEMS
         # ==========================================
-        # Safely pull items for this specific client to enable cross-outlet transfers
         all_items = []
         page_size, start_row = 1000, 0
         
@@ -101,7 +122,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
             df_inv['client_name'] = df_inv['client_name'].astype(str).str.strip().str.title()
             df_inv['outlet'] = df_inv['outlet'].astype(str).str.strip().str.title()
             df_inv['location'] = df_inv['location'].astype(str).str.strip().str.title()
-            df_inv = df_inv.drop_duplicates().copy() # Keep memory clean
+            df_inv = df_inv.drop_duplicates().copy()
 
         # C. Determine Location
         db_locs = sorted(list(df_inv[df_inv['outlet'] == final_outlet]['location'].dropna().unique())) if final_outlet != "None" and not df_inv.empty else []
@@ -126,10 +147,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
         else:
             df_transfers = pd.DataFrame(columns=['transfer_id', 'date', 'status', 'requester', 'from_outlet', 'from_location', 'to_outlet', 'to_location', 'request_type', 'details', 'action_by'])
 
-        # --- SECURITY & NOTIFICATIONS ---
         user_locs_lower = [loc.lower() for loc in active_locations]
-        
-        # Determine if this user is allowed to dispatch (send items OUT)
         can_dispatch = (raw_loc.lower() == 'all' or any('warehouse' in loc for loc in user_locs_lower))
 
         if can_dispatch:
@@ -170,9 +188,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                 with col_o2:
                     to_outlet = st.selectbox("Request For (Outlet)", [final_outlet], disabled=True, key="t_to_out")
                 
-                # STRICT FILTERING: Only look at items for THIS client and THIS outlet
                 df_local_items = df_inv[(df_inv['client_name'] == final_client) & (df_inv['outlet'] == from_outlet)] if not df_inv.empty else pd.DataFrame()
-
                 from_loc_options = sorted(list(df_local_items['location'].dropna().unique())) if not df_local_items.empty else ["Main Store"]
                 
                 col_l1, col_l2 = st.columns(2)
@@ -182,16 +198,54 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                     if raw_loc.lower() == 'all':
                         df_to_items = df_inv[(df_inv['client_name'] == final_client) & (df_inv['outlet'] == to_outlet)] if not df_inv.empty else pd.DataFrame()
                         to_loc_options = sorted(list(df_to_items['location'].dropna().unique())) if not df_to_items.empty else ["Main Store"]
-                        
                         filtered_to_locs = [l for l in to_loc_options if l != from_location]
                         to_location = st.selectbox("To Location", filtered_to_locs if filtered_to_locs else to_loc_options, key="t_to_loc")
                     else:
                         to_location = st.selectbox("To Location", active_locations, key="t_to_loc")
                 
                 st.divider()
-                req_style = st.radio("Style", ["📝 Quick Note", "🎯 Pick Exact Items"], horizontal=True, label_visibility="collapsed")
                 
-                if req_style == "📝 Quick Note":
+                # --- THE NEW 3-OPTION UI ---
+                req_style = st.radio("Style", ["🤖 AI Smart Request", "📝 Quick Note", "🎯 Pick Exact Items"], horizontal=True, label_visibility="collapsed")
+                
+                # OPTION 1: THE AI CHATBOX
+                if req_style == "🤖 AI Smart Request":
+                    st.info("💡 **Type exactly how you speak!** I will understand Arabizi and translate it to stock items.")
+                    ai_text = st.text_area("What do you need?", placeholder="e.g. Bade 5kg batata w 2 box arak...", height=100)
+                    
+                    if st.button("✨ Analyze & Send Request", type="primary", use_container_width=True):
+                        if ai_text.strip():
+                            with st.spinner("🤖 AI is reading your request..."):
+                                try:
+                                    parsed_items = analyze_chef_request(ai_text)
+                                    
+                                    if parsed_items:
+                                        # Build the text for the database
+                                        details_list = [f"{item['qty']}x {item['item_name']}" for item in parsed_items]
+                                        final_details = "AI Extracted Items:\n" + "\n".join(details_list) + f"\n\n(Original Note: {ai_text})"
+                                        
+                                        new_req = {
+                                            "transfer_id": str(uuid.uuid4())[:8],
+                                            "date": datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).strftime("%Y-%m-%d %H:%M"),
+                                            "status": "Pending",
+                                            "requester": user,
+                                            "from_outlet": from_outlet, "from_location": from_location,
+                                            "to_outlet": to_outlet, "to_location": to_location,
+                                            "request_type": "AI Assisted",
+                                            "details": final_details,
+                                            "action_by": ""
+                                        }
+                                        supabase.table("transfers").insert(new_req).execute()
+                                        st.success("✅ AI successfully processed and sent your order!")
+                                        st.balloons()
+                                        # st.rerun() # Uncomment if you want it to refresh instantly
+                                    else:
+                                        st.error("AI couldn't find any food items in your text. Try again!")
+                                except Exception as e:
+                                    st.error(f"❌ AI Error: {e}")
+
+                # OPTION 2: QUICK NOTE
+                elif req_style == "📝 Quick Note":
                     with st.form("text_req_form", clear_on_submit=True):
                         text_request = st.text_area("What do you need?", placeholder="e.g. 5kg Chicken, 2 boxes Arak...", height=100)
                         if st.form_submit_button("🚀 Send Request", type="primary", use_container_width=True):
@@ -211,6 +265,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                                 st.success("✅ Request sent!")
                                 st.rerun()
 
+                # OPTION 3: EXACT ITEMS
                 elif req_style == "🎯 Pick Exact Items":
                     search_q = st.text_input("🔍 Search Item...", placeholder="e.g. Almaza", label_visibility="collapsed")
                     with st.form("item_req_form", clear_on_submit=True):
@@ -240,7 +295,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                                 st.rerun()
 
         # ==========================================
-        # TAB 2: DISPATCH
+        # TAB 2 & 3: DISPATCH & RECEIVE
         # ==========================================
         if tab_out:
             with tab_out:
@@ -249,16 +304,14 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                 else:
                     for _, row in my_pending.iterrows():
                         with st.expander(f"📦 Order for {row['to_location']} ({row['requester']})"):
-                            edited_details = st.text_area("Fulfillment Details:", value=row['details'], key=f"e_{row['transfer_id']}")
+                            # This is where the Warehouse will see the AI's translation!
+                            edited_details = st.text_area("Fulfillment Details:", value=row['details'], key=f"e_{row['transfer_id']}", height=150)
                             if st.button("Approve & Dispatch", key=f"d_{row['transfer_id']}", type="primary"):
                                 supabase.table("transfers").update({
                                     "details": edited_details, "status": "In Transit", "action_by": f"Sent by {user}"
                                 }).eq("transfer_id", row['transfer_id']).execute()
                                 st.rerun()
 
-        # ==========================================
-        # TAB 3: RECEIVE
-        # ==========================================
         with tab_in:
             if my_incoming.empty:
                 st.info("No shipments to receive at your location.")

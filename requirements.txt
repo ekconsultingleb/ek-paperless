@@ -4,3 +4,4 @@ pandas
 supabase
 fpdf2
 plotly
+google-generativeai
