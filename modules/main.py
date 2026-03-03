@@ -14,14 +14,77 @@ def render_main(conn, sheet_link, user, role):
         return
 
     st.markdown("### ⚙️ Admin Control Panel")
-    st.info("Create new users, assign branches, and manage module access.")
+    st.info("Sync master items, create new users, and manage module access.")
     supabase = get_supabase()
 
     # --- TABS FOR ORGANIZATION ---
-    tab_create, tab_view = st.tabs(["➕ Create New User", "👥 Manage Existing Users"])
+    tab_sync, tab_create, tab_view = st.tabs(["📤 Master Items Sync", "➕ Create New User", "👥 Manage Existing Users"])
 
     # ==========================================
-    # TAB 1: CREATE USER FORM
+    # TAB 1: SMART EXCEL/CSV IMPORTER
+    # ==========================================
+    with tab_sync:
+        st.markdown("#### 🔄 Smart Database Importer (Upsert)")
+        st.info(
+            "💡 **How this works:** Upload your latest CSV or Excel file. "
+            "If the Product Code + Location already exists, the system will **UPDATE** the item's name and details. "
+            "If it does not exist, it will **INSERT** it as a new item. No duplicate errors!"
+        )
+
+        uploaded_file = st.file_uploader("Upload Master Items List", type=["csv", "xlsx"])
+
+        if uploaded_file:
+            try:
+                # 1. Read the file
+                if uploaded_file.name.endswith('.csv'):
+                    df = pd.read_csv(uploaded_file)
+                else:
+                    df = pd.read_excel(uploaded_file)
+
+                # 2. Clean up the column names instantly (lowercase, no spaces)
+                df.columns = [str(c).strip().lower() for c in df.columns]
+
+                # 3. Display a preview so you can verify it
+                st.write(f"**Previewing {len(df)} rows:**")
+                st.dataframe(df.head(5), use_container_width=True)
+
+                # 4. Define the exact columns your database needs to lock the constraint
+                required_cols = ['client_name', 'outlet', 'location', 'item_type', 'product_code', 'item_name']
+                missing_cols = [c for c in required_cols if c not in df.columns]
+
+                if missing_cols:
+                    st.error(f"❌ Your file is missing these required columns: {', '.join(missing_cols)}")
+                    st.caption("Please rename your Excel headers to match the database exactly.")
+                else:
+                    # The Magic Sync Button
+                    if st.button("🚀 Run Smart Sync", type="primary", use_container_width=True):
+                        with st.spinner("Syncing to the Cloud... Do not refresh..."):
+                            
+                            # Clean the data (convert NaNs to empty strings)
+                            df = df.fillna('')
+                            
+                            # Convert Pandas DataFrame to a list of dictionaries for Supabase
+                            records = df.to_dict(orient='records')
+
+                            # Batch upload in chunks of 500 to prevent timeout errors
+                            batch_size = 500
+                            for i in range(0, len(records), batch_size):
+                                batch = records[i:i + batch_size]
+                                
+                                # 🪄 THE MAGIC UPSERT COMMAND
+                                supabase.table("master_items").upsert(
+                                    batch,
+                                    on_conflict="client_name,outlet,location,item_type,product_code"
+                                ).execute()
+
+                            st.success(f"✅ Successfully synced {len(records)} items!")
+                            st.balloons()
+
+            except Exception as e:
+                st.error(f"❌ Error processing file: {e}")
+
+    # ==========================================
+    # TAB 2: CREATE USER FORM
     # ==========================================
     with tab_create:
         with st.form("create_user_form", clear_on_submit=True):
@@ -75,7 +138,7 @@ def render_main(conn, sheet_link, user, role):
                         st.error(f"❌ Database Error: {e}. Check if that username already exists.")
 
     # ==========================================
-    # TAB 2: MANAGE EXISTING USERS (FORM EDITOR)
+    # TAB 3: MANAGE EXISTING USERS (FORM EDITOR)
     # ==========================================
     with tab_view:
         st.subheader("Edit User Profiles")
