@@ -104,8 +104,14 @@ def render_main(conn, sheet_link, user, role):
                     new_username = st.text_input("👤 Username", placeholder="e.g. Sami_LaSiesta")
                     new_password = st.text_input("🔑 Password", placeholder="Enter password")
                     new_fullname = st.text_input("📝 Full Name", placeholder="e.g. Jacob Joshua")
-                    # Notice we limit what role a normal admin can create if we wanted to, but we'll leave it flexible
-                    new_role = st.selectbox("🛡️ Role", ["staff", "chef","manager", "viewer", "admin", "admin_all"])
+                    
+                    # 🚨 BUG FIX: Privilege Escalation Prevention
+                    if is_super_admin:
+                        role_options = ["staff", "chef", "manager", "viewer", "admin", "admin_all"]
+                    else:
+                        role_options = ["staff", "chef", "manager", "viewer", "admin"]
+                    
+                    new_role = st.selectbox("🛡️ Role", role_options)
                 
                 with col2:
                     available_modules = ["waste", "cash", "inventory", "transfers", "dashboard"]
