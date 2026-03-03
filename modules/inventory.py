@@ -67,8 +67,16 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
     st.markdown("### 📋 Inventory Count")
     supabase = get_supabase()
 
+    # --- 🔒 INITIALIZE SESSION STATES FOR LOCKS & CARTS ---
     if 'mobile_counts' not in st.session_state:
         st.session_state['mobile_counts'] = {}
+        
+    if 'submit_lock' not in st.session_state:
+        st.session_state['submit_lock'] = False
+
+    # 🔒 THIS IS THE LOCK TRIGGER FUNCTION
+    def lock_submit():
+        st.session_state['submit_lock'] = True
 
     # ---------------------------------------------------------
     # SUB-VIEW A: THE REPORTS & CONSOLIDATED TOTALS (CHEF VIEW)
@@ -188,6 +196,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
             )
             if st.button("Start New Count", use_container_width=True, key="new_count_btn"):
                 del st.session_state['last_inv_receipt']
+                st.session_state['submit_lock'] = False # Make sure lock is reset
                 st.rerun()
             st.divider()
             return
@@ -347,35 +356,43 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                 preview_list = [{"Item": v['row_data'].get('item_name', k), "Total Counted": v['qty'], "Unit": v['row_data'].get('count_unit', '')} for k, v in st.session_state['mobile_counts'].items()]
                 st.dataframe(pd.DataFrame(preview_list), use_container_width=True, hide_index=True)
 
-                if st.button("🚀 SUBMIT ALL COUNTS TO CLOUD", type="primary", use_container_width=True, key="submit_cloud_btn"):
-                    logs = []
-                    for i_name, data in st.session_state['mobile_counts'].items():
-                        r_data = data['row_data']
-                        logs.append({
-                            "date": str(count_date),
-                            "client_name": final_client,
-                            "outlet": final_outlet,
-                            "location": loc_filter,
-                            "counted_by": user,
-                            "item_name": r_data.get('item_name', i_name),
-                            "product_code": str(r_data.get('product_code', '')),
-                            "item_type": r_data.get('item_type', ''),
-                            "category": r_data.get('category', ''),
-                            "sub_category": r_data.get('sub_category', ''),
-                            "quantity": float(data['qty']),
-                            "count_unit": r_data.get('count_unit', 'pcs')
-                        })
-                    
-                    if logs:
-                        try:
-                            supabase.table("inventory_logs").insert(logs).execute()
-                            df_receipt = pd.DataFrame(logs)
-                            pdf_bytes = generate_inventory_pdf(df_receipt, str(count_date), final_client, final_outlet, loc_filter, user)
-                            st.session_state['last_inv_receipt'] = {"bytes": pdf_bytes, "filename": f"Inventory_Receipt_{final_outlet.replace(' ', '_')}_{str(count_date)}.pdf"}
-                            st.session_state['mobile_counts'] = {}
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Database Error: {e}")
+                # 🔒 HERE IS THE MODIFIED SUBMIT BUTTON WITH THE LOCK LOGIC
+                if st.button("🚀 SUBMIT ALL COUNTS TO CLOUD", type="primary", use_container_width=True, key="submit_cloud_btn", on_click=lock_submit, disabled=st.session_state['submit_lock']):
+                    with st.spinner("Saving to database... Please wait! Do not refresh."):
+                        logs = []
+                        for i_name, data in st.session_state['mobile_counts'].items():
+                            r_data = data['row_data']
+                            logs.append({
+                                "date": str(count_date),
+                                "client_name": final_client,
+                                "outlet": final_outlet,
+                                "location": loc_filter,
+                                "counted_by": user,
+                                "item_name": r_data.get('item_name', i_name),
+                                "product_code": str(r_data.get('product_code', '')),
+                                "item_type": r_data.get('item_type', ''),
+                                "category": r_data.get('category', ''),
+                                "sub_category": r_data.get('sub_category', ''),
+                                "quantity": float(data['qty']),
+                                "count_unit": r_data.get('count_unit', 'pcs')
+                            })
+                        
+                        if logs:
+                            try:
+                                supabase.table("inventory_logs").insert(logs).execute()
+                                df_receipt = pd.DataFrame(logs)
+                                pdf_bytes = generate_inventory_pdf(df_receipt, str(count_date), final_client, final_outlet, loc_filter, user)
+                                st.session_state['last_inv_receipt'] = {"bytes": pdf_bytes, "filename": f"Inventory_Receipt_{final_outlet.replace(' ', '_')}_{str(count_date)}.pdf"}
+                                
+                                # Reset state and release the lock after successful upload!
+                                st.session_state['mobile_counts'] = {}
+                                st.session_state['submit_lock'] = False 
+                                st.rerun()
+                                
+                            except Exception as e:
+                                # ALWAYS release the lock if an error happens!
+                                st.session_state['submit_lock'] = False
+                                st.error(f"❌ Database Error: {e}")
 
     # ---------------------------------------------------------
     # TRAFFIC COP: DECIDE WHAT TO SHOW BASED ON ROLE
