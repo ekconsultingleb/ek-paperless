@@ -167,10 +167,10 @@ else:
     else:
         allowed_modules = [m.strip() for m in raw_modules.split(",") if m.strip()]
 
-    # Secret Admin Panel Button (Role-based)
-    if role == "admin":
+    # Secret Admin Panel Button (Double-Locked!)
+    if role in ["admin", "admin_all"] or (role == "manager" and st.session_state['client_name'].lower() == 'all'):
         st.sidebar.divider()
-        if st.sidebar.button("⚙️ Admin Panel", type="primary"):
+        if st.sidebar.button("⚙️ Control Panel", type="primary"):
             st.session_state['current_page'] = "main"
             st.rerun()
 
