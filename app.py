@@ -10,6 +10,7 @@ from modules.daily_cash import render_daily_cash
 from modules.inventory import render_inventory
 from modules.waste import render_waste
 from modules.transfers import render_transfers
+from modules.invoices import render_invoices
 
 # --- INITIALIZE SUPABASE ---
 @st.cache_resource
@@ -230,12 +231,21 @@ else:
                     st.session_state['current_page'] = 'transfers'
                     st.rerun()
 
+        # --- ROW 2 BUTTONS ---
+        st.write("") # Spacer for the second row
+        col_e, col_f, col_g, col_h = st.columns(4)
+        
         if "cash" in allowed_modules:
-            st.write("")
-            col_e, _, _, _ = st.columns(4)
             with col_e:
                 if st.button("🏦 Daily Cash", use_container_width=True):
                     st.session_state['current_page'] = 'cash'
+                    st.rerun()
+
+        # 👇 THE NEW INVOICE BUTTON 👇
+        if "invoices" in allowed_modules:
+            with col_f:
+                if st.button("📸 Snap Invoice", use_container_width=True):
+                    st.session_state['current_page'] = 'invoices'
                     st.rerun()
 
     # ==========================================
@@ -262,6 +272,9 @@ else:
             
         elif st.session_state['current_page'] == 'transfers':
             render_transfers(None, None, user, role, client, outlet, location)
+            
+        elif st.session_state['current_page'] == 'invoices':
+            render_invoices(None, None, user, role)
             
         elif st.session_state['current_page'] == 'main':
             render_main(None, None, user, role)
