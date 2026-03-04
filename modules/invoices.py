@@ -159,7 +159,12 @@ def render_invoices(conn, sheet_link, user, role):
         # Add the failsafe option at the end
         supplier_list.append("➕ Other (Type manually)")
         
-        selected_supplier = st.selectbox("🏢 Select Supplier", supplier_list)
+        selected_supplier = st.selectbox(
+            "🏢 Select Supplier", 
+            supplier_list, 
+            index=None, 
+            placeholder="Start typing supplier name..."
+        )
         
         # If they pick "Other", pop open a text box so they aren't stuck!
         if selected_supplier == "➕ Other (Type manually)":
