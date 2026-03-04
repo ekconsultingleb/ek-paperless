@@ -174,8 +174,16 @@ def render_invoices(conn, sheet_link, user, role):
                         
                         supabase.table("invoices_log").insert([db_record]).execute()
                         
+                        # 1. Show the success message
                         st.success("✅ Invoice successfully uploaded and sent to Accounting!")
-                        st.balloons()
+                        
+                        # 2. Add a sleek mobile popup (Toast) just to be safe
+                        st.toast("Invoice sent to Accounting!", icon="🚀")
+                        
+                        # 3. Automatically smooth-scroll to the bottom of the page
+                        st.markdown(
+                            "<script>window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });</script>",
+                            unsafe_allow_html=True
+                        )
                         
                     except Exception as e:
-                        st.error(f"❌ Error uploading: {e}")
