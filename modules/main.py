@@ -105,10 +105,10 @@ def render_main(conn, sheet_link, user, role):
             st.subheader("Account Details")
             col1, col2 = st.columns(2)
             with col1:
-                new_username = st.text_input("👤 Username", placeholder="e.g. Sami_LaSiesta", key="c_usr")
+                new_username = st.text_input("👤 Username", placeholder="e.g. Ely", key="c_usr")
                 new_password = st.text_input("🔑 Password", placeholder="Enter password", key="c_pwd")
                 new_fullname = st.text_input("📝 Full Name", placeholder="e.g. Jacob Joshua", key="c_name")
-                role_options = ["staff", "chef", "manager", "viewer", "admin", "admin_all"] if is_super_admin else ["staff", "chef", "manager", "viewer", "admin"]
+                role_options = ["staff", "chef", "bar manager", "bartender", "storekeeper", "manager", "viewer", "admin", "admin_all"] if is_super_admin else ["staff", "chef", "manager", "viewer", "admin"]
                 new_role = st.selectbox("🛡️ Role", role_options, key="c_role")
             
             with col2:
@@ -213,7 +213,7 @@ def render_main(conn, sheet_link, user, role):
                                 e_password = st.text_input("🔑 Password", value=user_data.get('password', ''))
                                 e_fullname = st.text_input("📝 Full Name", value=user_data.get('full_name', ''))
                                 current_role = str(user_data.get('role', 'staff')).lower()
-                                roles = ["staff", "chef", "manager", "viewer", "admin", "admin_all"]
+                                roles = ["staff", "chef", "bar manager", "bartender", "storekeeper", "manager", "viewer", "admin", "admin_all"]
                                 e_role = st.selectbox("🛡️ Role", roles, index=roles.index(current_role) if current_role in roles else 0)
                                 
                             with e_col2:
