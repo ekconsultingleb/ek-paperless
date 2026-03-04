@@ -112,7 +112,7 @@ def render_main(conn, sheet_link, user, role):
                 new_role = st.selectbox("🛡️ Role", role_options, key="c_role")
             
             with col2:
-                available_modules = ["waste", "cash", "inventory", "transfers", "dashboard"]
+                available_modules = ["waste", "cash", "inventory", "transfers", "dashboard", "invoices"]
                 new_modules = st.multiselect("📱 App Access (Modules)", available_modules, default=["waste"], key="c_mod")
 
             st.divider()
@@ -218,7 +218,7 @@ def render_main(conn, sheet_link, user, role):
                                 
                             with e_col2:
                                 current_modules = str(user_data.get('module', ''))
-                                all_mods = ["waste", "cash", "inventory", "transfers", "dashboard"]
+                                all_mods = ["waste", "cash", "inventory", "transfers", "dashboard", "invoices"]
                                 selected_mods = [m.strip() for m in current_modules.split(',')] if current_modules else []
                                 valid_selected_mods = [m for m in selected_mods if m in all_mods]
                                 e_modules = st.multiselect("📱 App Access (Modules)", all_mods, default=valid_selected_mods)
