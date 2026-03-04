@@ -23,37 +23,25 @@ def render_main(conn, sheet_link, user, role):
     st.markdown("### ⚙️ Control Panel")
     supabase = get_supabase()
 
-    # --- INTELLIGENT ROUTING OPTION FETCHER ---
-    # Grabs every existing branch/location from the database to build the dropdowns!
-    def get_routing_options():
-        clients, outlets, locations = set(["All"]), set(["All"]), set(["All"])
+    # --- 🧠 INTELLIGENT CASCADING DATAFRAME ---
+    # We fetch the raw data once to power the live filters
+    def get_routing_df():
+        records = []
         try:
-            # Check Master Items
-            res = supabase.table("master_items").select("client_name, outlet, location").execute()
-            if res.data:
-                for row in res.data:
-                    if row.get('client_name'): clients.add(str(row['client_name']).strip().title())
-                    if row.get('outlet'): outlets.add(str(row['outlet']).strip().title())
-                    if row.get('location'): locations.add(str(row['location']).strip().title())
-            # Check existing Users
-            res_u = supabase.table("users").select("client_name, outlet, location").execute()
-            if res_u.data:
-                for row in res_u.data:
-                    if row.get('client_name'): clients.add(str(row['client_name']).strip().title())
-                    if row.get('outlet'): outlets.add(str(row['outlet']).strip().title())
-                    if row.get('location'): 
-                        for loc in str(row['location']).split(','):
-                            locations.add(loc.strip().title())
+            res1 = supabase.table("master_items").select("client_name, outlet, location").execute()
+            if res1.data: records.extend(res1.data)
+            res2 = supabase.table("users").select("client_name, outlet, location").execute()
+            if res2.data: records.extend(res2.data)
         except: pass
         
-        c_list, o_list, l_list = sorted(list(clients)), sorted(list(outlets)), sorted(list(locations))
-        # Move 'All' to the top
-        c_list.insert(0, c_list.pop(c_list.index("All")))
-        o_list.insert(0, o_list.pop(o_list.index("All")))
-        l_list.insert(0, l_list.pop(l_list.index("All")))
-        return c_list, o_list, l_list
+        if records:
+            df = pd.DataFrame(records)
+            df['client_name'] = df['client_name'].astype(str).str.strip().str.title()
+            df['outlet'] = df['outlet'].astype(str).str.strip().str.title()
+            return df
+        return pd.DataFrame(columns=['client_name', 'outlet', 'location'])
 
-    c_opts, o_opts, l_opts = get_routing_options()
+    df_routing = get_routing_df()
 
     # --- DYNAMIC TABS BASED ON HIERARCHY ---
     if is_super_admin:
@@ -110,67 +98,95 @@ def render_main(conn, sheet_link, user, role):
                 st.error(f"❌ Error processing file: {e}")
 
     # ==========================================
-    # TAB 2: CREATE USER FORM
+    # TAB 2: CREATE USER FORM (LIVE CASCADING)
     # ==========================================
     if tab_create:
         with tab_create:
-            with st.form("create_user_form", clear_on_submit=True):
-                st.subheader("Account Details")
-                col1, col2 = st.columns(2)
-                with col1:
-                    new_username = st.text_input("👤 Username", placeholder="e.g. Sami_LaSiesta")
-                    new_password = st.text_input("🔑 Password", placeholder="Enter password")
-                    new_fullname = st.text_input("📝 Full Name", placeholder="e.g. Jacob Joshua")
-                    role_options = ["staff", "chef", "manager", "viewer", "admin", "admin_all"] if is_super_admin else ["staff", "chef", "manager", "viewer", "admin"]
-                    new_role = st.selectbox("🛡️ Role", role_options)
+            st.subheader("Account Details")
+            col1, col2 = st.columns(2)
+            with col1:
+                new_username = st.text_input("👤 Username", placeholder="e.g. Sami_LaSiesta", key="c_usr")
+                new_password = st.text_input("🔑 Password", placeholder="Enter password", key="c_pwd")
+                new_fullname = st.text_input("📝 Full Name", placeholder="e.g. Jacob Joshua", key="c_name")
+                role_options = ["staff", "chef", "manager", "viewer", "admin", "admin_all"] if is_super_admin else ["staff", "chef", "manager", "viewer", "admin"]
+                new_role = st.selectbox("🛡️ Role", role_options, key="c_role")
+            
+            with col2:
+                available_modules = ["waste", "cash", "inventory", "transfers", "dashboard"]
+                new_modules = st.multiselect("📱 App Access (Modules)", available_modules, default=["waste"], key="c_mod")
+
+            st.divider()
+            st.subheader("Routing & Security Assignments")
+            
+            # 1. Base Client List
+            c_list = ["All"] + sorted([c for c in df_routing['client_name'].unique() if c and c != "All" and str(c).lower() != 'nan'])
+            
+            col3, col4, col5 = st.columns(3)
+            with col3:
+                new_client = st.selectbox("🏢 Select Client", c_list, key="c_client")
+            
+            # 2. Filter Outlets LIVE based on chosen Client
+            if new_client == "All":
+                filtered_outlets = df_routing['outlet'].unique()
+            else:
+                filtered_outlets = df_routing[df_routing['client_name'] == new_client]['outlet'].unique()
                 
-                with col2:
-                    available_modules = ["waste", "cash", "inventory", "transfers", "dashboard"]
-                    new_modules = st.multiselect("📱 App Access (Modules)", available_modules, default=["waste"])
-
-                st.divider()
-                st.subheader("Routing & Security Assignments")
-                col3, col4, col5 = st.columns(3)
-                with col3:
-                    new_client = st.selectbox("🏢 Select Client", c_opts)
-                with col4:
-                    new_outlet = st.selectbox("🏠 Select Outlet", o_opts)
-                with col5:
-                    new_locations = st.multiselect("📍 Select Location(s)", l_opts, default=["All"])
-
-                # Failsafe Manual Override 
-                with st.expander("➕ Not in the list? Add a brand new branch manually"):
-                    m_client = st.text_input("New Client Name")
-                    m_outlet = st.text_input("New Outlet Name")
-                    m_loc = st.text_input("New Location Name")
+            o_list = ["All"] + sorted([o for o in filtered_outlets if o and o != "All" and str(o).lower() != 'nan'])
+            
+            with col4:
+                new_outlet = st.selectbox("🏠 Select Outlet", o_list, key="c_outlet")
                 
-                submit_user = st.form_submit_button("🚀 CREATE USER", type="primary", use_container_width=True)
+            # 3. Filter Locations LIVE based on Client & Outlet
+            loc_df = df_routing.copy()
+            if new_client != "All": loc_df = loc_df[loc_df['client_name'] == new_client]
+            if new_outlet != "All": loc_df = loc_df[loc_df['outlet'] == new_outlet]
+            
+            loc_set = set(["All"])
+            for loc_val in loc_df['location'].dropna():
+                for l in str(loc_val).split(','):
+                    cl = l.strip()
+                    if cl and cl != "All" and str(cl).lower() != 'nan': loc_set.add(cl)
+                    
+            l_list = sorted(list(loc_set))
+            if "All" in l_list: l_list.insert(0, l_list.pop(l_list.index("All")))
+            
+            with col5:
+                new_locations = st.multiselect("📍 Select Location(s)", l_list, default=["All"], key="c_loc")
 
-                if submit_user:
-                    if not new_username.strip() or not new_password.strip():
-                        st.error("❌ Username and Password are required!")
-                    else:
-                        # Decide whether to use the dropdown or the manual override
-                        final_client = m_client.strip().title() if m_client.strip() else new_client
-                        final_outlet = m_outlet.strip().title() if m_outlet.strip() else new_outlet
-                        final_loc = m_loc.strip().title() if m_loc.strip() else (", ".join(new_locations) if new_locations else "All")
+            # Failsafe Manual Override 
+            with st.expander("➕ Not in the list? Add a brand new branch manually"):
+                m_client = st.text_input("New Client Name", key="m_client")
+                m_outlet = st.text_input("New Outlet Name", key="m_outlet")
+                m_loc = st.text_input("New Location Name", key="m_loc")
+            
+            # NO FORM WRAPPER: Live Button
+            st.write("")
+            submit_user = st.button("🚀 CREATE USER", type="primary", use_container_width=True)
 
-                        new_user_data = {
-                            "username": new_username.strip(),
-                            "password": new_password.strip(),
-                            "full_name": new_fullname.strip(),
-                            "role": new_role,
-                            "client_name": final_client,
-                            "outlet": final_outlet,
-                            "location": final_loc,
-                            "module": ", ".join(new_modules) if new_modules else ""
-                        }
-                        try:
-                            supabase.table("users").insert([new_user_data]).execute()
-                            st.success(f"✅ User '{new_username}' created successfully!")
-                            st.balloons()
-                        except Exception as e:
-                            st.error(f"❌ Database Error: {e}. Username might already exist.")
+            if submit_user:
+                if not new_username.strip() or not new_password.strip():
+                    st.error("❌ Username and Password are required!")
+                else:
+                    final_client = m_client.strip().title() if m_client.strip() else new_client
+                    final_outlet = m_outlet.strip().title() if m_outlet.strip() else new_outlet
+                    final_loc = m_loc.strip().title() if m_loc.strip() else (", ".join(new_locations) if new_locations else "All")
+
+                    new_user_data = {
+                        "username": new_username.strip(),
+                        "password": new_password.strip(),
+                        "full_name": new_fullname.strip(),
+                        "role": new_role,
+                        "client_name": final_client,
+                        "outlet": final_outlet,
+                        "location": final_loc,
+                        "module": ", ".join(new_modules) if new_modules else ""
+                    }
+                    try:
+                        supabase.table("users").insert([new_user_data]).execute()
+                        st.success(f"✅ User '{new_username}' created successfully!")
+                        st.balloons()
+                    except Exception as e:
+                        st.error(f"❌ Database Error: {e}. Username might already exist.")
 
     # ==========================================
     # TAB 3: MANAGE EXISTING USERS
@@ -188,6 +204,7 @@ def render_main(conn, sheet_link, user, role):
                     if selected_user != "-- Select a User --":
                         user_data = df_users[df_users['username'] == selected_user].iloc[0]
                         
+                        # We keep the Edit panel inside a form to protect your typing!
                         with st.form("edit_user_form"):
                             st.markdown(f"**Editing Profile:** `{selected_user}`")
                             e_col1, e_col2 = st.columns(2)
@@ -209,14 +226,25 @@ def render_main(conn, sheet_link, user, role):
                             st.divider()
                             st.subheader("Routing & Security Assignments")
                             
-                            # Safely handle the user's current values so selectbox doesn't crash if it's missing
+                            # Global Lists for the Edit Form
+                            all_c = ["All"] + sorted([c for c in df_routing['client_name'].unique() if c and c != "All" and str(c).lower() != 'nan'])
+                            all_o = ["All"] + sorted([o for o in df_routing['outlet'].unique() if o and o != "All" and str(o).lower() != 'nan'])
+                            
+                            loc_set_global = set(["All"])
+                            for loc_val in df_routing['location'].dropna():
+                                for l in str(loc_val).split(','):
+                                    cl = l.strip()
+                                    if cl and cl != "All" and str(cl).lower() != 'nan': loc_set_global.add(cl)
+                            all_l = sorted(list(loc_set_global))
+                            if "All" in all_l: all_l.insert(0, all_l.pop(all_l.index("All")))
+
                             curr_c = user_data.get('client_name', 'All').title()
                             curr_o = user_data.get('outlet', 'All').title()
                             curr_l_list = [l.strip().title() for l in user_data.get('location', 'All').split(',')]
                             
-                            safe_c_opts = c_opts if curr_c in c_opts else c_opts + [curr_c]
-                            safe_o_opts = o_opts if curr_o in o_opts else o_opts + [curr_o]
-                            safe_l_opts = l_opts.copy()
+                            safe_c_opts = all_c if curr_c in all_c else all_c + [curr_c]
+                            safe_o_opts = all_o if curr_o in all_o else all_o + [curr_o]
+                            safe_l_opts = all_l.copy()
                             for l in curr_l_list: 
                                 if l not in safe_l_opts: safe_l_opts.append(l)
 
