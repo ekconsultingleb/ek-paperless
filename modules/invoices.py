@@ -56,67 +56,85 @@ def render_invoices(conn, sheet_link, user, role):
                     # Sort so oldest is at the top (First in, First out)
                     df = df.sort_values(by="created_at", ascending=True)
                     
-                    # Create a nice display name for the dropdown
-                    df['display_name'] = df['created_at'].str[:10] + " | " + df['supplier'] + " | " + df['outlet'] + " (" + df['status'] + ")"
+                    # --- 🧠 SMART CLIENT FILTER FOR BASSEL ---
+                    if client_name == "All":
+                        # Get a list of clients that actually have pending invoices
+                        active_clients = ["All Clients"] + sorted(df['client_name'].unique().tolist())
+                        
+                        st.markdown("#### 🎯 Filter Workspace")
+                        chosen_client = st.selectbox("Select a Client to focus on:", active_clients)
+                        st.write("") # Spacer
+                        
+                        # Apply the filter
+                        if chosen_client != "All Clients":
+                            df = df[df['client_name'] == chosen_client]
+                    # ----------------------------------------------
                     
-                    selected_disp = st.selectbox("📥 Select an Invoice to Process", df['display_name'].tolist())
-                    
-                    if selected_disp:
-                        # Find the exact row the user clicked on
-                        selected_row = df[df['display_name'] == selected_disp].iloc[0]
-                        invoice_id = selected_row['id']
+                    # Double check if the list is empty AFTER filtering
+                    if df.empty:
+                        st.info("✅ No pending invoices for this specific client.")
+                    else:
+                        # Create a nice display name for the dropdown
+                        df['display_name'] = df['created_at'].str[:10] + " | " + df['supplier'] + " | " + df['outlet'] + " (" + df['status'] + ")"
                         
-                        st.divider()
+                        selected_disp = st.selectbox("📥 Select an Invoice to Process", df['display_name'].tolist())
                         
-                        # -- The Master/Detail Layout --
-                        col1, col2 = st.columns([1.2, 1]) # Left column is slightly wider for the picture
-                        
-                        with col1:
-                            st.markdown("#### 🖼️ Invoice Document")
-                            st.image(selected_row['image_url'], use_container_width=True)
-                            # Give Bassel a link to open it huge in a new tab if he needs to zoom in!
-                            st.markdown(f"[🔍 Click here to open full size image in a new tab]({selected_row['image_url']})")
+                        if selected_disp:
+                            # Find the exact row the user clicked on
+                            selected_row = df[df['display_name'] == selected_disp].iloc[0]
+                            invoice_id = selected_row['id']
                             
-                        with col2:
-                            st.markdown("#### 📝 Data Entry Actions")
-                            st.write(f"**🏢 Branch:** {selected_row['client_name']} - {selected_row['outlet']} ({selected_row['location']})")
-                            st.write(f"**🚚 Supplier:** {selected_row['supplier']}")
-                            st.write(f"**👤 Uploaded By:** {selected_row['uploaded_by']}")
-                            st.write(f"**📅 Date:** {selected_row['created_at'][:16]}")
+                            st.divider()
                             
-                            # The Form where Bassel does his work
-                            with st.form(f"process_form_{invoice_id}"):
-                                current_status = selected_row.get('status', 'Pending')
-                                status_options = ["Pending", "On Hold", "Posted"]
+                            # -- The Master/Detail Layout --
+                            col1, col2 = st.columns([1.2, 1]) # Left column is slightly wider for the picture
+                            
+                            with col1:
+                                st.markdown("#### 🖼️ Invoice Document")
+                                st.image(selected_row['image_url'], use_container_width=True)
+                                # Give Bassel a link to open it huge in a new tab if he needs to zoom in!
+                                st.markdown(f"[🔍 Click here to open full size image in a new tab]({selected_row['image_url']})")
                                 
-                                new_status = st.radio(
-                                    "Status", 
-                                    status_options, 
-                                    index=status_options.index(current_status) if current_status in status_options else 0,
-                                    horizontal=True
-                                )
+                            with col2:
+                                st.markdown("#### 📝 Data Entry Actions")
+                                st.write(f"**🏢 Branch:** {selected_row['client_name']} - {selected_row['outlet']} ({selected_row['location']})")
+                                st.write(f"**🚚 Supplier:** {selected_row['supplier']}")
+                                st.write(f"**👤 Uploaded By:** {selected_row['uploaded_by']}")
+                                st.write(f"**📅 Date:** {selected_row['created_at'][:16]}")
                                 
-                                new_notes = st.text_area(
-                                    "Data Entry Notes (e.g., 'Messaged Chef about missing page')", 
-                                    value=selected_row.get('data_entry_notes', '') or ""
-                                )
-                                
-                                submit_process = st.form_submit_button("💾 Save & Update", type="primary", use_container_width=True)
-                                
-                                if submit_process:
-                                    if user_role == "viewer":
-                                        st.error("🚫 Access Denied: Viewers cannot modify invoice records.")
-                                    else:
-                                        update_data = {
-                                            "status": new_status,
-                                            "data_entry_notes": new_notes,
-                                            # If he marks it posted, record his name permanently
-                                            "posted_by": user if new_status == "Posted" else selected_row.get('posted_by', None)
-                                        }
-                                        supabase.table("invoices_log").update(update_data).eq("id", invoice_id).execute()
-                                        st.success(f"✅ Invoice successfully updated to: {new_status}")
-                                        st.rerun()
-                                        
+                                # The Form where Bassel does his work
+                                with st.form(f"process_form_{invoice_id}"):
+                                    current_status = selected_row.get('status', 'Pending')
+                                    status_options = ["Pending", "On Hold", "Posted"]
+                                    
+                                    new_status = st.radio(
+                                        "Status", 
+                                        status_options, 
+                                        index=status_options.index(current_status) if current_status in status_options else 0,
+                                        horizontal=True
+                                    )
+                                    
+                                    new_notes = st.text_area(
+                                        "Data Entry Notes (e.g., 'Messaged Chef about missing page')", 
+                                        value=selected_row.get('data_entry_notes', '') or ""
+                                    )
+                                    
+                                    submit_process = st.form_submit_button("💾 Save & Update", type="primary", use_container_width=True)
+                                    
+                                    if submit_process:
+                                        if user_role == "viewer":
+                                            st.error("🚫 Access Denied: Viewers cannot modify invoice records.")
+                                        else:
+                                            update_data = {
+                                                "status": new_status,
+                                                "data_entry_notes": new_notes,
+                                                # If he marks it posted, record his name permanently
+                                                "posted_by": user if new_status == "Posted" else selected_row.get('posted_by', None)
+                                            }
+                                            supabase.table("invoices_log").update(update_data).eq("id", invoice_id).execute()
+                                            st.success(f"✅ Invoice successfully updated to: {new_status}")
+                                            st.rerun()
+                                            
             except Exception as e:
                 st.error(f"❌ Error loading dashboard: {e}")
 
@@ -127,7 +145,28 @@ def render_invoices(conn, sheet_link, user, role):
     with tab_upload:
         st.info("💡 **Mobile Users:** Tap 'Browse files' to open your camera and take a photo of the receipt.")
         
-        supplier_name = st.text_input("🏢 Supplier Name", placeholder="e.g. Tanmia, Bocti, Wesley's Wholesale")
+        # --- 🧠 SMART SUPPLIER DROPDOWN ---
+        try:
+            # Ask the database for the official supplier list
+            sup_res = supabase.table("suppliers").select("supplier_name").execute()
+            if sup_res.data:
+                supplier_list = sorted([row['supplier_name'] for row in sup_res.data])
+            else:
+                supplier_list = []
+        except Exception:
+            supplier_list = []
+            
+        # Add the failsafe option at the end
+        supplier_list.append("➕ Other (Type manually)")
+        
+        selected_supplier = st.selectbox("🏢 Select Supplier", supplier_list)
+        
+        # If they pick "Other", pop open a text box so they aren't stuck!
+        if selected_supplier == "➕ Other (Type manually)":
+            final_supplier_name = st.text_input("📝 Type the new supplier name:", placeholder="e.g. New Fresh Farms")
+        else:
+            final_supplier_name = selected_supplier
+        # ----------------------------------
         
         # The Magic Mobile Picker
         uploaded_file = st.file_uploader("Take a Photo or Upload PDF", type=['jpg', 'jpeg', 'png', 'pdf'])
@@ -142,8 +181,8 @@ def render_invoices(conn, sheet_link, user, role):
         submit_btn = st.button("🚀 Submit Invoice to Accounting", type="primary", use_container_width=True)
 
         if submit_btn:
-            if not supplier_name:
-                st.error("❌ Please enter the Supplier Name.")
+            if not final_supplier_name or final_supplier_name.strip() == "":
+                st.error("❌ Please select or enter the Supplier Name.")
             elif not uploaded_file:
                 st.error("❌ Please take a photo of the invoice first.")
             else:
@@ -166,7 +205,7 @@ def render_invoices(conn, sheet_link, user, role):
                             "outlet": outlet,
                             "location": location,
                             "uploaded_by": user,
-                            "supplier": supplier_name.strip().title(),
+                            "supplier": final_supplier_name.strip().title(),
                             "image_url": image_url,
                             "status": "Pending",
                             "data_entry_notes": ""
@@ -187,3 +226,5 @@ def render_invoices(conn, sheet_link, user, role):
                         )
                         
                     except Exception as e:
+                        st.error(f"❌ Error uploading: {e}")
+                        st.caption("Ensure the storage bucket is named 'invoices' and set to Public.")
