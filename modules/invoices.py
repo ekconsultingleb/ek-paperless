@@ -13,8 +13,8 @@ def render_invoices(conn, sheet_link, user, role):
     
     # Grab the user's routing info from the session
     client_name = st.session_state.get('client_name', 'Unknown')
-    outlet = st.session_state.get('outlet', 'Unknown')
-    location = st.session_state.get('location', 'Unknown')
+    outlet = st.session_state.get('assigned_outlet', 'Unknown')
+    location = st.session_state.get('assigned_location', 'Unknown')
     user_role = str(role).lower()
 
     # 🚦 TRAFFIC COP: Who sees what?
