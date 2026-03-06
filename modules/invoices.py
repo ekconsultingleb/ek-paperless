@@ -117,7 +117,20 @@ def render_invoices(conn, sheet_link, user, role):
             
         supplier_list.append("➕ Other (Type manually)")
         
-        selected_supplier = st.selectbox("🏢 Select Supplier", supplier_list, index=None, placeholder="Start typing supplier name...")
+        # --- THE MOBILE SEARCH HACK ---
+        selected_supplier_list = st.multiselect(
+            "🏢 Search & Select Supplier", 
+            supplier_list, 
+            max_selections=1, # This is the magic trick!
+            placeholder="Tap to search (e.g., Hawa)..."
+        )
+        
+        # Extract the single choice from the list
+        if selected_supplier_list:
+            selected_supplier = selected_supplier_list[0]
+        else:
+            selected_supplier = None
+        # ------------------------------
         
         if selected_supplier == "➕ Other (Type manually)":
             final_supplier_name = st.text_input("📝 Type the new supplier name:")
