@@ -108,34 +108,33 @@ def render_invoices(conn, sheet_link, user, role):
     with tab_upload:
         st.info("💡 **Mobile Users:** Tap 'Browse files' to open your camera.")
         
-        # --- 🧠 SMART SUPPLIER DROPDOWN ---
+        # --- 🧠 BULLETPROOF MOBILE SUPPLIER SEARCH ---
         try:
             sup_res = supabase.table("suppliers").select("supplier_name").execute()
             supplier_list = sorted([row['supplier_name'] for row in sup_res.data]) if sup_res.data else []
         except Exception:
             supplier_list = []
             
-        supplier_list.append("➕ Other (Type manually)")
+        # 1. The dedicated Search Bar (Forces the phone keyboard to open!)
+        search_term = st.text_input("🔍 Search Supplier", placeholder="Type here to filter the list below...")
         
-        # --- THE MOBILE SEARCH HACK ---
-        selected_supplier_list = st.multiselect(
-            "🏢 Search & Select Supplier", 
-            supplier_list, 
-            max_selections=1, # This is the magic trick!
-            placeholder="Tap to search (e.g., Hawa)..."
-        )
-        
-        # Extract the single choice from the list
-        if selected_supplier_list:
-            selected_supplier = selected_supplier_list[0]
+        # 2. Filter the list live based on what they type
+        if search_term:
+            filtered_suppliers = [s for s in supplier_list if search_term.lower() in s.lower()]
+            # Always keep the 'Other' option available
+            if "➕ Other (Type manually)" not in filtered_suppliers:
+                filtered_suppliers.append("➕ Other (Type manually)")
         else:
-            selected_supplier = None
-        # ------------------------------
+            filtered_suppliers = supplier_list + ["➕ Other (Type manually)"]
+
+        # 3. The actual selection box (Now it shrinks automatically based on the search above)
+        selected_supplier = st.selectbox("🏢 Choose from Results", filtered_suppliers)
         
         if selected_supplier == "➕ Other (Type manually)":
             final_supplier_name = st.text_input("📝 Type the new supplier name:")
         else:
             final_supplier_name = selected_supplier
+        # ----------------------------------------------
         
         uploaded_file = st.file_uploader("Take a Photo or Upload PDF", type=['jpg', 'jpeg', 'png', 'pdf'])
         
