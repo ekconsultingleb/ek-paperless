@@ -60,9 +60,9 @@ def inject_back_button_protection():
 inject_back_button_protection()
 
 # --- BRANDING & LOGO ---
-st.sidebar.image("EK-Logo.png", use_container_width=True)
+st.sidebar.image("https://hgvubaohmgvesblfvdps.supabase.co/storage/v1/object/public/assets/EK-Logo.png", use_container_width=True)
 st.sidebar.divider()
-st.sidebar.success("✅ LIVE!")
+st.sidebar.caption("Partner Portal v1.0")
 
 custom_css = """
             <style>
