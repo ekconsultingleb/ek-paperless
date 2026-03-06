@@ -76,7 +76,7 @@ def render_invoices(conn, sheet_link, user, role):
                             col1, col2 = st.columns([1.2, 1])
                             with col1:
                                 st.markdown("#### 🖼️ Invoice Document")
-                                st.image(selected_row['image_url'], use_container_width=True)
+                                st.image(selected_row['image_url'], use_container_width=True, output_format="JPEG")
                                 st.markdown(f"[🔍 Click here to open full size image in a new tab]({selected_row['image_url']})")
                                 
                             with col2:
