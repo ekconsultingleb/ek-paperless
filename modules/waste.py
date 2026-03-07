@@ -269,7 +269,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                 
                 if has_massive_waste:
                     st.error("⚠️ **Massive Waste Detected!** You have items exceeding 50 kg or 50 ltr in your cart.")
-                    confirm_huge = st.checkbox("🛑 I swear these unusually large amounts are 100% correct.", value=False)
+                    confirm_huge = st.checkbox("🛑 These unusually large amounts are 100% correct.", value=False)
                 else:
                     confirm_huge = True # Auto-approve normal amounts
 
