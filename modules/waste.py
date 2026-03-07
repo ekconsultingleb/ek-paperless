@@ -55,12 +55,11 @@ def generate_waste_pdf(df, report_date, client, outlet, location, user_name, was
 
 def add_waste_qty(item_key, row_dict, input_key):
     added_val = st.session_state.get(input_key, 0.0)
-    
     if added_val > 0:
         unit = str(row_dict.get('count_unit', '')).strip().lower()
         
-        # Just a friendly warning, but NO BLOCKING!
-        if unit in ['kg', 'ltr'] and added_val > 40:
+        # --- 🛡️ THE FRIENDLY GUARD ---
+        if unit in ['kg', 'ltr'] and added_val > 50:
             st.toast(f"⚠️ {added_val} {unit} added! If this was a typo, please use the Undo button.", icon="👀")
         
         if item_key not in st.session_state['waste_cart']:
@@ -106,14 +105,12 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         # ==========================================
         # 1. DATA FETCHING & DYNAMIC NAVIGATION
         # ==========================================
-        # PRO TIP: Query the small users table for instant navigation
         nav_res = supabase.table("users").select("client_name, outlet").execute()
         df_nav = pd.DataFrame(nav_res.data)
         if not df_nav.empty:
             df_nav['client_name'] = df_nav['client_name'].astype(str).str.strip().str.title()
             df_nav['outlet'] = df_nav['outlet'].astype(str).str.strip().str.title()
         
-        # Admin/Manager "All" Logic
         user_client_access = str(assigned_client).strip().title()
         if user_client_access != 'All':
             final_client = user_client_access
@@ -149,17 +146,10 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         
         if final_outlet and str(final_outlet).strip() != "" and final_outlet != "None":
             while True:
-                # Start the query
                 query = supabase.table("master_items").select("*")
-                
-                # 🔒 DOUBLE LOCK 1: Lock the Client (Branch)
                 if final_client and final_client not in ["All", "Select Branch", "All Branches"]:
                     query = query.ilike("client_name", f"%{final_client}%")
-                    
-                # 🔒 DOUBLE LOCK 2: Lock the Outlet
                 query = query.ilike("outlet", f"%{final_outlet}%")
-                
-                # Execute the fetch
                 res = query.range(start_row, start_row + page_size - 1).execute()
                 
                 if not res.data: break
@@ -173,7 +163,6 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             df_items = pd.DataFrame(all_items)
             df_items.columns = [str(c).strip().lower() for c in df_items.columns]
             
-            # Case-Insensitive Multi-Location Filter
             user_loc_raw = str(assigned_location).strip().lower()
             if user_loc_raw != 'all':
                 allowed_locs = [loc.strip().lower() for loc in user_loc_raw.split(',')]
@@ -188,14 +177,12 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         waste_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")))
         st.divider()
 
-        # STEP 1: Details
         st.subheader("📝 Step 1: Ticket Details")
         ticket_type = st.radio("Select Ticket Context:", ["Daily Waste", "Staff Meal", "Event"], horizontal=True)
         event_name_val = st.text_input("📝 Event Name", placeholder="e.g. Wedding Booking") if ticket_type == "Event" else ""
             
         st.divider()
 
-        # STEP 2: Find Items
         st.subheader("🔍 Step 2: Find Items")
         item_type_filter = st.radio("Item Type", ["📦 Inventory Items", "🍔 Menu Items", "All Items"], horizontal=True)
         search_query = st.text_input("🔍 Quick Search")
@@ -235,12 +222,12 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         total_items = len(df_display)
         wasted_in_view = sum(1 for item in df_display['item_name'] if item in st.session_state['waste_cart'])
 
-        st.markdown(f"""
+        st.markdown(f'''
             <div style='display: flex; justify-content: space-between; background-color: #3b1c1c; padding: 10px; border-radius: 10px; margin-bottom: 20px;'>
                 <span style='color: #ff6b6b;'>🗑️ {wasted_in_view} Selected</span>
                 <span style='color: white;'>📝 {total_items} Items in View</span>
             </div>
-        """, unsafe_allow_html=True)
+        ''', unsafe_allow_html=True)
 
         if df_display.empty:
             st.info("No items found. Check if the Location spelling matches the database.")
@@ -285,7 +272,6 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                     confirm_huge = st.checkbox("🛑 I swear these unusually large amounts are 100% correct.", value=False)
                 else:
                     confirm_huge = True # Auto-approve normal amounts
-                # ---------------------------------
 
                 if st.button("🚀 SUBMIT TICKET TO CLOUD", type="primary", use_container_width=True):
                     if ticket_type == "Event" and not event_name_val.strip():
@@ -317,3 +303,6 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                             st.rerun()
                         except Exception as e:
                             st.error(f"❌ Database Error: {e}")
+
+    except Exception as e:
+        st.error(f"❌ Error: {e}")
