@@ -45,18 +45,20 @@ def render_main(conn, sheet_link, user, role):
     # ==========================================
     # 📑 DYNAMIC TAB DEFINITION
     # ==========================================
-    # We define exactly which tabs each person sees here
     if is_super_admin:
         st.info("👑 Super Admin Mode: Full access to all database and user controls.")
-        t_sync, t_create, t_view, t_supp = st.tabs(["📤 Master Sync", "➕ Create User", "👥 Manage Users", "🚚 Manage Suppliers"])
+        tabs = st.tabs(["📤 Master Sync", "➕ Create User", "👥 Manage Users", "🚚 Manage Suppliers", "📝 Edit Data"])
+        t_sync, t_create, t_view, t_supp, t_edit = tabs
     elif is_normal_admin:
         st.info("🛡️ Admin Mode: Access to sync and onboard users/suppliers.")
-        t_sync, t_create, t_supp = st.tabs(["📤 Master Sync", "➕ Create User", "🚚 Manage Suppliers"])
-        t_view = None # Normal Admins don't get to edit other users
+        tabs = st.tabs(["📤 Master Sync", "➕ Create User", "🚚 Manage Suppliers", "📝 Edit Data"])
+        t_sync, t_create, t_supp, t_edit = tabs[0], tabs[1], tabs[2], tabs[3]
+        t_view = None 
     else:
         st.info("🏢 HQ Manager Mode: Access to sync the Master Items database.")
-        t_sync = st.tabs(["📤 Master Sync"])[0]
-        t_create, t_view, t_supp = None, None, None
+        tabs = st.tabs(["📤 Master Sync"])
+        t_sync = tabs[0]
+        t_create = t_view = t_supp = t_edit = None
 
     # ==========================================
     # TAB: MASTER ITEMS SYNC
@@ -179,3 +181,64 @@ def render_main(conn, sheet_link, user, role):
                         st.rerun()
             except Exception as e:
                 st.error(f"Error: {e}")
+
+    # ==========================================
+    # TAB: LIVE DATA EDITOR (The God Mode)
+    # ==========================================
+    if t_edit:
+        with t_edit:
+            st.markdown("#### 📝 Live Database Editor")
+            st.info("💡 Double-click any cell to edit it. When you are finished, click the Save button at the bottom.")
+            
+            # Let the Admin choose which table they want to fix
+            table_to_edit = st.selectbox("🗄️ Select Table to Edit:", ["waste_logs", "invoices_log"])
+            
+            try:
+                # Fetch the last 150 records (we limit it so the app doesn't freeze on huge datasets)
+                res = supabase.table(table_to_edit).select("*").order("id", desc=True).limit(150).execute()
+                
+                if res.data:
+                    df_edit = pd.DataFrame(res.data)
+                    
+                    # 1. DISPLAY THE SPREADSHEET
+                    edited_df = st.data_editor(
+                        df_edit,
+                        use_container_width=True,
+                        disabled=["id", "created_at"], # Protect the ID so they don't break the database
+                        hide_index=True,
+                        key=f"editor_{table_to_edit}"
+                    )
+                    
+                    # 2. THE SAVE LOGIC
+                    st.write("")
+                    if st.button(f"💾 Save Changes to {table_to_edit}", type="primary", use_container_width=True):
+                        with st.spinner("Scanning for changes and updating cloud..."):
+                            updates_made = 0
+                            
+                            # We fill empty cells to make comparing them easier
+                            safe_edited_df = edited_df.fillna('')
+                            safe_orig_df = df_edit.fillna('')
+                            
+                            for index, new_row in safe_edited_df.iterrows():
+                                old_row = safe_orig_df.loc[index]
+                                
+                                # If the row was changed by the user:
+                                if new_row.to_dict() != old_row.to_dict():
+                                    row_id = new_row['id']
+                                    
+                                    # Prepare the update package (we strip out 'id' and 'created_at' to be safe)
+                                    update_payload = edited_df.loc[index].drop(['id', 'created_at']).to_dict()
+                                    
+                                    # Send the update to Supabase
+                                    supabase.table(table_to_edit).update(update_payload).eq("id", row_id).execute()
+                                    updates_made += 1
+                            
+                            if updates_made > 0:
+                                st.success(f"✅ Successfully updated {updates_made} record(s)!")
+                                st.rerun()
+                            else:
+                                st.info("No changes were detected.")
+                else:
+                    st.warning("No records found in this table.")
+            except Exception as e:
+                st.error(f"❌ Error loading data: {e}")
