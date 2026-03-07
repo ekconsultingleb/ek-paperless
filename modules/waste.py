@@ -55,7 +55,19 @@ def generate_waste_pdf(df, report_date, client, outlet, location, user_name, was
 
 def add_waste_qty(item_key, row_dict, input_key):
     added_val = st.session_state.get(input_key, 0.0)
+    
     if added_val > 0:
+        # --- 🛡️ THE FAT-FINGER GUARD ---
+        unit = str(row_dict.get('count_unit', '')).strip().lower()
+        
+        if unit in ['kg', 'ltr'] and added_val > 50:
+            # Pop a warning toast and zero out the input so it doesn't add to cart
+            st.toast(f"⚠️ Alert: {added_val} {unit} is unusually large. Please double check your decimal point!", icon="🛑")
+            st.session_state[input_key] = 0.0 
+            return # Stop the function right here, don't add to cart!
+        # -------------------------------
+        
+        # If it passes the guard, add it to the cart normally
         if item_key not in st.session_state['waste_cart']:
             st.session_state['waste_cart'][item_key] = {'row_data': row_dict, 'qty': 0.0}
         st.session_state['waste_cart'][item_key]['qty'] += added_val
