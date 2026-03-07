@@ -74,9 +74,41 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
     if 'submit_lock' not in st.session_state:
         st.session_state['submit_lock'] = False
 
-    # 🔒 THIS IS THE LOCK TRIGGER FUNCTION
     def lock_submit():
         st.session_state['submit_lock'] = True
+
+    # =========================================================
+    # 🌐 GLOBAL SMART ROUTING (Locks both Reports & Counting)
+    # =========================================================
+    nav_res = supabase.table("users").select("client_name, outlet").execute()
+    df_nav = pd.DataFrame(nav_res.data)
+    
+    if not df_nav.empty:
+        df_nav['client_name'] = df_nav['client_name'].astype(str).str.strip().str.title()
+        df_nav['outlet'] = df_nav['outlet'].astype(str).str.strip().str.title()
+        
+    clean_client = str(assigned_client).strip().title()
+    clean_outlet = str(assigned_outlet).strip().title()
+
+    st.sidebar.markdown("### 📍 Location Details")
+
+    if clean_client.lower() != 'all':
+        final_client = clean_client
+        st.sidebar.markdown(f"**🏢 Branch:** {final_client}")
+    else:
+        c_list = sorted([c for c in df_nav['client_name'].unique() if c.lower() != 'all']) if not df_nav.empty else ["Select Branch"]
+        final_client = st.sidebar.selectbox("🏢 Select Branch", c_list, key="global_c_branch")
+
+    if clean_outlet.lower() != 'all':
+        final_outlet = clean_outlet
+        st.sidebar.markdown(f"**🏠 Outlet:** {final_outlet}")
+    else:
+        if not df_nav.empty and final_client != "Select Branch":
+            outlets_for_client = sorted([o for o in df_nav[df_nav['client_name'] == final_client]['outlet'].unique() if o.lower() != 'all'])
+        else:
+            outlets_for_client = []
+        final_outlet = st.sidebar.selectbox("🏠 Select Outlet", outlets_for_client, key="global_c_outlet") if outlets_for_client else "None"
+
 
     # ---------------------------------------------------------
     # SUB-VIEW A: THE REPORTS & CONSOLIDATED TOTALS (CHEF VIEW)
@@ -92,13 +124,13 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
         if len(date_range) == 2:
             start_date, end_date = date_range
             
-            # 🔒 The Security Lock remains untouched: They can only pull their assigned data
+            # 🔒 The Security Lock now dynamically listens to the Sidebar!
             query = supabase.table("inventory_logs").select("*").gte("date", str(start_date)).lte("date", str(end_date))
             
-            if str(assigned_client).lower() != 'all':
-                query = query.ilike("client_name", f"%{str(assigned_client).strip()}%")
-            if str(assigned_outlet).lower() != 'all':
-                query = query.ilike("outlet", f"%{str(assigned_outlet).strip()}%")
+            if final_client and final_client not in ["Select Branch", "All"]:
+                query = query.ilike("client_name", f"%{final_client}%")
+            if final_outlet and final_outlet != "None":
+                query = query.ilike("outlet", f"%{final_outlet}%")
                 
             archive_res = query.order("date", desc=True).limit(5000).execute()
             df_archive = pd.DataFrame(archive_res.data)
@@ -109,7 +141,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                     st.write("### Individual Staff Counts")
                     pdf_bytes = generate_inventory_pdf(
                         df_archive, f"{start_date} to {end_date}", 
-                        assigned_client, assigned_outlet, "Multiple Locations", "System Report"
+                        final_client, final_outlet, "Multiple Locations", "System Report"
                     )
                     st.download_button(
                         label="🖨️ Download Raw PDF Report",
@@ -146,7 +178,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                         key="totals_csv_btn"
                     )
             else:
-                st.warning(f"No logs found between {start_date} and {end_date}.")
+                st.warning(f"No logs found for this branch between {start_date} and {end_date}.")
         else:
             st.info("Please select both a Start Date and an End Date.")
 
@@ -154,36 +186,6 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
     # SUB-VIEW B: THE COUNTING INTERFACE (STAFF VIEW)
     # ---------------------------------------------------------
     def show_counting():
-        # 1. SMART ROUTING
-        nav_res = supabase.table("users").select("client_name, outlet").execute()
-        df_nav = pd.DataFrame(nav_res.data)
-        
-        if not df_nav.empty:
-            df_nav['client_name'] = df_nav['client_name'].astype(str).str.strip().str.title()
-            df_nav['outlet'] = df_nav['outlet'].astype(str).str.strip().str.title()
-            
-        clean_client = str(assigned_client).strip().title()
-        clean_outlet = str(assigned_outlet).strip().title()
-
-        st.sidebar.markdown("### 📍 Location Details")
-
-        if clean_client.lower() != 'all':
-            final_client = clean_client
-            st.sidebar.markdown(f"**🏢 Branch:** {final_client}")
-        else:
-            c_list = sorted([c for c in df_nav['client_name'].unique() if c.lower() != 'all']) if not df_nav.empty else ["Select Branch"]
-            final_client = st.sidebar.selectbox("🏢 Select Branch", c_list, key="c_branch")
-
-        if clean_outlet.lower() != 'all':
-            final_outlet = clean_outlet
-            st.sidebar.markdown(f"**🏠 Outlet:** {final_outlet}")
-        else:
-            if not df_nav.empty:
-                outlets_for_client = sorted([o for o in df_nav[df_nav['client_name'] == final_client]['outlet'].unique() if o.lower() != 'all'])
-            else:
-                outlets_for_client = []
-            final_outlet = st.sidebar.selectbox("🏠 Select Outlet", outlets_for_client, key="c_outlet") if outlets_for_client else "None"
-
         if 'last_inv_receipt' in st.session_state:
             st.success("✅ **Success!** Your count was safely stored in the cloud.")
             st.download_button(
@@ -196,12 +198,12 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
             )
             if st.button("Start New Count", use_container_width=True, key="new_count_btn"):
                 del st.session_state['last_inv_receipt']
-                st.session_state['submit_lock'] = False # Make sure lock is reset
+                st.session_state['submit_lock'] = False
                 st.rerun()
             st.divider()
             return
 
-        # 3. MEGA-FETCH LOOP (DOUBLE LOCKED - 100% SAFE)
+        # MEGA-FETCH LOOP
         all_items = []
         page_size, start_row = 1000, 0
         
@@ -232,18 +234,18 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
 
         if raw_loc.lower() == 'all':
             loc_options = ["All"] + db_locs if db_locs else ["All"]
-            loc_filter = st.sidebar.selectbox("📍 Select Location", loc_options, key="c_loc")
+            loc_filter = st.sidebar.selectbox("📍 Select Location Room", loc_options, key="c_loc")
         elif "," in raw_loc:
             allowed_locs = [l.strip().title() for l in raw_loc.split(',')]
             valid_locs = [l for l in allowed_locs if l in db_locs]
             if valid_locs:
-                loc_filter = st.sidebar.selectbox("📍 Select Location", valid_locs, key="c_loc")
+                loc_filter = st.sidebar.selectbox("📍 Select Location Room", valid_locs, key="c_loc")
             else:
                 st.sidebar.warning("Assigned locations not found in database.")
                 loc_filter = allowed_locs[0] if allowed_locs else "Main Store"
         else:
             loc_filter = raw_loc.title()
-            st.sidebar.markdown(f"**📍 Location:** {loc_filter}")
+            st.sidebar.markdown(f"**📍 Location Room:** {loc_filter}")
             
         if not df_items.empty:
             if loc_filter != "All":
@@ -356,7 +358,6 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                 preview_list = [{"Item": v['row_data'].get('item_name', k), "Total Counted": v['qty'], "Unit": v['row_data'].get('count_unit', '')} for k, v in st.session_state['mobile_counts'].items()]
                 st.dataframe(pd.DataFrame(preview_list), use_container_width=True, hide_index=True)
 
-                # 🔒 HERE IS THE MODIFIED SUBMIT BUTTON WITH THE LOCK LOGIC
                 if st.button("🚀 SUBMIT ALL COUNTS TO CLOUD", type="primary", use_container_width=True, key="submit_cloud_btn", on_click=lock_submit, disabled=st.session_state['submit_lock']):
                     with st.spinner("Saving to database... Please wait! Do not refresh."):
                         logs = []
@@ -384,13 +385,11 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                                 pdf_bytes = generate_inventory_pdf(df_receipt, str(count_date), final_client, final_outlet, loc_filter, user)
                                 st.session_state['last_inv_receipt'] = {"bytes": pdf_bytes, "filename": f"Inventory_Receipt_{final_outlet.replace(' ', '_')}_{str(count_date)}.pdf"}
                                 
-                                # Reset state and release the lock after successful upload!
                                 st.session_state['mobile_counts'] = {}
                                 st.session_state['submit_lock'] = False 
                                 st.rerun()
                                 
                             except Exception as e:
-                                # ALWAYS release the lock if an error happens!
                                 st.session_state['submit_lock'] = False
                                 st.error(f"❌ Database Error: {e}")
 
@@ -400,12 +399,9 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
     try:
         user_role = role.lower()
         
-        # 1. Viewers ONLY see reports
         if user_role == "viewer":
             show_reports()
             
-        # 2. Staff, Chefs, Managers, and Admins get BOTH tabs
-        # This guarantees Staff can always verify their own counts in the Raw Logs tab!
         elif user_role in ["staff", "chef", "manager", "admin", "admin_all"]:
             tab_c, tab_r = st.tabs(["✍️ Count Inventory", "📊 View Reports & Totals"])
             with tab_c:
