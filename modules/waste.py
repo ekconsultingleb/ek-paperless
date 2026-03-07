@@ -203,18 +203,20 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         c1, c2 = st.columns(2)
         with c1:
             cats = sorted(list(df_filtered_type['category'].astype(str).unique())) if not df_filtered_type.empty else []
+            cats = [c for c in cats if c.lower() != 'all'] # Prevent duplicate "All"s
             cat_options = ["All"] + cats
             
-            # --- 🚀 SPEED BOOST: Default to the first real category (Index 1) instead of "All" (Index 0)
-            selected_category = st.selectbox("📂 Category", cat_options, index=1 if cats else 0)
+            # Added a unique key to force Streamlit to forget its old memory
+            selected_category = st.selectbox("📂 Category", cat_options, index=1 if len(cat_options) > 1 else 0, key="waste_cat_box")
             
         with c2:
             df_grp_list = df_filtered_type if selected_category == "All" else df_filtered_type[df_filtered_type['category'] == selected_category]
             grps = sorted(list(df_grp_list['sub_category'].astype(str).unique())) if not df_grp_list.empty else []
+            grps = [g for g in grps if g.lower() != 'all'] # Prevent duplicate "All"s
             grp_options = ["All"] + grps
             
-            # --- 🚀 SPEED BOOST: Default to the first real sub-category
-            selected_group = st.selectbox("🏷️ Sub Category", grp_options, index=1 if grps else 0)
+            # Added a unique key here too
+            selected_group = st.selectbox("🏷️ Sub Category", grp_options, index=1 if len(grp_options) > 1 else 0, key="waste_grp_box")
 
         df_display = df_filtered_type.copy()
         if search_query:
