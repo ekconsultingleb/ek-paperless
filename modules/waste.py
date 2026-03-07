@@ -57,17 +57,12 @@ def add_waste_qty(item_key, row_dict, input_key):
     added_val = st.session_state.get(input_key, 0.0)
     
     if added_val > 0:
-        # --- 🛡️ THE FAT-FINGER GUARD ---
         unit = str(row_dict.get('count_unit', '')).strip().lower()
         
-        if unit in ['kg', 'ltr'] and added_val > 50:
-            # Pop a warning toast and zero out the input so it doesn't add to cart
-            st.toast(f"⚠️ Alert: {added_val} {unit} is unusually large. Please double check your decimal point!", icon="🛑")
-            st.session_state[input_key] = 0.0 
-            return # Stop the function right here, don't add to cart!
-        # -------------------------------
+        # Just a friendly warning, but NO BLOCKING!
+        if unit in ['kg', 'ltr'] and added_val > 40:
+            st.toast(f"⚠️ {added_val} {unit} added! If this was a typo, please use the Undo button.", icon="👀")
         
-        # If it passes the guard, add it to the cart normally
         if item_key not in st.session_state['waste_cart']:
             st.session_state['waste_cart'][item_key] = {'row_data': row_dict, 'qty': 0.0}
         st.session_state['waste_cart'][item_key]['qty'] += added_val
@@ -277,9 +272,26 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                 preview_list = [{"Item Name": v['row_data'].get('item_name', k), "Type": v['row_data'].get('item_type', 'Inventory'), "Qty Wasted": v['qty'], "Unit": v['row_data'].get('count_unit', 'Unit')} for k, v in st.session_state['waste_cart'].items()]
                 st.dataframe(pd.DataFrame(preview_list), use_container_width=True, hide_index=True)
 
+                # --- 🧠 THE SMART "SPEED BUMP" ---
+                has_massive_waste = False
+                for k, v in st.session_state['waste_cart'].items():
+                    cart_unit = str(v['row_data'].get('count_unit', '')).strip().lower()
+                    if cart_unit in ['kg', 'ltr'] and v['qty'] > 50:
+                        has_massive_waste = True
+                        break
+                
+                if has_massive_waste:
+                    st.error("⚠️ **Massive Waste Detected!** You have items exceeding 50 kg or 50 ltr in your cart.")
+                    confirm_huge = st.checkbox("🛑 I swear these unusually large amounts are 100% correct.", value=False)
+                else:
+                    confirm_huge = True # Auto-approve normal amounts
+                # ---------------------------------
+
                 if st.button("🚀 SUBMIT TICKET TO CLOUD", type="primary", use_container_width=True):
                     if ticket_type == "Event" and not event_name_val.strip():
                         st.error("❌ Please provide an Event Name before submitting.")
+                    elif not confirm_huge:
+                        st.error("❌ Please check the red confirmation box above to verify the massive quantities!")
                     else:
                         logs = []
                         for i_name, data in st.session_state['waste_cart'].items():
@@ -305,6 +317,3 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                             st.rerun()
                         except Exception as e:
                             st.error(f"❌ Database Error: {e}")
-
-    except Exception as e:
-        st.error(f"❌ Error: {e}")
