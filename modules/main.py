@@ -157,7 +157,8 @@ def render_main(conn, sheet_link, user, role):
                         e_role = st.selectbox("🛡️ Role", role_options, index=e_role_index)
                         
                     with col2:
-                        available_modules = ["waste", "cash", "inventory", "transfers", "dashboard", "invoices"]
+                        # 👇 THIS IS WHERE IT WAS MISSING! 👇
+                        available_modules = ["waste", "cash", "inventory", "transfers", "dashboard", "invoices", "ledger"]
                         current_mods = [m.strip() for m in str(u_data.get('module', '')).split(',')] if str(u_data.get('module', '')) else ["waste"]
                         valid_mods = [m for m in current_mods if m in available_modules]
                         e_modules = st.multiselect("📱 App Access", available_modules, default=valid_mods)
@@ -251,8 +252,8 @@ def render_main(conn, sheet_link, user, role):
             st.markdown("#### 📝 Live Database Editor")
             st.info("💡 Double-click any cell to edit it. When you are finished, click the Save button at the bottom.")
             
-            # Let the Admin choose which table they want to fix
-            table_to_edit = st.selectbox("🗄️ Select Table to Edit:", ["waste_logs", "invoices_log"])
+            # 👇 I added "ledger_logs" here for you too!
+            table_to_edit = st.selectbox("🗄️ Select Table to Edit:", ["waste_logs", "invoices_log", "ledger_logs"])
             
             try:
                 # Fetch the last 150 records (we limit it so the app doesn't freeze on huge datasets)
