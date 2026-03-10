@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import uuid
+from datetime import datetime, timedelta
+import zoneinfo
 from supabase import create_client, Client
 
 # --- SAFELY INITIALIZE SUPABASE ---
@@ -23,7 +25,6 @@ def render_invoices(conn, sheet_link, user, role):
     # --- SET UP THE SPLIT SCREEN ---
     if can_process_invoices:
         st.markdown("### 🏢 Accounts Payable Dashboard")
-        # 👇 HERE ARE THE 3 TABS (Including the Archive) 👇
         tab_process, tab_archive, tab_upload = st.tabs(["📋 Process Invoices", "🗄️ Archived Posted", "📸 Upload Invoice"])
     else:
         st.markdown("### 📸 Snap & Upload Invoice")
@@ -121,65 +122,91 @@ def render_invoices(conn, sheet_link, user, role):
                 st.error(f"❌ Error loading dashboard: {e}")
 
     # ==========================================
-    # VIEW 2: ARCHIVED POSTED INVOICES
+    # VIEW 2: ARCHIVED POSTED INVOICES (Upgraded with Smart Filters)
     # ==========================================
     if tab_archive:
         with tab_archive:
-            st.info("🗄️ **Archived Ledger:** View all successfully processed and posted invoices here.")
-            try:
-                # Fetch ONLY Posted invoices
-                query = supabase.table("invoices_log").select("*").eq("status", "Posted")
+            st.info("🗄️ **Archived Ledger:** View posted invoices. Filter by date, client, and supplier.")
+            
+            # --- 🚀 1. DATE SHIELD: Defaults to last 30 days so the app doesn't crash ---
+            today = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).date()
+            default_start = today - timedelta(days=30)
+            
+            date_range = st.date_input("📅 Select Date Range", value=(default_start, today), max_value=today, key="arch_dates")
+            
+            if len(date_range) == 2:
+                start_date, end_date = date_range
                 
-                # Apply Security Routing
-                if client_name != "All":
-                    query = query.eq("client_name", client_name)
-                if outlet != "All":
-                    query = query.eq("outlet", outlet)
+                try:
+                    # --- 🚀 2. DATABASE FILTER: Only download what we need! ---
+                    query = supabase.table("invoices_log").select("*").eq("status", "Posted").gte("created_at", f"{start_date}T00:00:00").lte("created_at", f"{end_date}T23:59:59")
                     
-                res = query.execute()
-                
-                if not res.data:
-                    st.info("No posted invoices found in the archive.")
-                else:
-                    df_arch = pd.DataFrame(res.data)
-                    df_arch = df_arch.sort_values(by="created_at", ascending=False) # Show newest first!
-                    
-                    # --- 🧠 SMART CLIENT FILTER FOR BASSEL ---
-                    if client_name == "All":
-                        active_clients = ["All Clients"] + sorted(df_arch['client_name'].unique().tolist())
-                        st.markdown("#### 🎯 Filter Workspace")
-                        chosen_client = st.selectbox("Select a Client to focus on:", active_clients, key="archive_filter")
-                        if chosen_client != "All Clients":
-                            df_arch = df_arch[df_arch['client_name'] == chosen_client]
-                    
-                    if df_arch.empty:
-                        st.info("✅ No posted invoices for this specific client.")
-                    else:
-                        st.markdown("#### 📚 Posted Invoices")
+                    # Apply Security Routing
+                    if client_name != "All":
+                        query = query.eq("client_name", client_name)
+                    if outlet != "All":
+                        query = query.eq("outlet", outlet)
                         
-                        for index, row in df_arch.iterrows():
-                            c_name = row['client_name']
-                            with st.container(border=True):
-                                col_date, col_sup, col_loc, col_badge = st.columns([1.5, 2.5, 2, 1], vertical_alignment="center")
-                                col_date.write(f"📅 {str(row['created_at'])[:10]}")
-                                col_sup.write(f"🧾 **{row['supplier']}**")
-                                col_loc.write(f"🏢 {c_name} ({row['outlet']})")
-                                col_badge.success("✅ Posted")
+                    res = query.execute()
+                    
+                    if not res.data:
+                        st.warning(f"No posted invoices found between {start_date} and {end_date}.")
+                    else:
+                        df_arch = pd.DataFrame(res.data)
+                        df_arch = df_arch.sort_values(by="created_at", ascending=False) # Show newest first!
+                        
+                        # --- 🚀 3. SECONDARY FILTERS (Client & Supplier) ---
+                        col_f1, col_f2 = st.columns(2)
+                        
+                        with col_f1:
+                            if client_name == "All":
+                                active_clients = ["All Clients"] + sorted(df_arch['client_name'].unique().tolist())
+                                chosen_client = st.selectbox("🎯 Filter by Client:", active_clients, key="archive_client_filter")
+                                if chosen_client != "All Clients":
+                                    df_arch = df_arch[df_arch['client_name'] == chosen_client]
+                            else:
+                                st.markdown(f"**🏢 Client:** {client_name}")
                                 
-                                # Read-only expander for the archive
-                                with st.expander("👁️ View Invoice Details"):
-                                    col_img, col_det = st.columns([1.2, 1])
-                                    with col_img:
-                                        st.image(row['image_url'], use_container_width=True, output_format="JPEG")
-                                        st.markdown(f"[🔍 Click here to open full size image in a new tab]({row['image_url']})")
-                                    with col_det:
-                                        st.write(f"**👤 Uploaded By:** {row.get('uploaded_by', 'Unknown')}")
-                                        st.write(f"**✅ Posted By:** {row.get('posted_by', 'Head Office')}")
-                                        
-                                        notes = row.get('data_entry_notes', '')
-                                        st.write(f"**📝 Notes:** {notes if notes else '*No notes provided.*'}")
-            except Exception as e:
-                st.error(f"❌ Error loading archive: {e}")
+                        with col_f2:
+                            # Generate a live list of suppliers ONLY from the filtered date range!
+                            active_suppliers = ["All Suppliers"] + sorted(df_arch['supplier'].unique().tolist())
+                            chosen_supplier = st.selectbox("🧾 Filter by Supplier:", active_suppliers, key="archive_sup_filter")
+                            if chosen_supplier != "All Suppliers":
+                                df_arch = df_arch[df_arch['supplier'] == chosen_supplier]
+                        
+                        st.divider()
+                        
+                        # --- 🚀 4. DISPLAY THE RESULTS ---
+                        if df_arch.empty:
+                            st.info("No invoices match your selected filters.")
+                        else:
+                            st.success(f"📚 Found {len(df_arch)} posted invoice(s).")
+                            
+                            for index, row in df_arch.iterrows():
+                                c_name = row['client_name']
+                                with st.container(border=True):
+                                    col_date, col_sup, col_loc, col_badge = st.columns([1.5, 2.5, 2, 1], vertical_alignment="center")
+                                    col_date.write(f"📅 {str(row['created_at'])[:10]}")
+                                    col_sup.write(f"🧾 **{row['supplier']}**")
+                                    col_loc.write(f"🏢 {c_name} ({row['outlet']})")
+                                    col_badge.success("✅ Posted")
+                                    
+                                    # Read-only expander for the archive
+                                    with st.expander("👁️ View Invoice Details"):
+                                        col_img, col_det = st.columns([1.2, 1])
+                                        with col_img:
+                                            st.image(row['image_url'], use_container_width=True, output_format="JPEG")
+                                            st.markdown(f"[🔍 Click here to open full size image in a new tab]({row['image_url']})")
+                                        with col_det:
+                                            st.write(f"**👤 Uploaded By:** {row.get('uploaded_by', 'Unknown')}")
+                                            st.write(f"**✅ Posted By:** {row.get('posted_by', 'Head Office')}")
+                                            
+                                            notes = row.get('data_entry_notes', '')
+                                            st.write(f"**📝 Notes:** {notes if notes else '*No notes provided.*'}")
+                except Exception as e:
+                    st.error(f"❌ Error loading archive: {e}")
+            else:
+                st.info("Please select both a Start Date and an End Date.")
 
     # ==========================================
     # VIEW 3: SNAP INVOICE (Everyone sees this)
