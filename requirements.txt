@@ -5,3 +5,4 @@ supabase
 fpdf2
 plotly
 google-generativeai
+openpyxl
