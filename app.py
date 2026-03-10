@@ -4,6 +4,7 @@ from supabase import create_client, Client
 import streamlit.components.v1 as components
 
 # --- IMPORT YOUR MODULES ---
+from modules.ledger import render_ledger
 from modules.main import render_main
 from modules.dashboard import render_dashboard
 from modules.daily_cash import render_daily_cash
@@ -163,8 +164,8 @@ else:
     
     # Parse allowed modules
     raw_modules = str(st.session_state.get('module', '')).lower().strip()
-    if raw_modules == "all_modules" or role == "admin":
-        allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers", "invoices"]
+    if raw_modules == "all_modules" or role in ["admin", "admin_all"]:
+        allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers", "invoices", "ledger"]
     else:
         allowed_modules = [m.strip() for m in raw_modules.split(",") if m.strip()]
 
@@ -241,11 +242,17 @@ else:
                     st.session_state['current_page'] = 'cash'
                     st.rerun()
 
-        # 👇 THE NEW INVOICE BUTTON 👇
         if "invoices" in allowed_modules:
             with col_f:
-                if st.button("📸 Snap Invoice", use_container_width=True):
+                if st.button("📸 Invoices", use_container_width=True):
                     st.session_state['current_page'] = 'invoices'
+                    st.rerun()
+                    
+        # 👇 NEW DEBT CONTROL BUTTON ADDED HERE 👇
+        if "ledger" in allowed_modules:
+            with col_g:
+                if st.button("💸 Debt Control", use_container_width=True):
+                    st.session_state['current_page'] = 'ledger'
                     st.rerun()
 
     # ==========================================
@@ -275,6 +282,10 @@ else:
             
         elif st.session_state['current_page'] == 'invoices':
             render_invoices(None, None, user, role)
+            
+        # 👇 ROUTING TO LEDGER ADDED HERE 👇
+        elif st.session_state['current_page'] == 'ledger':
+            render_ledger(None, None, user, role)
             
         elif st.session_state['current_page'] == 'main':
             render_main(None, None, user, role)
