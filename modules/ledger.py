@@ -51,18 +51,39 @@ def render_ledger(conn, sheet_link, user, role):
         return
 
     # --- 📊 LIVE BALANCE DASHBOARD ---
-    with st.expander("⚖️ Outstanding Balances Summary", expanded=True):
-        if not df_logs.empty:
-            df_logs['credit'] = pd.to_numeric(df_logs['credit']).fillna(0)
-            df_logs['debit'] = pd.to_numeric(df_logs['debit']).fillna(0)
-            
+    if not df_logs.empty:
+        df_logs['credit'] = pd.to_numeric(df_logs['credit']).fillna(0)
+        df_logs['debit'] = pd.to_numeric(df_logs['debit']).fillna(0)
+        
+        # 1. CALCULATE GRAND TOTALS
+        total_credit = df_logs['credit'].sum()
+        total_debit = df_logs['debit'].sum()
+        net_balance = total_credit - total_debit
+        
+        # 2. DISPLAY THE BIG PICTURE
+        st.markdown("#### 💰 Global Portfolio Balance")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("🔴 Total Taken (Credit)", f"${total_credit:,.2f}")
+        m2.metric("🟢 Total Paid (Debit)", f"${total_debit:,.2f}")
+        
+        if net_balance > 0:
+            m3.metric("⚖️ Net Outstanding (Remaining)", f"${net_balance:,.2f}", "Total Owed to Business", delta_color="inverse")
+        elif net_balance < 0:
+            m3.metric("⚖️ Net Outstanding (Remaining)", f"${abs(net_balance):,.2f}", "Total Owed by Business", delta_color="normal")
+        else:
+            m3.metric("⚖️ Net Outstanding (Remaining)", "$0.00", "Perfectly Settled")
+
+        st.write("") # Quick spacer
+
+        # 3. DISPLAY THE INDIVIDUAL BREAKDOWN
+        with st.expander("🔍 View Individual Breakdown", expanded=False):
             summary_df = df_logs.groupby('entity_name')[['credit', 'debit']].sum().reset_index()
             summary_df['remaining'] = summary_df['credit'] - summary_df['debit']
             
             active_debts = summary_df[summary_df['remaining'] != 0].copy()
             
             if active_debts.empty:
-                st.success("🎉 All accounts are perfectly balanced at $0.00!")
+                st.success("🎉 All individual accounts are perfectly balanced at $0.00!")
             else:
                 active_debts['Status'] = active_debts['remaining'].apply(lambda x: "🔴 Owed to Business" if x > 0 else "🟢 Owed by Business")
                 active_debts['Balance'] = active_debts['remaining'].abs().apply(lambda x: f"${x:,.2f}")
@@ -71,8 +92,8 @@ def render_ledger(conn, sheet_link, user, role):
                 display_summary.columns = ['👤 Debt in Charge', '💵 Outstanding Amount', '📌 Status']
                 
                 st.dataframe(display_summary, use_container_width=True, hide_index=True)
-        else:
-            st.info("No financial records found yet. Start adding transactions below!")
+    else:
+        st.info("No financial records found yet. Start adding transactions below!")
 
     st.divider()
 
