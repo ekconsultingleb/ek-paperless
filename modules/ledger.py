@@ -103,7 +103,7 @@ def render_ledger(conn, sheet_link, user, role):
                     selected_ent = st.selectbox("👤 Debt in Charge", ent_options)
                     final_ent = st.text_input("✨ Type New Person/Company Name:") if selected_ent == "➕ Add New Debt in Charge..." else selected_ent
                         
-                t_desc = st.text_area("📝 Description", placeholder="e.g., Mr. Doumit paid for school fees...")
+                t_desc = st.text_area("📝 Description", placeholder="e.g., Personel for the Boss")
                 
                 col3, col4 = st.columns(2)
                 with col3:
