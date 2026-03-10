@@ -34,73 +34,140 @@ def render_invoices(conn, sheet_link, user, role):
     # ==========================================
     if tab_process:
         with tab_process:
-            st.info("💡 **Data Entry Mode:** Select a pending invoice below. View the image, type your notes, and mark it as Posted.")
-            
-            try:
-                # 1. Fetch only invoices that need attention!
-                query = supabase.table("invoices_log").select("*").in_("status", ["Pending", "On Hold"])
+            # -----------------------------------------------------------
+            # THE HEALTHY LINK: If an invoice is selected, show the form!
+            # -----------------------------------------------------------
+            if 'processing_inv_id' in st.session_state:
+                target_id = st.session_state['processing_inv_id']
+                target_client = st.session_state['processing_client']
                 
-                # Apply security routing so a franchise manager only sees their own restaurants
-                if client_name != "All":
-                    query = query.eq("client_name", client_name)
-                if outlet != "All":
-                    query = query.eq("outlet", outlet)
-                    
-                res = query.execute()
+                # Back button to return to the list
+                if st.button("⬅️ Back to Pending List"):
+                    del st.session_state['processing_inv_id']
+                    del st.session_state['processing_client']
+                    st.rerun()
                 
-                if not res.data:
-                    st.success("🎉 All caught up! There are no Pending or On Hold invoices to process.")
-                else:
-                    df = pd.DataFrame(res.data)
-                    df = df.sort_values(by="created_at", ascending=True)
+                st.subheader(f"📝 Processing Invoice #{target_id} | {target_client}")
+                st.divider()
+                
+                # Fetch only this specific invoice securely
+                try:
+                    res = supabase.table("invoices_log").select("*").eq("id", target_id).eq("client_name", target_client).execute()
                     
-                    # --- 🧠 SMART CLIENT FILTER FOR BASSEL ---
-                    if client_name == "All":
-                        active_clients = ["All Clients"] + sorted(df['client_name'].unique().tolist())
-                        st.markdown("#### 🎯 Filter Workspace")
-                        chosen_client = st.selectbox("Select a Client to focus on:", active_clients)
-                        if chosen_client != "All Clients":
-                            df = df[df['client_name'] == chosen_client]
-                    
-                    if df.empty:
-                        st.info("✅ No pending invoices for this specific client.")
-                    else:
-                        df['display_name'] = df['created_at'].str[:10] + " | " + df['supplier'] + " | " + df['outlet'] + " (" + df['status'] + ")"
-                        selected_disp = st.selectbox("📥 Select an Invoice to Process", df['display_name'].tolist())
+                    if res.data:
+                        selected_row = res.data[0]
                         
-                        if selected_disp:
-                            selected_row = df[df['display_name'] == selected_disp].iloc[0]
-                            invoice_id = selected_row['id']
-                            st.divider()
+                        col1, col2 = st.columns([1.2, 1])
+                        with col1:
+                            st.markdown("#### 🖼️ Invoice Document")
+                            st.image(selected_row['image_url'], use_container_width=True, output_format="JPEG")
+                            st.markdown(f"[🔍 Click here to open full size image in a new tab]({selected_row['image_url']})")
                             
-                            col1, col2 = st.columns([1.2, 1])
-                            with col1:
-                                st.markdown("#### 🖼️ Invoice Document")
-                                st.image(selected_row['image_url'], use_container_width=True, output_format="JPEG")
-                                st.markdown(f"[🔍 Click here to open full size image in a new tab]({selected_row['image_url']})")
+                        with col2:
+                            st.markdown("#### 📝 Data Entry Actions")
+                            st.write(f"**🏢 Branch:** {selected_row['client_name']} - {selected_row['outlet']}")
+                            st.write(f"**🚚 Supplier:** {selected_row['supplier']}")
+                            st.write(f"**📅 Date Uploaded:** {str(selected_row['created_at'])[:10]}")
+                            st.write(f"**👤 Uploaded By:** {selected_row['uploaded_by']}")
+                            
+                            with st.form(f"process_form_{target_id}"):
+                                # New Financial Fields
+                                amount = st.number_input("💵 Total Invoice Amount", value=float(selected_row.get('amount') or 0.0), min_value=0.0, step=0.01)
+                                tax = st.number_input("🏛️ Tax Amount (VAT)", value=float(selected_row.get('tax') or 0.0), min_value=0.0, step=0.01)
                                 
-                            with col2:
-                                st.markdown("#### 📝 Data Entry Actions")
-                                st.write(f"**🏢 Branch:** {selected_row['client_name']} - {selected_row['outlet']}")
-                                st.write(f"**🚚 Supplier:** {selected_row['supplier']}")
-                                st.write(f"**👤 Uploaded By:** {selected_row['uploaded_by']}")
+                                current_status = selected_row.get('status', 'Pending')
+                                status_options = ["Pending", "On Hold", "Posted"]
+                                new_status = st.radio("Status", status_options, index=status_options.index(current_status) if current_status in status_options else 0, horizontal=True)
                                 
-                                with st.form(f"process_form_{invoice_id}"):
-                                    current_status = selected_row.get('status', 'Pending')
-                                    status_options = ["Pending", "On Hold", "Posted"]
-                                    new_status = st.radio("Status", status_options, index=status_options.index(current_status) if current_status in status_options else 0, horizontal=True)
-                                    new_notes = st.text_area("Data Entry Notes", value=selected_row.get('data_entry_notes', '') or "")
+                                new_notes = st.text_area("Data Entry Notes", value=selected_row.get('data_entry_notes', '') or "")
+                                
+                                if st.form_submit_button("💾 Save & Update", type="primary", use_container_width=True):
+                                    if user_role == "viewer":
+                                        st.error("🚫 Access Denied: Viewers cannot modify records.")
+                                    else:
+                                        # SECURE UPDATE LINKED DIRECTLY TO ID & CLIENT
+                                        update_data = {
+                                            "amount": amount,
+                                            "tax": tax,
+                                            "status": new_status, 
+                                            "data_entry_notes": new_notes, 
+                                            "posted_by": user if new_status == "Posted" else selected_row.get('posted_by', None)
+                                        }
+                                        supabase.table("invoices_log").update(update_data).eq("id", target_id).eq("client_name", target_client).execute()
+                                        
+                                        st.success(f"✅ Invoice #{target_id} updated successfully!")
+                                        # Clear state and return to grid
+                                        del st.session_state['processing_inv_id']
+                                        del st.session_state['processing_client']
+                                        st.rerun()
+                    else:
+                        st.error("Could not find this invoice in the database.")
+                except Exception as e:
+                    st.error(f"❌ Error loading invoice: {e}")
+
+            # -----------------------------------------------------------
+            # THE GRID VIEW: Show the list of pending invoices
+            # -----------------------------------------------------------
+            else:
+                st.info("💡 **Data Entry Mode:** Click 'Process' next to an invoice below to enter the financials and mark it as Posted.")
+                
+                try:
+                    # Fetch invoices that need attention
+                    query = supabase.table("invoices_log").select("*").in_("status", ["Pending", "On Hold"])
+                    
+                    if client_name != "All":
+                        query = query.eq("client_name", client_name)
+                    if outlet != "All":
+                        query = query.eq("outlet", outlet)
+                        
+                    res = query.execute()
+                    
+                    if not res.data:
+                        st.success("🎉 All caught up! There are no Pending or On Hold invoices to process.")
+                    else:
+                        df = pd.DataFrame(res.data)
+                        df = df.sort_values(by="created_at", ascending=True)
+                        
+                        # --- 🧠 SMART CLIENT FILTER FOR BASSEL ---
+                        if client_name == "All":
+                            active_clients = ["All Clients"] + sorted(df['client_name'].unique().tolist())
+                            st.markdown("#### 🎯 Filter Workspace")
+                            chosen_client = st.selectbox("Select a Client to focus on:", active_clients)
+                            if chosen_client != "All Clients":
+                                df = df[df['client_name'] == chosen_client]
+                        
+                        if df.empty:
+                            st.info("✅ No pending invoices for this specific client.")
+                        else:
+                            st.markdown("#### 📥 Pending Invoices")
+                            
+                            # Build the interactive grid
+                            for index, row in df.iterrows():
+                                inv_id = row['id']
+                                c_name = row['client_name']
+                                
+                                with st.container(border=True):
+                                    col_date, col_sup, col_loc, col_stat, col_btn = st.columns([1.5, 2, 2, 1, 1], vertical_alignment="center")
                                     
-                                    if st.form_submit_button("💾 Save & Update", type="primary", use_container_width=True):
-                                        if user_role == "viewer":
-                                            st.error("🚫 Access Denied: Viewers cannot modify records.")
-                                        else:
-                                            update_data = {"status": new_status, "data_entry_notes": new_notes, "posted_by": user if new_status == "Posted" else selected_row.get('posted_by', None)}
-                                            supabase.table("invoices_log").update(update_data).eq("id", invoice_id).execute()
-                                            st.success(f"✅ Updated to: {new_status}")
+                                    col_date.write(f"📅 {str(row['created_at'])[:10]}")
+                                    col_sup.write(f"🧾 **{row['supplier']}**")
+                                    col_loc.write(f"🏢 {c_name} ({row['outlet']})")
+                                    
+                                    # Status badges
+                                    if row['status'] == 'On Hold':
+                                        col_stat.error("⏸️ On Hold")
+                                    else:
+                                        col_stat.warning("⏳ Pending")
+                                        
+                                    with col_btn:
+                                        # 🔒 THE TRIGGER: Push the exact ID to memory and refresh
+                                        if st.button("⚙️ Process", key=f"process_btn_{inv_id}", use_container_width=True):
+                                            st.session_state['processing_inv_id'] = inv_id
+                                            st.session_state['processing_client'] = c_name
                                             st.rerun()
-            except Exception as e:
-                st.error(f"❌ Error loading dashboard: {e}")
+                                            
+                except Exception as e:
+                    st.error(f"❌ Error loading dashboard: {e}")
 
     # ==========================================
     # VIEW 2: SNAP INVOICE (Everyone sees this)
@@ -115,26 +182,21 @@ def render_invoices(conn, sheet_link, user, role):
         except Exception:
             supplier_list = []
             
-        # 1. The dedicated Search Bar (Forces the phone keyboard to open!)
         search_term = st.text_input("🔍 Search Supplier", placeholder="Type here to filter the list below...")
         
-        # 2. Filter the list live based on what they type
         if search_term:
             filtered_suppliers = [s for s in supplier_list if search_term.lower() in s.lower()]
-            # Always keep the 'Other' option available
             if "➕ Other (Type manually)" not in filtered_suppliers:
                 filtered_suppliers.append("➕ Other (Type manually)")
         else:
             filtered_suppliers = supplier_list + ["➕ Other (Type manually)"]
 
-        # 3. The actual selection box (Now it shrinks automatically based on the search above)
         selected_supplier = st.selectbox("🏢 Choose from Results", filtered_suppliers)
         
         if selected_supplier == "➕ Other (Type manually)":
             final_supplier_name = st.text_input("📝 Type the new supplier name:")
         else:
             final_supplier_name = selected_supplier
-        # ----------------------------------------------
         
         uploaded_file = st.file_uploader("Take a Photo or Upload PDF", type=['jpg', 'jpeg', 'png', 'pdf'])
         
@@ -162,6 +224,7 @@ def render_invoices(conn, sheet_link, user, role):
                             "client_name": client_name, "outlet": outlet, "location": location,
                             "uploaded_by": user, "supplier": final_supplier_name.strip().title(),
                             "image_url": image_url, "status": "Pending", "data_entry_notes": ""
+                            # Note: amount and tax will default to NULL/0 in Supabase until processed
                         }
                         supabase.table("invoices_log").insert([db_record]).execute()
                         
