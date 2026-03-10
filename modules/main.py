@@ -102,22 +102,25 @@ def render_main(conn, sheet_link, user, role):
                 available_modules = ["waste", "cash", "inventory", "transfers", "dashboard", "invoices"]
                 new_modules = st.multiselect("📱 App Access", available_modules, default=["waste"], key="c_mod")
 
-            c_list = ["All"] + sorted([c for c in df_routing['client_name'].unique() if c and str(c).lower() != 'nan'])
+            # 🚀 FILTER FIX: Remove "All" from the database pulls so it doesn't duplicate!
+            c_list = ["All"] + sorted([c for c in df_routing['client_name'].unique() if c and str(c).lower() not in ['nan', 'all']])
             col3, col4, col5 = st.columns(3)
             with col3: new_client = st.selectbox("🏢 Select Client", c_list, key="c_client")
             
             f_outlets = df_routing['outlet'].unique() if new_client == "All" else df_routing[df_routing['client_name'] == new_client]['outlet'].unique()
-            o_list = ["All"] + sorted([o for o in f_outlets if o and str(o).lower() != 'nan'])
+            # 🚀 FILTER FIX
+            o_list = ["All"] + sorted([o for o in f_outlets if o and str(o).lower() not in ['nan', 'all']])
             with col4: new_outlet = st.selectbox("🏠 Select Outlet", o_list, key="c_outlet")
             
             loc_df = df_routing.copy()
             if new_client != "All": loc_df = loc_df[loc_df['client_name'] == new_client]
             if new_outlet != "All": loc_df = loc_df[loc_df['outlet'] == new_outlet]
-            loc_set = set(["All"])
+            loc_set = set()
             for loc_val in loc_df['location'].dropna():
                 for l in str(loc_val).split(','):
-                    if l.strip() and str(l).lower() != 'nan': loc_set.add(l.strip())
-            l_list = sorted(list(loc_set))
+                    if l.strip() and str(l).lower() not in ['nan', 'all']: loc_set.add(l.strip().title())
+            # 🚀 FILTER FIX
+            l_list = ["All"] + sorted(list(loc_set))
             with col5: new_locations = st.multiselect("📍 Select Location(s)", l_list, default=["All"], key="c_loc")
 
             if st.button("🚀 CREATE USER", type="primary", use_container_width=True):
@@ -159,14 +162,16 @@ def render_main(conn, sheet_link, user, role):
                         valid_mods = [m for m in current_mods if m in available_modules]
                         e_modules = st.multiselect("📱 App Access", available_modules, default=valid_mods)
 
-                    c_list = ["All"] + sorted([c for c in df_routing['client_name'].unique() if c and str(c).lower() != 'nan'])
+                    # 🚀 FILTER FIX: Remove "All" from the database pulls so it doesn't duplicate!
+                    c_list = ["All"] + sorted([c for c in df_routing['client_name'].unique() if c and str(c).lower() not in ['nan', 'all']])
                     col3, col4, col5 = st.columns(3)
                     with col3: 
                         c_index = c_list.index(u_data['client_name']) if u_data['client_name'] in c_list else 0
                         e_client = st.selectbox("🏢 Select Client", c_list, index=c_index, key="e_client_box")
                     
                     f_outlets = df_routing['outlet'].unique() if e_client == "All" else df_routing[df_routing['client_name'] == e_client]['outlet'].unique()
-                    o_list = ["All"] + sorted([o for o in f_outlets if o and str(o).lower() != 'nan'])
+                    # 🚀 FILTER FIX
+                    o_list = ["All"] + sorted([o for o in f_outlets if o and str(o).lower() not in ['nan', 'all']])
                     with col4: 
                         o_index = o_list.index(u_data['outlet']) if u_data['outlet'] in o_list else 0
                         e_outlet = st.selectbox("🏠 Select Outlet", o_list, index=o_index, key="e_outlet_box")
@@ -174,11 +179,12 @@ def render_main(conn, sheet_link, user, role):
                     loc_df = df_routing.copy()
                     if e_client != "All": loc_df = loc_df[loc_df['client_name'] == e_client]
                     if e_outlet != "All": loc_df = loc_df[loc_df['outlet'] == e_outlet]
-                    loc_set = set(["All"])
+                    loc_set = set()
                     for loc_val in loc_df['location'].dropna():
                         for l in str(loc_val).split(','):
-                            if l.strip() and str(l).lower() != 'nan': loc_set.add(l.strip())
-                    l_list = sorted(list(loc_set))
+                            if l.strip() and str(l).lower() not in ['nan', 'all']: loc_set.add(l.strip().title())
+                    # 🚀 FILTER FIX
+                    l_list = ["All"] + sorted(list(loc_set))
                     
                     current_locs = [l.strip() for l in str(u_data.get('location', '')).split(',')] if str(u_data.get('location', '')) else ["All"]
                     valid_locs = [l for l in current_locs if l in l_list]
