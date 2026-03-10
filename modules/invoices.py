@@ -23,11 +23,13 @@ def render_invoices(conn, sheet_link, user, role):
     # --- SET UP THE SPLIT SCREEN ---
     if can_process_invoices:
         st.markdown("### 🏢 Accounts Payable Dashboard")
-        tab_process, tab_upload = st.tabs(["📋 Process Invoices", "📸 Upload Invoice"])
+        # Added the new Archive Tab here!
+        tab_process, tab_archive, tab_upload = st.tabs(["📋 Process Invoices", "🗄️ Archived Posted", "📸 Upload Invoice"])
     else:
         st.markdown("### 📸 Snap & Upload Invoice")
         tab_upload = st.container() # Staff only gets the upload screen, no tabs
         tab_process = None
+        tab_archive = None
 
     # ==========================================
     # VIEW 1: DATA ENTRY DASHBOARD (Bassel's View)
@@ -57,7 +59,7 @@ def render_invoices(conn, sheet_link, user, role):
                     if client_name == "All":
                         active_clients = ["All Clients"] + sorted(df['client_name'].unique().tolist())
                         st.markdown("#### 🎯 Filter Workspace")
-                        chosen_client = st.selectbox("Select a Client to focus on:", active_clients)
+                        chosen_client = st.selectbox("Select a Client to focus on:", active_clients, key="process_filter")
                         if chosen_client != "All Clients":
                             df = df[df['client_name'] == chosen_client]
                     
@@ -84,7 +86,7 @@ def render_invoices(conn, sheet_link, user, role):
                                 else:
                                     col_stat.warning("⏳ Pending")
                                     
-                                # 🔒 THE INLINE EXPANDER: Drops down right here without leaving the page!
+                                # 🔒 THE INLINE EXPANDER
                                 with st.expander("⚙️ Process Invoice"):
                                     col_img, col_form = st.columns([1.2, 1])
                                     
@@ -96,8 +98,6 @@ def render_invoices(conn, sheet_link, user, role):
                                         st.write(f"**👤 Uploaded By:** {row['uploaded_by']}")
                                         
                                         with st.form(f"process_form_{inv_id}"):
-                                            # We removed the Amount and Tax inputs as requested!
-                                            
                                             current_status = row.get('status', 'Pending')
                                             status_options = ["Pending", "On Hold", "Posted"]
                                             new_status = st.radio("Status", status_options, index=status_options.index(current_status) if current_status in status_options else 0, horizontal=True)
@@ -108,7 +108,6 @@ def render_invoices(conn, sheet_link, user, role):
                                                 if user_role == "viewer":
                                                     st.error("🚫 Access Denied: Viewers cannot modify records.")
                                                 else:
-                                                    # SECURE UPDATE LINKED DIRECTLY TO ID & CLIENT
                                                     update_data = {
                                                         "status": new_status, 
                                                         "data_entry_notes": new_notes, 
@@ -117,13 +116,73 @@ def render_invoices(conn, sheet_link, user, role):
                                                     supabase.table("invoices_log").update(update_data).eq("id", inv_id).eq("client_name", c_name).execute()
                                                     
                                                     st.success(f"✅ Invoice updated successfully!")
-                                                    st.rerun() # Refresh to remove it from the pending list if Posted
-                                                    
+                                                    st.rerun()
             except Exception as e:
                 st.error(f"❌ Error loading dashboard: {e}")
 
     # ==========================================
-    # VIEW 2: SNAP INVOICE (Everyone sees this)
+    # VIEW 2: ARCHIVED POSTED INVOICES
+    # ==========================================
+    if tab_archive:
+        with tab_archive:
+            st.info("🗄️ **Archived Ledger:** View all successfully processed and posted invoices here.")
+            try:
+                # Fetch ONLY Posted invoices
+                query = supabase.table("invoices_log").select("*").eq("status", "Posted")
+                
+                # Apply Security Routing
+                if client_name != "All":
+                    query = query.eq("client_name", client_name)
+                if outlet != "All":
+                    query = query.eq("outlet", outlet)
+                    
+                res = query.execute()
+                
+                if not res.data:
+                    st.info("No posted invoices found in the archive.")
+                else:
+                    df_arch = pd.DataFrame(res.data)
+                    df_arch = df_arch.sort_values(by="created_at", ascending=False) # Show newest first!
+                    
+                    # --- 🧠 SMART CLIENT FILTER FOR BASSEL ---
+                    if client_name == "All":
+                        active_clients = ["All Clients"] + sorted(df_arch['client_name'].unique().tolist())
+                        st.markdown("#### 🎯 Filter Workspace")
+                        chosen_client = st.selectbox("Select a Client to focus on:", active_clients, key="archive_filter")
+                        if chosen_client != "All Clients":
+                            df_arch = df_arch[df_arch['client_name'] == chosen_client]
+                    
+                    if df_arch.empty:
+                        st.info("✅ No posted invoices for this specific client.")
+                    else:
+                        st.markdown("#### 📚 Posted Invoices")
+                        
+                        for index, row in df_arch.iterrows():
+                            c_name = row['client_name']
+                            with st.container(border=True):
+                                col_date, col_sup, col_loc, col_badge = st.columns([1.5, 2.5, 2, 1], vertical_alignment="center")
+                                col_date.write(f"📅 {str(row['created_at'])[:10]}")
+                                col_sup.write(f"🧾 **{row['supplier']}**")
+                                col_loc.write(f"🏢 {c_name} ({row['outlet']})")
+                                col_badge.success("✅ Posted")
+                                
+                                # Read-only expander for the archive
+                                with st.expander("👁️ View Invoice Details"):
+                                    col_img, col_det = st.columns([1.2, 1])
+                                    with col_img:
+                                        st.image(row['image_url'], use_container_width=True, output_format="JPEG")
+                                        st.markdown(f"[🔍 Click here to open full size image in a new tab]({row['image_url']})")
+                                    with col_det:
+                                        st.write(f"**👤 Uploaded By:** {row.get('uploaded_by', 'Unknown')}")
+                                        st.write(f"**✅ Posted By:** {row.get('posted_by', 'Head Office')}")
+                                        
+                                        notes = row.get('data_entry_notes', '')
+                                        st.write(f"**📝 Notes:** {notes if notes else '*No notes provided.*'}")
+            except Exception as e:
+                st.error(f"❌ Error loading archive: {e}")
+
+    # ==========================================
+    # VIEW 3: SNAP INVOICE (Everyone sees this)
     # ==========================================
     with tab_upload:
         st.info("💡 **Mobile Users:** Tap 'Browse files' to open your camera.")
