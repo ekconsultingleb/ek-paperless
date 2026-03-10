@@ -23,7 +23,7 @@ def render_invoices(conn, sheet_link, user, role):
     # --- SET UP THE SPLIT SCREEN ---
     if can_process_invoices:
         st.markdown("### 🏢 Accounts Payable Dashboard")
-        # Added the new Archive Tab here!
+        # 👇 HERE ARE THE 3 TABS (Including the Archive) 👇
         tab_process, tab_archive, tab_upload = st.tabs(["📋 Process Invoices", "🗄️ Archived Posted", "📸 Upload Invoice"])
     else:
         st.markdown("### 📸 Snap & Upload Invoice")
