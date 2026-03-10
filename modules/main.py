@@ -99,7 +99,7 @@ def render_main(conn, sheet_link, user, role):
                 role_options = ["staff", "chef", "bar manager", "bartender", "storekeeper", "manager", "viewer", "admin", "admin_all"]
                 new_role = st.selectbox("🛡️ Role", role_options, key="c_role")
             with col2:
-                available_modules = ["waste", "cash", "inventory", "transfers", "dashboard", "invoices"]
+                available_modules = ["waste", "cash", "inventory", "transfers", "dashboard", "invoices", "ledger"]
                 new_modules = st.multiselect("📱 App Access", available_modules, default=["waste"], key="c_mod")
 
             # 🚀 FILTER FIX: Remove "All" from the database pulls so it doesn't duplicate!
