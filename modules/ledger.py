@@ -10,7 +10,8 @@ from supabase import create_client, Client
 def get_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
-def render_ledger(user, role):
+def render_ledger(conn, sheet_link, user, role):
+    # The rest of the code remains exactly the same...
     supabase = get_supabase()
     
     # Initialize the lock for the Save button
