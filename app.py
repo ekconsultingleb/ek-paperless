@@ -29,25 +29,16 @@ def inject_back_button_protection():
     components.html(
         """
         <script>
-        // 1. Standard protection for refreshing or closing the tab
         window.parent.addEventListener('beforeunload', function (e) {
             e.preventDefault();
             e.returnValue = '';
         });
-
-        // 2. Mobile Hardware Back Button trick (History API)
-        // Push a fake state into the phone's memory
         window.parent.history.pushState('fake-route', null, '');
-        
-        // Listen for the user hitting the Android back button
         window.parent.addEventListener('popstate', function (e) {
-            // Ask for confirmation
             var stay = window.parent.confirm("⚠️ Warning: Leaving this page will erase unsaved work! Do you want to stay?");
             if (stay) {
-                // If they want to stay, push the fake state again to trap the back button
                 window.parent.history.pushState('fake-route', null, '');
             } else {
-                // If they want to leave, let them go back again
                 window.parent.history.back();
             }
         });
@@ -57,7 +48,6 @@ def inject_back_button_protection():
         width=0,
     )
 
-# Run the protection immediately so it guards every page
 inject_back_button_protection()
 
 # --- BRANDING & LOGO ---
@@ -83,6 +73,32 @@ if 'logged_in' not in st.session_state:
         'client_name': 'All', 'current_page': 'home'
     })
 
+# --- HELPER: DYNAMIC DB FETCHER ---
+@st.cache_data(ttl=300)
+def get_dynamic_filters(current_client, current_outlet):
+    """Safely scans DB to find active outlets and locations for the selected client."""
+    outlets = set()
+    locations = set()
+    try:
+        inv_res = supabase.table("inventory").select("outlet, location").eq("client_name", current_client).execute()
+        for r in inv_res.data:
+            if r.get('outlet'): outlets.add(r['outlet'])
+            if r.get('location') and (current_outlet == "All" or r.get('outlet') == current_outlet): 
+                locations.add(r['location'])
+    except: pass
+    
+    try:
+        # Check waste table as a backup just in case
+        wst_res = supabase.table("waste_logs").select("outlet, location").eq("client_name", current_client).execute()
+        for r in wst_res.data:
+            if r.get('outlet'): outlets.add(r['outlet'])
+            if r.get('location') and (current_outlet == "All" or r.get('outlet') == current_outlet): 
+                locations.add(r['location'])
+    except: pass
+        
+    return sorted(list(outlets)), sorted(list(locations))
+
+
 # ==========================================
 # 🚀 MAIN APP ROUTING (LOGIN & SECURITY)
 # ==========================================
@@ -99,18 +115,14 @@ if not st.session_state.get('logged_in', False):
         
         if st.button("Sign In", use_container_width=True):
             try:
-                # Search Supabase for the user
                 response = supabase.table("users").select("*").eq("username", u_input).eq("password", p_input).execute()
                 
                 if len(response.data) > 0:
                     match = response.data[0]
-                    
-                    # Clean up data from database
                     assigned_out = str(match.get('outlet', 'All')).strip()
                     assigned_loc = str(match.get('location', 'All')).strip()
                     assigned_cli = str(match.get('client_name', 'All')).strip()
 
-                    # Save EVERYTHING to Session State
                     st.session_state.update({
                         'logged_in': True,
                         'user': match.get('username', u_input),
@@ -133,7 +145,7 @@ else:
     st.sidebar.title(f"👤 {st.session_state['user'].title()}")
     st.sidebar.write(f"**Role:** {st.session_state['role'].title()}")
     
-    # Show specifics in sidebar if not 'All'
+    # Show strict assignments as plain text if they ARE NOT "All"
     if st.session_state['client_name'].lower() != 'all':
         st.sidebar.write(f"🏢 **Client:** {st.session_state['client_name']}")
     if st.session_state['assigned_outlet'].lower() != 'all':
@@ -145,31 +157,56 @@ else:
         st.session_state.clear()
         st.rerun()
 
-    # --- TRAFFIC COP (NAVIGATION LOGIC) ---
+    # ==========================================
+    # 🚦 TRAFFIC COP (NAVIGATION LOGIC)
+    # ==========================================
     role = st.session_state['role']
     user = st.session_state['user']
     
-    # CRITICAL FIX: If assigned 'All', we send 'All' to the module to unlock dropdowns
-    if role == "admin" or st.session_state['client_name'].lower() == "all":
-        client = "All"
+    # Add a visual divider if we are going to show dropdowns
+    if role in ["admin", "admin_all"] or st.session_state['client_name'].lower() == "all" or st.session_state['assigned_outlet'].lower() == "all" or st.session_state['assigned_location'].lower() == "all":
+        st.sidebar.divider()
+        st.sidebar.markdown("### 🔍 Filters")
+
+    # 1. CLIENT SELECTION (Preserves your admin vs admin_all thinking)
+    if role in ["admin", "admin_all"] or st.session_state['client_name'].lower() == "all":
+        try:
+            c_res = supabase.table("users").select("client_name").execute()
+            clients = sorted(list(set([r['client_name'] for r in c_res.data if r.get('client_name') and r['client_name'].lower() != 'all'])))
+        except:
+            clients = ["Paperless"] # Fallback
+        client = st.sidebar.selectbox("🏢 Select Client", ["All"] + clients)
     else:
         client = st.session_state['client_name']
 
-    if role == "admin" or st.session_state['assigned_outlet'].lower() == "all":
-        outlet = "All"
+    # Fetch available outlets/locations based on the current Client selection
+    temp_outlet = st.session_state.get('sidebar_temp_outlet', 'All')
+    dynamic_outlets, _ = get_dynamic_filters(client, temp_outlet)
+
+    # 2. OUTLET SELECTION (Fixes the issue for Test Bar & Test Chef)
+    if role in ["admin", "admin_all"] or st.session_state['assigned_outlet'].lower() == "all":
+        outlet = st.sidebar.selectbox("🏠 Select Outlet", ["All"] + dynamic_outlets, key="sidebar_temp_outlet")
     else:
         outlet = st.session_state['assigned_outlet']
         
-    location = st.session_state['assigned_location']
+    # Re-fetch specific locations now that an Outlet is locked in
+    _, precise_locations = get_dynamic_filters(client, outlet)
+
+    # 3. LOCATION SELECTION (Fixes the issue for Test Bar & Test Chef)
+    if st.session_state['assigned_location'].lower() == "all":
+        location = st.sidebar.selectbox("📍 Select Location", ["All"] + precise_locations)
+    else:
+        location = st.session_state['assigned_location']
     
-    # Parse allowed modules
+    
+    # Parse allowed modules (Preserves your original logic exactly)
     raw_modules = str(st.session_state.get('module', '')).lower().strip()
     if raw_modules == "all_modules" or role in ["admin", "admin_all"]:
         allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers", "invoices", "ledger"]
     else:
         allowed_modules = [m.strip() for m in raw_modules.split(",") if m.strip()]
 
-    # Secret Admin Panel Button (Double-Locked!)
+    # Secret Admin Panel Button (Double-Locked to protect super-admin features)
     if role in ["admin", "admin_all"] or (role == "manager" and st.session_state['client_name'].lower() == 'all'):
         st.sidebar.divider()
         if st.sidebar.button("⚙️ Control Panel", type="primary"):
@@ -233,7 +270,7 @@ else:
                     st.rerun()
 
         # --- ROW 2 BUTTONS ---
-        st.write("") # Spacer for the second row
+        st.write("") 
         col_e, col_f, col_g, col_h = st.columns(4)
         
         if "cash" in allowed_modules:
@@ -248,7 +285,6 @@ else:
                     st.session_state['current_page'] = 'invoices'
                     st.rerun()
                     
-        # 👇 NEW DEBT CONTROL BUTTON ADDED HERE 👇
         if "ledger" in allowed_modules:
             with col_g:
                 if st.button("💸 Debt Control", use_container_width=True):
@@ -283,7 +319,6 @@ else:
         elif st.session_state['current_page'] == 'invoices':
             render_invoices(None, None, user, role)
             
-        # 👇 ROUTING TO LEDGER ADDED HERE 👇
         elif st.session_state['current_page'] == 'ledger':
             render_ledger(None, None, user, role)
             
