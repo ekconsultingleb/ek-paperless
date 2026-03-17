@@ -43,9 +43,7 @@ def inject_back_button_protection():
             }
         });
         </script>
-        """,
-        height=0,
-        width=0,
+        """, height=0, width=0,
     )
 
 inject_back_button_protection()
@@ -73,32 +71,6 @@ if 'logged_in' not in st.session_state:
         'client_name': 'All', 'current_page': 'home'
     })
 
-# --- HELPER: DYNAMIC DB FETCHER ---
-@st.cache_data(ttl=300)
-def get_dynamic_filters(current_client, current_outlet):
-    """Safely scans DB to find active outlets and locations for the selected client."""
-    outlets = set()
-    locations = set()
-    try:
-        inv_res = supabase.table("inventory").select("outlet, location").eq("client_name", current_client).execute()
-        for r in inv_res.data:
-            if r.get('outlet'): outlets.add(r['outlet'])
-            if r.get('location') and (current_outlet == "All" or r.get('outlet') == current_outlet): 
-                locations.add(r['location'])
-    except: pass
-    
-    try:
-        # Check waste table as a backup just in case
-        wst_res = supabase.table("waste_logs").select("outlet, location").eq("client_name", current_client).execute()
-        for r in wst_res.data:
-            if r.get('outlet'): outlets.add(r['outlet'])
-            if r.get('location') and (current_outlet == "All" or r.get('outlet') == current_outlet): 
-                locations.add(r['location'])
-    except: pass
-        
-    return sorted(list(outlets)), sorted(list(locations))
-
-
 # ==========================================
 # 🚀 MAIN APP ROUTING (LOGIN & SECURITY)
 # ==========================================
@@ -116,22 +88,17 @@ if not st.session_state.get('logged_in', False):
         if st.button("Sign In", use_container_width=True):
             try:
                 response = supabase.table("users").select("*").eq("username", u_input).eq("password", p_input).execute()
-                
                 if len(response.data) > 0:
                     match = response.data[0]
-                    assigned_out = str(match.get('outlet', 'All')).strip()
-                    assigned_loc = str(match.get('location', 'All')).strip()
-                    assigned_cli = str(match.get('client_name', 'All')).strip()
-
                     st.session_state.update({
                         'logged_in': True,
                         'user': match.get('username', u_input),
                         'role': str(match.get('role', 'staff')).lower().strip(),
                         'module': match.get('module', 'All'),
                         'link': None,
-                        'assigned_outlet': assigned_out,
-                        'assigned_location': assigned_loc,
-                        'client_name': assigned_cli,
+                        'assigned_outlet': str(match.get('outlet', 'All')).strip(),
+                        'assigned_location': str(match.get('location', 'All')).strip(),
+                        'client_name': str(match.get('client_name', 'All')).strip(),
                         'current_page': 'home'
                     })
                     st.rerun()
@@ -145,68 +112,29 @@ else:
     st.sidebar.title(f"👤 {st.session_state['user'].title()}")
     st.sidebar.write(f"**Role:** {st.session_state['role'].title()}")
     
-    # Show strict assignments as plain text if they ARE NOT "All"
-    if st.session_state['client_name'].lower() != 'all':
-        st.sidebar.write(f"🏢 **Client:** {st.session_state['client_name']}")
-    if st.session_state['assigned_outlet'].lower() != 'all':
-        st.sidebar.write(f"🏠 **Outlet:** {st.session_state['assigned_outlet']}")
-    if st.session_state['assigned_location'].lower() != 'all':
-        st.sidebar.write(f"📍 **Location:** {st.session_state['assigned_location']}")
-    
     if st.sidebar.button("Logout", use_container_width=True):
         st.session_state.clear()
         st.rerun()
 
     # ==========================================
-    # 🚦 TRAFFIC COP (NAVIGATION LOGIC)
+    # 🚦 TRAFFIC COP (ROUTING VARIABLES)
     # ==========================================
     role = st.session_state['role']
     user = st.session_state['user']
     
-    # Add a visual divider if we are going to show dropdowns
-    if role in ["admin", "admin_all"] or st.session_state['client_name'].lower() == "all" or st.session_state['assigned_outlet'].lower() == "all" or st.session_state['assigned_location'].lower() == "all":
-        st.sidebar.divider()
-        st.sidebar.markdown("### 🔍 Filters")
-
-    # 1. CLIENT SELECTION (Preserves your admin vs admin_all thinking)
-    if role in ["admin", "admin_all"] or st.session_state['client_name'].lower() == "all":
-        try:
-            c_res = supabase.table("users").select("client_name").execute()
-            clients = sorted(list(set([r['client_name'] for r in c_res.data if r.get('client_name') and r['client_name'].lower() != 'all'])))
-        except:
-            clients = ["Paperless"] # Fallback
-        client = st.sidebar.selectbox("🏢 Select Client", ["All"] + clients)
-    else:
-        client = st.session_state['client_name']
-
-    # Fetch available outlets/locations based on the current Client selection
-    temp_outlet = st.session_state.get('sidebar_temp_outlet', 'All')
-    dynamic_outlets, _ = get_dynamic_filters(client, temp_outlet)
-
-    # 2. OUTLET SELECTION (Fixes the issue for Test Bar & Test Chef)
-    if role in ["admin", "admin_all"] or st.session_state['assigned_outlet'].lower() == "all":
-        outlet = st.sidebar.selectbox("🏠 Select Outlet", ["All"] + dynamic_outlets, key="sidebar_temp_outlet")
-    else:
-        outlet = st.session_state['assigned_outlet']
-        
-    # Re-fetch specific locations now that an Outlet is locked in
-    _, precise_locations = get_dynamic_filters(client, outlet)
-
-    # 3. LOCATION SELECTION (Fixes the issue for Test Bar & Test Chef)
-    if st.session_state['assigned_location'].lower() == "all":
-        location = st.sidebar.selectbox("📍 Select Location", ["All"] + precise_locations)
-    else:
-        location = st.session_state['assigned_location']
+    # Securely pass "All" down to the modules if the user is authorized
+    client = "All" if role in ["admin", "admin_all"] or st.session_state['client_name'].lower() == "all" else st.session_state['client_name']
+    outlet = "All" if role in ["admin", "admin_all"] or st.session_state['assigned_outlet'].lower() == "all" else st.session_state['assigned_outlet']
+    location = "All" if role in ["admin", "admin_all"] or st.session_state['assigned_location'].lower() == "all" else st.session_state['assigned_location']
     
-    
-    # Parse allowed modules (Preserves your original logic exactly)
+    # Parse allowed modules
     raw_modules = str(st.session_state.get('module', '')).lower().strip()
     if raw_modules == "all_modules" or role in ["admin", "admin_all"]:
         allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers", "invoices", "ledger"]
     else:
         allowed_modules = [m.strip() for m in raw_modules.split(",") if m.strip()]
 
-    # Secret Admin Panel Button (Double-Locked to protect super-admin features)
+    # Secret Admin Panel Button
     if role in ["admin", "admin_all"] or (role == "manager" and st.session_state['client_name'].lower() == 'all'):
         st.sidebar.divider()
         if st.sidebar.button("⚙️ Control Panel", type="primary"):
@@ -220,23 +148,13 @@ else:
         st.markdown("""
             <style>
             div[data-testid="stButton"] > button {
-                height: 100px !important;
-                width: 100% !important;
-                border-radius: 15px !important;
-                border: 2px solid rgba(255,255,255,0.2) !important;
-                transition: all 0.3s ease-in-out !important;
-                padding: 0px !important;
+                height: 100px !important; width: 100% !important; border-radius: 15px !important;
+                border: 2px solid rgba(255,255,255,0.2) !important; transition: all 0.3s ease-in-out !important;
             }
             div[data-testid="stButton"] > button:hover {
-                border-color: #00ff00 !important;
-                box-shadow: 0 0 20px rgba(0, 255, 0, 0.3) !important;
-                transform: translateY(-5px) !important;
+                border-color: #00ff00 !important; box-shadow: 0 0 20px rgba(0, 255, 0, 0.3) !important; transform: translateY(-5px) !important;
             }
-            div[data-testid="stButton"] > button p {
-                font-size: 24px !important;
-                font-weight: 500 !important;
-                margin: 0 !important;
-            }
+            div[data-testid="stButton"] > button p { font-size: 24px !important; font-weight: 500 !important; margin: 0 !important; }
             </style>
         """, unsafe_allow_html=True)
 
@@ -244,52 +162,30 @@ else:
         st.markdown("<h4 style='color: #888888; font-weight: 400; margin-bottom: 30px;'>Explore</h4>", unsafe_allow_html=True)
         
         col_a, col_b, col_c, col_d = st.columns(4)
-        
         if "dashboard" in allowed_modules:
             with col_a:
-                if st.button("📊 Dashboard", use_container_width=True):
-                    st.session_state['current_page'] = 'dashboard'
-                    st.rerun()
-                    
+                if st.button("📊 Dashboard"): st.session_state['current_page'] = 'dashboard'; st.rerun()
         if "inventory" in allowed_modules:
             with col_b:
-                if st.button("📦 Inventory", use_container_width=True):
-                    st.session_state['current_page'] = 'inventory'
-                    st.rerun()
-                    
+                if st.button("📦 Inventory"): st.session_state['current_page'] = 'inventory'; st.rerun()
         if "waste" in allowed_modules:
             with col_c:
-                if st.button("🗑️ Waste", use_container_width=True):
-                    st.session_state['current_page'] = 'waste'
-                    st.rerun()
-                    
+                if st.button("🗑️ Waste"): st.session_state['current_page'] = 'waste'; st.rerun()
         if "transfers" in allowed_modules or "transfer" in allowed_modules:
             with col_d:
-                if st.button("🔄 Transfers", use_container_width=True):
-                    st.session_state['current_page'] = 'transfers'
-                    st.rerun()
+                if st.button("🔄 Transfers"): st.session_state['current_page'] = 'transfers'; st.rerun()
 
-        # --- ROW 2 BUTTONS ---
         st.write("") 
         col_e, col_f, col_g, col_h = st.columns(4)
-        
         if "cash" in allowed_modules:
             with col_e:
-                if st.button("🏦 Daily Cash", use_container_width=True):
-                    st.session_state['current_page'] = 'cash'
-                    st.rerun()
-
+                if st.button("🏦 Daily Cash"): st.session_state['current_page'] = 'cash'; st.rerun()
         if "invoices" in allowed_modules:
             with col_f:
-                if st.button("📸 Invoices", use_container_width=True):
-                    st.session_state['current_page'] = 'invoices'
-                    st.rerun()
-                    
+                if st.button("📸 Invoices"): st.session_state['current_page'] = 'invoices'; st.rerun()
         if "ledger" in allowed_modules:
             with col_g:
-                if st.button("💸 Debt Control", use_container_width=True):
-                    st.session_state['current_page'] = 'ledger'
-                    st.rerun()
+                if st.button("💸 Debt Control"): st.session_state['current_page'] = 'ledger'; st.rerun()
 
     # ==========================================
     # PAGE ROUTING (INSIDE MODULES)
@@ -300,27 +196,11 @@ else:
             st.rerun()
         st.divider()
 
-        # Route to the correct module file
-        if st.session_state['current_page'] == 'dashboard':
-            render_dashboard(None, None, user, role, client, outlet, location)
-            
-        elif st.session_state['current_page'] == 'cash':
-            render_daily_cash(None, None, user, role, client, outlet, location)
-            
-        elif st.session_state['current_page'] == 'inventory':
-            render_inventory(None, None, user, role, client, outlet, location)
-            
-        elif st.session_state['current_page'] == 'waste':
-            render_waste(None, None, user, role, client, outlet, location)
-            
-        elif st.session_state['current_page'] == 'transfers':
-            render_transfers(None, None, user, role, client, outlet, location)
-            
-        elif st.session_state['current_page'] == 'invoices':
-            render_invoices(None, None, user, role)
-            
-        elif st.session_state['current_page'] == 'ledger':
-            render_ledger(None, None, user, role)
-            
-        elif st.session_state['current_page'] == 'main':
-            render_main(None, None, user, role)
+        if st.session_state['current_page'] == 'dashboard': render_dashboard(None, None, user, role, client, outlet, location)
+        elif st.session_state['current_page'] == 'cash': render_daily_cash(None, None, user, role, client, outlet, location)
+        elif st.session_state['current_page'] == 'inventory': render_inventory(None, None, user, role, client, outlet, location)
+        elif st.session_state['current_page'] == 'waste': render_waste(None, None, user, role, client, outlet, location)
+        elif st.session_state['current_page'] == 'transfers': render_transfers(None, None, user, role, client, outlet, location)
+        elif st.session_state['current_page'] == 'invoices': render_invoices(None, None, user, role)
+        elif st.session_state['current_page'] == 'ledger': render_ledger(None, None, user, role)
+        elif st.session_state['current_page'] == 'main': render_main(None, None, user, role)
