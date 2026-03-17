@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import zoneinfo
 from supabase import create_client, Client
+from modules.nav_helper import build_outlet_location_sidebar
 
 # --- SAFELY INITIALIZE SUPABASE ---
 @st.cache_resource
@@ -56,42 +57,10 @@ def render_daily_cash(conn, sheet_link, user, role, assigned_client, assigned_ou
         # 2. SMART ROUTING & CLEAN SIDEBAR
         # ==========================================
         # PRO TIP: Query the small users table for instant navigation
-        nav_res = supabase.table("users").select("client_name, outlet").execute()
-        df_nav = pd.DataFrame(nav_res.data)
-        
-        if not df_nav.empty:
-            df_nav['client_name'] = df_nav['client_name'].astype(str).str.strip().str.title()
-            df_nav['outlet'] = df_nav['outlet'].astype(str).str.strip().str.title()
-            
-        clean_client = str(assigned_client).strip().title()
-        clean_outlet = str(assigned_outlet).strip().title()
-
-        st.sidebar.markdown("### 📍 Location Details")
-
-        if clean_client.lower() != 'all':
-            final_client = clean_client
-            st.sidebar.markdown(f"**🏢 Branch:** {final_client}")
-        else:
-            c_list = sorted([c for c in df_nav['client_name'].unique() if c.lower() != 'all']) if not df_nav.empty else ["Select Branch"]
-            final_client = st.sidebar.selectbox("🏢 Select Branch", c_list)
-
-        if clean_outlet.lower() != 'all':
-            final_outlet = clean_outlet
-            st.sidebar.markdown(f"**🏠 Outlet:** {final_outlet}")
-        else:
-            if final_client != "Select Branch" and not df_nav.empty:
-                outlets_for_client = sorted([o for o in df_nav[df_nav['client_name'] == final_client]['outlet'].unique() if o.lower() != 'all'])
-            elif not df_nav.empty:
-                outlets_for_client = sorted([o for o in df_nav['outlet'].unique() if o.lower() != 'all'])
-            else:
-                outlets_for_client = []
-                
-            final_outlet = st.sidebar.selectbox("🏠 Select Outlet", outlets_for_client) if outlets_for_client else "None"
-                
-        # Cash is usually tracked at the Outlet level, but we display location routing just in case
-        raw_loc = str(assigned_location).strip().title()
-        if raw_loc.lower() != 'all':
-            st.sidebar.markdown(f"**📍 Location:** {raw_loc}")
+        final_client, final_outlet, final_location_sidebar = build_outlet_location_sidebar(
+            assigned_client, assigned_outlet, assigned_location,
+            outlet_key="cash_outlet", location_key="cash_location"
+        )
 
         # ==========================================
         # 3. CASH ENTRY UI (LIVE MATH)

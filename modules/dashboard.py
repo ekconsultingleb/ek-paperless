@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import zoneinfo
 from supabase import create_client, Client
+from modules.nav_helper import get_nav_data
 import plotly.express as px
 import plotly.graph_objects as go
 
@@ -19,39 +20,35 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
         # ==========================================
         # 1. SMART ROUTING & CLEAN SIDEBAR
         # ==========================================
-        nav_res = supabase.table("users").select("client_name, outlet").execute()
-        df_nav = pd.DataFrame(nav_res.data)
-        
-        if not df_nav.empty:
-            df_nav['client_name'] = df_nav['client_name'].astype(str).str.strip().str.title()
-            df_nav['outlet'] = df_nav['outlet'].astype(str).str.strip().str.title()
-            
+        # ── Sidebar navigation (uses nav_helper for reliable outlet list) ──────
         clean_client = str(assigned_client).strip().title()
         clean_outlet = str(assigned_outlet).strip().title()
 
+        df_nav = get_nav_data("all")  # Dashboard needs all clients for cross-client admins
+
         st.sidebar.markdown("### 📍 Filter Dashboard")
 
-        if clean_client.lower() != 'all':
+        if clean_client.lower() not in ['all', '', 'none', 'nan']:
             final_client = clean_client
             st.sidebar.markdown(f"**🏢 Branch:** {final_client}")
         else:
-            c_list = ["All Branches"] + sorted([c for c in df_nav['client_name'].unique() if c.lower() != 'all']) if not df_nav.empty else ["All Branches"]
-            selected_branch = st.sidebar.selectbox("🏢 Select Branch", c_list)
+            c_list = ["All Branches"] + sorted(df_nav['client_name'].unique().tolist()) if not df_nav.empty else ["All Branches"]
+            selected_branch = st.sidebar.selectbox("🏢 Select Branch", c_list, key="dash_branch")
             final_client = "All" if selected_branch == "All Branches" else selected_branch
 
-        if clean_outlet.lower() != 'all':
+        if clean_outlet.lower() not in ['all', '', 'none', 'nan']:
             final_outlet = clean_outlet
             st.sidebar.markdown(f"**🏠 Outlet:** {final_outlet}")
         else:
-            if final_client != "All Branches" and final_client != "All" and not df_nav.empty:
-                outlets_for_client = sorted([o for o in df_nav[df_nav['client_name'] == final_client]['outlet'].unique() if o.lower() != 'all'])
+            if final_client not in ["All Branches", "All", ""] and not df_nav.empty:
+                outlets_for_client = sorted(df_nav[df_nav['client_name'] == final_client]['outlet'].unique().tolist())
             elif not df_nav.empty:
-                outlets_for_client = sorted([o for o in df_nav['outlet'].unique() if o.lower() != 'all'])
+                outlets_for_client = sorted(df_nav['outlet'].unique().tolist())
             else:
                 outlets_for_client = []
-                
+
             o_list = ["All Outlets"] + outlets_for_client if outlets_for_client else ["All Outlets"]
-            selected_outlet = st.sidebar.selectbox("🏠 Select Outlet", o_list)
+            selected_outlet = st.sidebar.selectbox("🏠 Select Outlet", o_list, key="dash_outlet")
             final_outlet = "All" if selected_outlet == "All Outlets" else selected_outlet
 
         # ==========================================

@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import zoneinfo
 import uuid
 from supabase import create_client, Client
+from modules.nav_helper import build_outlet_location_sidebar, get_nav_data
 import google.generativeai as genai
 import json
 
@@ -67,39 +68,11 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
         # ==========================================
         # 2. SMART ROUTING & CLEAN SIDEBAR
         # ==========================================
-        nav_res = supabase.table("users").select("client_name, outlet").execute()
-        df_nav = pd.DataFrame(nav_res.data)
-        
-        if not df_nav.empty:
-            df_nav['client_name'] = df_nav['client_name'].astype(str).str.strip().str.title()
-            df_nav['outlet'] = df_nav['outlet'].astype(str).str.strip().str.title()
-
-        clean_client = str(assigned_client).strip().title()
-        clean_outlet = str(assigned_outlet).strip().title()
-
-        st.sidebar.markdown("### 📍 Location Details")
-
-        # A. Determine Client
-        if clean_client.lower() != 'all':
-            final_client = clean_client
-            st.sidebar.markdown(f"**🏢 Branch:** {final_client}")
-        else:
-            c_list = sorted([c for c in df_nav['client_name'].unique() if c.lower() != 'all']) if not df_nav.empty else ["Select Branch"]
-            final_client = st.sidebar.selectbox("🏢 Select Branch", c_list)
-
-        # B. Determine Outlet
-        if clean_outlet.lower() != 'all':
-            final_outlet = clean_outlet
-            st.sidebar.markdown(f"**🏠 Outlet:** {final_outlet}")
-        else:
-            if final_client != "Select Branch" and not df_nav.empty:
-                outlets_for_client = sorted([o for o in df_nav[df_nav['client_name'] == final_client]['outlet'].unique() if o.lower() != 'all'])
-            elif not df_nav.empty:
-                outlets_for_client = sorted([o for o in df_nav['outlet'].unique() if o.lower() != 'all'])
-            else:
-                outlets_for_client = []
-                
-            final_outlet = st.sidebar.selectbox("🏠 Select Outlet", outlets_for_client) if outlets_for_client else "None"
+        # ── Sidebar navigation ──────────────────────────────────────────────────
+        final_client, final_outlet, _ = build_outlet_location_sidebar(
+            assigned_client, assigned_outlet, assigned_location,
+            outlet_key="tr_outlet", location_key="tr_location"
+        )
 
         # ==========================================
         # 3. MEGA-FETCH FOR MASTER ITEMS
@@ -124,15 +97,16 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
             df_inv['location'] = df_inv['location'].astype(str).str.strip().str.title()
             df_inv = df_inv.drop_duplicates().copy()
 
-        # C. Determine Location
-        db_locs = sorted(list(df_inv[df_inv['outlet'] == final_outlet]['location'].dropna().unique())) if final_outlet != "None" and not df_inv.empty else []
-        raw_loc = str(assigned_location).strip()
+        # C. Determine active locations for this user
+        df_nav = get_nav_data(final_client)
+        db_locs = sorted(df_nav[df_nav['outlet'] == final_outlet]['location'].unique().tolist()) if not df_nav.empty and final_outlet not in ['None', 'All', ''] else []
 
-        if raw_loc.lower() == 'all':
+        raw_loc = str(assigned_location).strip()
+        if raw_loc.lower() in ['all', '', 'none', 'nan']:
             active_locations = db_locs if db_locs else ["Main Store"]
             st.sidebar.markdown("**📍 Location:** All Authorized")
         else:
-            allowed_locs = [l.strip().title() for l in raw_loc.split(',')]
+            allowed_locs = [l.strip().title() for l in raw_loc.split(',') if l.strip()]
             active_locations = [l for l in allowed_locs if l in db_locs] if db_locs else allowed_locs
             st.sidebar.markdown(f"**📍 Location(s):** {', '.join(active_locations)}")
 
