@@ -43,7 +43,9 @@ def inject_back_button_protection():
             }
         });
         </script>
-        """, height=0, width=0,
+        """,
+        height=0,
+        width=0,
     )
 
 inject_back_button_protection()
@@ -88,17 +90,23 @@ if not st.session_state.get('logged_in', False):
         if st.button("Sign In", use_container_width=True):
             try:
                 response = supabase.table("users").select("*").eq("username", u_input).eq("password", p_input).execute()
+                
                 if len(response.data) > 0:
                     match = response.data[0]
+                    
+                    assigned_out = str(match.get('outlet', 'All')).strip()
+                    assigned_loc = str(match.get('location', 'All')).strip()
+                    assigned_cli = str(match.get('client_name', 'All')).strip()
+
                     st.session_state.update({
                         'logged_in': True,
                         'user': match.get('username', u_input),
                         'role': str(match.get('role', 'staff')).lower().strip(),
                         'module': match.get('module', 'All'),
                         'link': None,
-                        'assigned_outlet': str(match.get('outlet', 'All')).strip(),
-                        'assigned_location': str(match.get('location', 'All')).strip(),
-                        'client_name': str(match.get('client_name', 'All')).strip(),
+                        'assigned_outlet': assigned_out,
+                        'assigned_location': assigned_loc,
+                        'client_name': assigned_cli,
                         'current_page': 'home'
                     })
                     st.rerun()
@@ -112,29 +120,39 @@ else:
     st.sidebar.title(f"👤 {st.session_state['user'].title()}")
     st.sidebar.write(f"**Role:** {st.session_state['role'].title()}")
     
+    if st.session_state['client_name'].lower() != 'all':
+        st.sidebar.write(f"🏢 **Client:** {st.session_state['client_name']}")
+    if st.session_state['assigned_outlet'].lower() != 'all':
+        st.sidebar.write(f"🏠 **Outlet:** {st.session_state['assigned_outlet']}")
+    if st.session_state['assigned_location'].lower() != 'all':
+        st.sidebar.write(f"📍 **Location:** {st.session_state['assigned_location']}")
+    
     if st.sidebar.button("Logout", use_container_width=True):
         st.session_state.clear()
         st.rerun()
 
-    # ==========================================
-    # 🚦 TRAFFIC COP (ROUTING VARIABLES)
-    # ==========================================
+    # --- TRAFFIC COP (NAVIGATION LOGIC) ---
     role = st.session_state['role']
     user = st.session_state['user']
     
-    # Securely pass "All" down to the modules if the user is authorized
-    client = "All" if role in ["admin", "admin_all"] or st.session_state['client_name'].lower() == "all" else st.session_state['client_name']
-    outlet = "All" if role in ["admin", "admin_all"] or st.session_state['assigned_outlet'].lower() == "all" else st.session_state['assigned_outlet']
-    location = "All" if role in ["admin", "admin_all"] or st.session_state['assigned_location'].lower() == "all" else st.session_state['assigned_location']
+    if role == "admin" or st.session_state['client_name'].lower() == "all":
+        client = "All"
+    else:
+        client = st.session_state['client_name']
+
+    if role == "admin" or st.session_state['assigned_outlet'].lower() == "all":
+        outlet = "All"
+    else:
+        outlet = st.session_state['assigned_outlet']
+        
+    location = st.session_state['assigned_location']
     
-    # Parse allowed modules
     raw_modules = str(st.session_state.get('module', '')).lower().strip()
     if raw_modules == "all_modules" or role in ["admin", "admin_all"]:
         allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers", "invoices", "ledger"]
     else:
         allowed_modules = [m.strip() for m in raw_modules.split(",") if m.strip()]
 
-    # Secret Admin Panel Button
     if role in ["admin", "admin_all"] or (role == "manager" and st.session_state['client_name'].lower() == 'all'):
         st.sidebar.divider()
         if st.sidebar.button("⚙️ Control Panel", type="primary"):
@@ -149,12 +167,14 @@ else:
             <style>
             div[data-testid="stButton"] > button {
                 height: 100px !important; width: 100% !important; border-radius: 15px !important;
-                border: 2px solid rgba(255,255,255,0.2) !important; transition: all 0.3s ease-in-out !important;
+                border: 2px solid rgba(255,255,255,0.2) !important; transition: all 0.3s ease-in-out !important; padding: 0px !important;
             }
             div[data-testid="stButton"] > button:hover {
                 border-color: #00ff00 !important; box-shadow: 0 0 20px rgba(0, 255, 0, 0.3) !important; transform: translateY(-5px) !important;
             }
-            div[data-testid="stButton"] > button p { font-size: 24px !important; font-weight: 500 !important; margin: 0 !important; }
+            div[data-testid="stButton"] > button p {
+                font-size: 24px !important; font-weight: 500 !important; margin: 0 !important;
+            }
             </style>
         """, unsafe_allow_html=True)
 
@@ -164,31 +184,31 @@ else:
         col_a, col_b, col_c, col_d = st.columns(4)
         if "dashboard" in allowed_modules:
             with col_a:
-                if st.button("📊 Dashboard"): st.session_state['current_page'] = 'dashboard'; st.rerun()
+                if st.button("📊 Dashboard", use_container_width=True): st.session_state['current_page'] = 'dashboard'; st.rerun()
         if "inventory" in allowed_modules:
             with col_b:
-                if st.button("📦 Inventory"): st.session_state['current_page'] = 'inventory'; st.rerun()
+                if st.button("📦 Inventory", use_container_width=True): st.session_state['current_page'] = 'inventory'; st.rerun()
         if "waste" in allowed_modules:
             with col_c:
-                if st.button("🗑️ Waste"): st.session_state['current_page'] = 'waste'; st.rerun()
+                if st.button("🗑️ Waste", use_container_width=True): st.session_state['current_page'] = 'waste'; st.rerun()
         if "transfers" in allowed_modules or "transfer" in allowed_modules:
             with col_d:
-                if st.button("🔄 Transfers"): st.session_state['current_page'] = 'transfers'; st.rerun()
+                if st.button("🔄 Transfers", use_container_width=True): st.session_state['current_page'] = 'transfers'; st.rerun()
 
         st.write("") 
         col_e, col_f, col_g, col_h = st.columns(4)
         if "cash" in allowed_modules:
             with col_e:
-                if st.button("🏦 Daily Cash"): st.session_state['current_page'] = 'cash'; st.rerun()
+                if st.button("🏦 Daily Cash", use_container_width=True): st.session_state['current_page'] = 'cash'; st.rerun()
         if "invoices" in allowed_modules:
             with col_f:
-                if st.button("📸 Invoices"): st.session_state['current_page'] = 'invoices'; st.rerun()
+                if st.button("📸 Invoices", use_container_width=True): st.session_state['current_page'] = 'invoices'; st.rerun()
         if "ledger" in allowed_modules:
             with col_g:
-                if st.button("💸 Debt Control"): st.session_state['current_page'] = 'ledger'; st.rerun()
+                if st.button("💸 Debt Control", use_container_width=True): st.session_state['current_page'] = 'ledger'; st.rerun()
 
     # ==========================================
-    # PAGE ROUTING (INSIDE MODULES)
+    # PAGE ROUTING
     # ==========================================
     else:
         if st.button("⬅️ Back to Main Menu"):
