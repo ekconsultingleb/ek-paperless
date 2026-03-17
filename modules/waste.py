@@ -71,6 +71,18 @@ def undo_waste_count(item_key):
     if item_key in st.session_state['waste_cart']:
         del st.session_state['waste_cart'][item_key]
 
+# --- 💡 NEW HELPER: GET TRUE LOCATIONS FROM DATA ---
+@st.cache_data(ttl=300)
+def fetch_location_structure():
+    supabase = get_supabase()
+    res = supabase.table("master_items").select("client_name, outlet, location").execute()
+    df = pd.DataFrame(res.data)
+    if not df.empty:
+        df['client_name'] = df['client_name'].astype(str).str.strip().str.title()
+        df['outlet'] = df['outlet'].astype(str).str.strip().str.title()
+        df['location'] = df['location'].astype(str).str.strip().str.title()
+    return df
+
 def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet, assigned_location):
     st.markdown("### 🗑️ Log Waste, Meals & Events")
     supabase = get_supabase()
@@ -103,22 +115,21 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             return
 
         # ==========================================
-        # 1. DATA FETCHING & DYNAMIC NAVIGATION
+        # 1. SMART SIDEBAR (DATA-DRIVEN NAVIGATION)
         # ==========================================
-        nav_res = supabase.table("users").select("client_name, outlet").execute()
-        df_nav = pd.DataFrame(nav_res.data)
-        if not df_nav.empty:
-            df_nav['client_name'] = df_nav['client_name'].astype(str).str.strip().str.title()
-            df_nav['outlet'] = df_nav['outlet'].astype(str).str.strip().str.title()
+        st.sidebar.markdown("### 📍 Location Details")
+        df_nav = fetch_location_structure()
         
+        # 1A. CLIENT
         user_client_access = str(assigned_client).strip().title()
         if user_client_access != 'All':
             final_client = user_client_access
             st.sidebar.info(f"🏢 Branch: {final_client}")
         else:
             c_list = sorted([c for c in df_nav['client_name'].unique() if c.lower() != 'all']) if not df_nav.empty else ["All Branches"]
-            final_client = st.sidebar.selectbox("🏢 Select Branch", c_list)
+            final_client = st.sidebar.selectbox("🏢 Select Branch", c_list, key="waste_client")
 
+        # 1B. OUTLET
         user_outlet_access = str(assigned_outlet).strip().title()
         if user_outlet_access != 'All':
             final_outlet = user_outlet_access
@@ -126,12 +137,21 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         else:
             if final_client != "All Branches" and not df_nav.empty:
                 outlets_for_client = sorted([o for o in df_nav[df_nav['client_name'] == final_client]['outlet'].unique() if o.lower() != 'all'])
-            elif not df_nav.empty:
-                outlets_for_client = sorted([o for o in df_nav['outlet'].unique() if o.lower() != 'all'])
             else:
-                outlets_for_client = []
-                
-            final_outlet = st.sidebar.selectbox("🏠 Select Outlet", outlets_for_client) if outlets_for_client else "None"
+                outlets_for_client = sorted([o for o in df_nav['outlet'].unique() if o.lower() != 'all']) if not df_nav.empty else []
+            final_outlet = st.sidebar.selectbox("🏠 Select Outlet", ["All"] + outlets_for_client, key="waste_outlet") if outlets_for_client else "All"
+
+        # 1C. LOCATION ROOM (New! Lets them pick Warehouse vs Room1)
+        user_loc_access = str(assigned_location).strip().title()
+        if user_loc_access != 'All':
+            final_location = user_loc_access
+            st.sidebar.info(f"📍 Room: {final_location}")
+        else:
+            if final_outlet != "All" and not df_nav.empty:
+                locs_for_outlet = sorted([l for l in df_nav[(df_nav['client_name'] == final_client) & (df_nav['outlet'] == final_outlet)]['location'].unique() if l.lower() != 'all'])
+            else:
+                locs_for_outlet = []
+            final_location = st.sidebar.selectbox("📍 Select Room", ["All"] + locs_for_outlet, key="waste_loc") if locs_for_outlet else "All"
 
         if 'last_waste_receipt' in st.session_state:
             st.success("✅ **Success!** Waste ticket has been logged.")
@@ -141,32 +161,33 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                 st.rerun()
             return
 
+        # ==========================================
+        # 2. FETCH ITEMS BASED ON SELECTION
+        # ==========================================
         all_items = []
         page_size, start_row = 1000, 0
         
-        if final_outlet and str(final_outlet).strip() != "" and final_outlet != "None":
-            while True:
-                query = supabase.table("master_items").select("*")
-                if final_client and final_client not in ["All", "Select Branch", "All Branches"]:
-                    query = query.ilike("client_name", f"%{final_client}%")
+        while True:
+            query = supabase.table("master_items").select("*")
+            if final_client and final_client not in ["All", "All Branches", "Select Branch"]:
+                query = query.ilike("client_name", f"%{final_client}%")
+            if final_outlet and final_outlet != "All":
                 query = query.ilike("outlet", f"%{final_outlet}%")
-                res = query.range(start_row, start_row + page_size - 1).execute()
+            if final_location and final_location != "All":
+                query = query.ilike("location", f"%{final_location}%")
                 
-                if not res.data: break
-                all_items.extend(res.data)
-                if len(res.data) < page_size: break
-                start_row += page_size
+            res = query.range(start_row, start_row + page_size - 1).execute()
+            
+            if not res.data: break
+            all_items.extend(res.data)
+            if len(res.data) < page_size: break
+            start_row += page_size
 
         if not all_items:
             df_items = pd.DataFrame(columns=['item_name', 'category', 'sub_category', 'count_unit', 'location', 'item_type'])
         else:
             df_items = pd.DataFrame(all_items)
             df_items.columns = [str(c).strip().lower() for c in df_items.columns]
-            
-            user_loc_raw = str(assigned_location).strip().lower()
-            if user_loc_raw != 'all':
-                allowed_locs = [loc.strip().lower() for loc in user_loc_raw.split(',')]
-                df_items = df_items[df_items['location'].str.lower().isin(allowed_locs)]
             
             if 'item_type' not in df_items.columns: df_items['item_type'] = "inventory"
             if 'count_unit' in df_items.columns:
@@ -233,7 +254,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         ''', unsafe_allow_html=True)
 
         if df_display.empty:
-            st.info("No items found. Check if the Location spelling matches the database.")
+            st.info("No items found. Select an Outlet/Location from the sidebar or check if the Location spelling matches the database.")
         else:
             for index, row in df_display.iterrows():
                 item_name = row['item_name']
@@ -293,14 +314,15 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                             
                             logs.append({
                                 "date": str(waste_date), "client_name": final_client, "outlet": final_outlet, 
-                                "location": str(assigned_location), "reported_by": user,
+                                "location": final_location if final_location != "All" else str(r_data.get('location', 'Unknown')), 
+                                "reported_by": user,
                                 "item_name": i_name, "item_type": r_data.get('item_type', 'inventory'), "category": r_data.get('category', ''),
                                 "qty": float(data['qty']), "count_unit": r_data.get('count_unit', 'Unit'), "remarks": reason_code
                             })
                         
                         try:
                             supabase.table("waste_logs").insert(logs).execute()
-                            st.session_state['last_waste_receipt'] = {"bytes": generate_waste_pdf(pd.DataFrame(logs), str(waste_date), final_client, final_outlet, str(assigned_location), user, ticket_type, event_name_val), "filename": f"{ticket_type}_{waste_date}.pdf"}
+                            st.session_state['last_waste_receipt'] = {"bytes": generate_waste_pdf(pd.DataFrame(logs), str(waste_date), final_client, final_outlet, final_location, user, ticket_type, event_name_val), "filename": f"{ticket_type}_{waste_date}.pdf"}
                             st.session_state['waste_cart'] = {}
                             st.rerun()
                         except Exception as e:
