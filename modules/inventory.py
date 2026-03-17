@@ -229,27 +229,33 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
             if 'location' not in df_items.columns: df_items['location'] = "Main Store"
             if 'item_type' in df_items.columns: df_items = df_items[df_items['item_type'].astype(str).str.lower() == 'inventory']
 
-        db_locs = sorted(df_items['location'].dropna().astype(str).str.title().unique())
+        db_locs = sorted(df_items['location'].dropna().astype(str).str.strip().str.title().unique().tolist()) if not df_items.empty else []
         raw_loc = str(assigned_location).strip()
 
         if raw_loc.lower() == 'all':
-            loc_options = ["All"] + db_locs if db_locs else ["All"]
-            loc_filter = st.sidebar.selectbox("📍 Select Location Room", loc_options, key="c_loc")
-        elif "," in raw_loc:
-            allowed_locs = [l.strip().title() for l in raw_loc.split(',')]
+            # Admin / unrestricted: show all DB locations
+            loc_options = db_locs if db_locs else ["Main Store"]
+            if len(loc_options) > 1:
+                loc_filter = st.sidebar.selectbox("📍 Select Location Room", loc_options, key="c_loc")
+            else:
+                loc_filter = loc_options[0]
+                st.sidebar.markdown(f"**📍 Location Room:** {loc_filter}")
+        else:
+            # User has specific locations assigned (comma-separated)
+            allowed_locs = [l.strip().title() for l in raw_loc.split(',') if l.strip()]
             valid_locs = [l for l in allowed_locs if l in db_locs]
-            if valid_locs:
+            if not valid_locs:
+                valid_locs = allowed_locs if allowed_locs else ["Main Store"]
+                st.sidebar.warning(f"⚠️ Assigned locations not found in DB: {', '.join(allowed_locs)}")
+            if len(valid_locs) > 1:
                 loc_filter = st.sidebar.selectbox("📍 Select Location Room", valid_locs, key="c_loc")
             else:
-                st.sidebar.warning("Assigned locations not found in database.")
-                loc_filter = allowed_locs[0] if allowed_locs else "Main Store"
-        else:
-            loc_filter = raw_loc.title()
-            st.sidebar.markdown(f"**📍 Location Room:** {loc_filter}")
-            
+                loc_filter = valid_locs[0]
+                st.sidebar.markdown(f"**📍 Location Room:** {loc_filter}")
+
+        # Filter items by selected location
         if not df_items.empty:
-            if loc_filter != "All":
-                df_items = df_items[df_items['location'].str.title() == loc_filter]
+            df_items = df_items[df_items['location'].str.strip().str.title() == loc_filter]
             df_items = df_items.drop_duplicates(subset=['item_name']).copy()
 
         count_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")), key="count_date")
