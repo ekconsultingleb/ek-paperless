@@ -268,7 +268,9 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                 if selected_group != "All":
                     df_display = df_display[df_display['sub_category'] == selected_group]
         else:
-            df_display = pd.DataFrame()
+            df_display = pd.DataFrame(columns=['item_name', 'category', 'sub_category', 'count_unit', 'location', 'item_type'])
+            if loc_filter and loc_filter.lower() not in ['all', 'none', '']:
+                st.warning(f"⚠️ No items found for location **{loc_filter}**. This location may not have items uploaded yet in the master list.")
 
         total_items = len(df_display)
         counted_in_view = sum(1 for item in df_display['item_name'] if item in st.session_state['mobile_counts']) if not df_display.empty else 0

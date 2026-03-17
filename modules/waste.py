@@ -178,7 +178,10 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             df_filtered_type['category'] = df_filtered_type['category'].replace(['', 'nan', 'None'], 'Uncategorized').fillna('Uncategorized')
             df_filtered_type['sub_category'] = df_filtered_type['sub_category'].replace(['', 'nan', 'None'], 'Uncategorized').fillna('Uncategorized')
         else:
-            df_filtered_type = pd.DataFrame()
+            df_filtered_type = pd.DataFrame(columns=['item_name', 'category', 'sub_category', 'count_unit', 'location', 'item_type'])
+
+        if df_items.empty:
+            st.warning(f"⚠️ No items found for location **{loc_filter}**. This location may not have any items uploaded yet in the master list.")
 
         c1, c2 = st.columns(2)
         with c1:
