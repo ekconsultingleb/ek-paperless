@@ -29,16 +29,25 @@ def inject_back_button_protection():
     components.html(
         """
         <script>
+        // 1. Standard protection for refreshing or closing the tab
         window.parent.addEventListener('beforeunload', function (e) {
             e.preventDefault();
             e.returnValue = '';
         });
+
+        // 2. Mobile Hardware Back Button trick (History API)
+        // Push a fake state into the phone's memory
         window.parent.history.pushState('fake-route', null, '');
+        
+        // Listen for the user hitting the Android back button
         window.parent.addEventListener('popstate', function (e) {
+            // Ask for confirmation
             var stay = window.parent.confirm("⚠️ Warning: Leaving this page will erase unsaved work! Do you want to stay?");
             if (stay) {
+                // If they want to stay, push the fake state again to trap the back button
                 window.parent.history.pushState('fake-route', null, '');
             } else {
+                // If they want to leave, let them go back again
                 window.parent.history.back();
             }
         });
@@ -48,6 +57,7 @@ def inject_back_button_protection():
         width=0,
     )
 
+# Run the protection immediately so it guards every page
 inject_back_button_protection()
 
 # --- BRANDING & LOGO ---
@@ -89,15 +99,18 @@ if not st.session_state.get('logged_in', False):
         
         if st.button("Sign In", use_container_width=True):
             try:
+                # Search Supabase for the user
                 response = supabase.table("users").select("*").eq("username", u_input).eq("password", p_input).execute()
                 
                 if len(response.data) > 0:
                     match = response.data[0]
                     
+                    # Clean up data from database
                     assigned_out = str(match.get('outlet', 'All')).strip()
                     assigned_loc = str(match.get('location', 'All')).strip()
                     assigned_cli = str(match.get('client_name', 'All')).strip()
 
+                    # Save EVERYTHING to Session State
                     st.session_state.update({
                         'logged_in': True,
                         'user': match.get('username', u_input),
@@ -120,6 +133,7 @@ else:
     st.sidebar.title(f"👤 {st.session_state['user'].title()}")
     st.sidebar.write(f"**Role:** {st.session_state['role'].title()}")
     
+    # Show specifics in sidebar if not 'All'
     if st.session_state['client_name'].lower() != 'all':
         st.sidebar.write(f"🏢 **Client:** {st.session_state['client_name']}")
     if st.session_state['assigned_outlet'].lower() != 'all':
@@ -135,6 +149,7 @@ else:
     role = st.session_state['role']
     user = st.session_state['user']
     
+    # CRITICAL FIX: If assigned 'All', we send 'All' to the module to unlock dropdowns
     if role == "admin" or st.session_state['client_name'].lower() == "all":
         client = "All"
     else:
@@ -147,12 +162,14 @@ else:
         
     location = st.session_state['assigned_location']
     
+    # Parse allowed modules
     raw_modules = str(st.session_state.get('module', '')).lower().strip()
     if raw_modules == "all_modules" or role in ["admin", "admin_all"]:
         allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers", "invoices", "ledger"]
     else:
         allowed_modules = [m.strip() for m in raw_modules.split(",") if m.strip()]
 
+    # Secret Admin Panel Button (Double-Locked!)
     if role in ["admin", "admin_all"] or (role == "manager" and st.session_state['client_name'].lower() == 'all'):
         st.sidebar.divider()
         if st.sidebar.button("⚙️ Control Panel", type="primary"):
@@ -166,14 +183,22 @@ else:
         st.markdown("""
             <style>
             div[data-testid="stButton"] > button {
-                height: 100px !important; width: 100% !important; border-radius: 15px !important;
-                border: 2px solid rgba(255,255,255,0.2) !important; transition: all 0.3s ease-in-out !important; padding: 0px !important;
+                height: 100px !important;
+                width: 100% !important;
+                border-radius: 15px !important;
+                border: 2px solid rgba(255,255,255,0.2) !important;
+                transition: all 0.3s ease-in-out !important;
+                padding: 0px !important;
             }
             div[data-testid="stButton"] > button:hover {
-                border-color: #00ff00 !important; box-shadow: 0 0 20px rgba(0, 255, 0, 0.3) !important; transform: translateY(-5px) !important;
+                border-color: #00ff00 !important;
+                box-shadow: 0 0 20px rgba(0, 255, 0, 0.3) !important;
+                transform: translateY(-5px) !important;
             }
             div[data-testid="stButton"] > button p {
-                font-size: 24px !important; font-weight: 500 !important; margin: 0 !important;
+                font-size: 24px !important;
+                font-weight: 500 !important;
+                margin: 0 !important;
             }
             </style>
         """, unsafe_allow_html=True)
@@ -182,33 +207,56 @@ else:
         st.markdown("<h4 style='color: #888888; font-weight: 400; margin-bottom: 30px;'>Explore</h4>", unsafe_allow_html=True)
         
         col_a, col_b, col_c, col_d = st.columns(4)
+        
         if "dashboard" in allowed_modules:
             with col_a:
-                if st.button("📊 Dashboard", use_container_width=True): st.session_state['current_page'] = 'dashboard'; st.rerun()
+                if st.button("📊 Dashboard", use_container_width=True):
+                    st.session_state['current_page'] = 'dashboard'
+                    st.rerun()
+                    
         if "inventory" in allowed_modules:
             with col_b:
-                if st.button("📦 Inventory", use_container_width=True): st.session_state['current_page'] = 'inventory'; st.rerun()
+                if st.button("📦 Inventory", use_container_width=True):
+                    st.session_state['current_page'] = 'inventory'
+                    st.rerun()
+                    
         if "waste" in allowed_modules:
             with col_c:
-                if st.button("🗑️ Waste", use_container_width=True): st.session_state['current_page'] = 'waste'; st.rerun()
+                if st.button("🗑️ Waste", use_container_width=True):
+                    st.session_state['current_page'] = 'waste'
+                    st.rerun()
+                    
         if "transfers" in allowed_modules or "transfer" in allowed_modules:
             with col_d:
-                if st.button("🔄 Transfers", use_container_width=True): st.session_state['current_page'] = 'transfers'; st.rerun()
+                if st.button("🔄 Transfers", use_container_width=True):
+                    st.session_state['current_page'] = 'transfers'
+                    st.rerun()
 
-        st.write("") 
+        # --- ROW 2 BUTTONS ---
+        st.write("") # Spacer for the second row
         col_e, col_f, col_g, col_h = st.columns(4)
+        
         if "cash" in allowed_modules:
             with col_e:
-                if st.button("🏦 Daily Cash", use_container_width=True): st.session_state['current_page'] = 'cash'; st.rerun()
+                if st.button("🏦 Daily Cash", use_container_width=True):
+                    st.session_state['current_page'] = 'cash'
+                    st.rerun()
+
         if "invoices" in allowed_modules:
             with col_f:
-                if st.button("📸 Invoices", use_container_width=True): st.session_state['current_page'] = 'invoices'; st.rerun()
+                if st.button("📸 Invoices", use_container_width=True):
+                    st.session_state['current_page'] = 'invoices'
+                    st.rerun()
+                    
+        # 👇 NEW DEBT CONTROL BUTTON ADDED HERE 👇
         if "ledger" in allowed_modules:
             with col_g:
-                if st.button("💸 Debt Control", use_container_width=True): st.session_state['current_page'] = 'ledger'; st.rerun()
+                if st.button("💸 Debt Control", use_container_width=True):
+                    st.session_state['current_page'] = 'ledger'
+                    st.rerun()
 
     # ==========================================
-    # PAGE ROUTING
+    # PAGE ROUTING (INSIDE MODULES)
     # ==========================================
     else:
         if st.button("⬅️ Back to Main Menu"):
@@ -216,11 +264,28 @@ else:
             st.rerun()
         st.divider()
 
-        if st.session_state['current_page'] == 'dashboard': render_dashboard(None, None, user, role, client, outlet, location)
-        elif st.session_state['current_page'] == 'cash': render_daily_cash(None, None, user, role, client, outlet, location)
-        elif st.session_state['current_page'] == 'inventory': render_inventory(None, None, user, role, client, outlet, location)
-        elif st.session_state['current_page'] == 'waste': render_waste(None, None, user, role, client, outlet, location)
-        elif st.session_state['current_page'] == 'transfers': render_transfers(None, None, user, role, client, outlet, location)
-        elif st.session_state['current_page'] == 'invoices': render_invoices(None, None, user, role)
-        elif st.session_state['current_page'] == 'ledger': render_ledger(None, None, user, role)
-        elif st.session_state['current_page'] == 'main': render_main(None, None, user, role)
+        # Route to the correct module file
+        if st.session_state['current_page'] == 'dashboard':
+            render_dashboard(None, None, user, role, client, outlet, location)
+            
+        elif st.session_state['current_page'] == 'cash':
+            render_daily_cash(None, None, user, role, client, outlet, location)
+            
+        elif st.session_state['current_page'] == 'inventory':
+            render_inventory(None, None, user, role, client, outlet, location)
+            
+        elif st.session_state['current_page'] == 'waste':
+            render_waste(None, None, user, role, client, outlet, location)
+            
+        elif st.session_state['current_page'] == 'transfers':
+            render_transfers(None, None, user, role, client, outlet, location)
+            
+        elif st.session_state['current_page'] == 'invoices':
+            render_invoices(None, None, user, role)
+            
+        # 👇 ROUTING TO LEDGER ADDED HERE 👇
+        elif st.session_state['current_page'] == 'ledger':
+            render_ledger(None, None, user, role)
+            
+        elif st.session_state['current_page'] == 'main':
+            render_main(None, None, user, role)

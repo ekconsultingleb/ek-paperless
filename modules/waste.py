@@ -159,30 +159,14 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
 
         if not all_items:
             df_items = pd.DataFrame(columns=['item_name', 'category', 'sub_category', 'count_unit', 'location', 'item_type'])
-            final_location = "All"
         else:
             df_items = pd.DataFrame(all_items)
             df_items.columns = [str(c).strip().lower() for c in df_items.columns]
             
-            # --- THE MASTER INDEX FIX ---
-            user_loc_raw = str(assigned_location).strip().title()
-            if user_loc_raw.lower() != 'all':
-                # They are locked to a specific room
-                final_location = user_loc_raw
-                st.sidebar.info(f"📍 Room: {final_location}")
+            user_loc_raw = str(assigned_location).strip().lower()
+            if user_loc_raw != 'all':
                 allowed_locs = [loc.strip().lower() for loc in user_loc_raw.split(',')]
                 df_items = df_items[df_items['location'].str.lower().isin(allowed_locs)]
-            else:
-                # They have "All" access, so build the dropdown dynamically from the downloaded items
-                if 'location' in df_items.columns:
-                    locs_in_data = sorted(list(set([str(l).title() for l in df_items['location'].dropna() if str(l).strip().lower() not in ['all', 'none', 'nan', '']])))
-                else:
-                    locs_in_data = []
-                
-                final_location = st.sidebar.selectbox("📍 Select Room", ["All"] + locs_in_data, key="waste_loc_master")
-                
-                if final_location != "All":
-                    df_items = df_items[df_items['location'].str.title() == final_location]
             
             if 'item_type' not in df_items.columns: df_items['item_type'] = "inventory"
             if 'count_unit' in df_items.columns:
@@ -312,19 +296,16 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                             elif ticket_type == "Staff Meal": reason_code = "SM"
                             elif ticket_type == "Event": reason_code = f"Event: {event_name_val}"
                             
-                            # Use final_location to save correctly to the database
-                            save_location = final_location if final_location != "All" else str(r_data.get('location', 'Unknown'))
-                            
                             logs.append({
                                 "date": str(waste_date), "client_name": final_client, "outlet": final_outlet, 
-                                "location": save_location, "reported_by": user,
+                                "location": str(assigned_location), "reported_by": user,
                                 "item_name": i_name, "item_type": r_data.get('item_type', 'inventory'), "category": r_data.get('category', ''),
                                 "qty": float(data['qty']), "count_unit": r_data.get('count_unit', 'Unit'), "remarks": reason_code
                             })
                         
                         try:
                             supabase.table("waste_logs").insert(logs).execute()
-                            st.session_state['last_waste_receipt'] = {"bytes": generate_waste_pdf(pd.DataFrame(logs), str(waste_date), final_client, final_outlet, save_location, user, ticket_type, event_name_val), "filename": f"{ticket_type}_{waste_date}.pdf"}
+                            st.session_state['last_waste_receipt'] = {"bytes": generate_waste_pdf(pd.DataFrame(logs), str(waste_date), final_client, final_outlet, str(assigned_location), user, ticket_type, event_name_val), "filename": f"{ticket_type}_{waste_date}.pdf"}
                             st.session_state['waste_cart'] = {}
                             st.rerun()
                         except Exception as e:
