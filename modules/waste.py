@@ -58,6 +58,7 @@ def add_waste_qty(item_key, row_dict, input_key):
     if added_val > 0:
         unit = str(row_dict.get('count_unit', '')).strip().lower()
         
+        # --- 🛡️ THE FRIENDLY GUARD ---
         if unit in ['kg', 'ltr'] and added_val > 50:
             st.toast(f"⚠️ {added_val} {unit} added! If this was a typo, please use the Undo button.", icon="👀")
         
@@ -78,8 +79,8 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         st.session_state['waste_cart'] = {}
 
     try:
+        # --- VIEWER MODE ---
         if role.lower() == "viewer":
-            # ... Viewer logic remains identical ...
             st.info("👁️ Viewer Mode: Showing Waste Logs")
             today = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).date()
             default_start = today - timedelta(days=7)
@@ -102,7 +103,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             return
 
         # ==========================================
-        # 1. OUTLETS FROM USERS TABLE (Original Logic)
+        # 1. DATA FETCHING & DYNAMIC NAVIGATION
         # ==========================================
         nav_res = supabase.table("users").select("client_name, outlet").execute()
         df_nav = pd.DataFrame(nav_res.data)
@@ -140,9 +141,6 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                 st.rerun()
             return
 
-        # ==========================================
-        # 2. FETCH MASTER ITEMS & BUILD LOCATION INDEX
-        # ==========================================
         all_items = []
         page_size, start_row = 1000, 0
         
@@ -166,26 +164,26 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             df_items = pd.DataFrame(all_items)
             df_items.columns = [str(c).strip().lower() for c in df_items.columns]
             
-            # --- THIS IS YOUR FIX: THE MASTER INDEX FOR LOCATIONS ---
+            # --- THE MASTER INDEX FIX ---
             user_loc_raw = str(assigned_location).strip().title()
             if user_loc_raw.lower() != 'all':
+                # They are locked to a specific room
                 final_location = user_loc_raw
-                st.sidebar.info(f"📍 Location: {final_location}")
+                st.sidebar.info(f"📍 Room: {final_location}")
                 allowed_locs = [loc.strip().lower() for loc in user_loc_raw.split(',')]
                 df_items = df_items[df_items['location'].str.lower().isin(allowed_locs)]
             else:
-                # Build the dropdown dynamically from the fetched items (just like Categories!)
+                # They have "All" access, so build the dropdown dynamically from the downloaded items
                 if 'location' in df_items.columns:
                     locs_in_data = sorted(list(set([str(l).title() for l in df_items['location'].dropna() if str(l).strip().lower() not in ['all', 'none', 'nan', '']])))
                 else:
                     locs_in_data = []
                 
-                final_location = st.sidebar.selectbox("📍 Select Room", ["All"] + locs_in_data)
+                final_location = st.sidebar.selectbox("📍 Select Room", ["All"] + locs_in_data, key="waste_loc_master")
                 
                 if final_location != "All":
                     df_items = df_items[df_items['location'].str.title() == final_location]
             
-            # Standard formatting
             if 'item_type' not in df_items.columns: df_items['item_type'] = "inventory"
             if 'count_unit' in df_items.columns:
                 df_items['count_unit'] = df_items['count_unit'].apply(
@@ -221,15 +219,19 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         c1, c2 = st.columns(2)
         with c1:
             cats = sorted(list(df_filtered_type['category'].astype(str).unique())) if not df_filtered_type.empty else []
-            cats = [c for c in cats if c.lower() != 'all']
+            cats = [c for c in cats if c.lower() != 'all'] # Prevent duplicate "All"s
             cat_options = ["All"] + cats
+            
+            # Added a unique key to force Streamlit to forget its old memory
             selected_category = st.selectbox("📂 Category", cat_options, index=1 if len(cat_options) > 1 else 0, key="waste_cat_box")
             
         with c2:
             df_grp_list = df_filtered_type if selected_category == "All" else df_filtered_type[df_filtered_type['category'] == selected_category]
             grps = sorted(list(df_grp_list['sub_category'].astype(str).unique())) if not df_grp_list.empty else []
-            grps = [g for g in grps if g.lower() != 'all']
+            grps = [g for g in grps if g.lower() != 'all'] # Prevent duplicate "All"s
             grp_options = ["All"] + grps
+            
+            # Added a unique key here too
             selected_group = st.selectbox("🏷️ Sub Category", grp_options, index=1 if len(grp_options) > 1 else 0, key="waste_grp_box")
 
         df_display = df_filtered_type.copy()
@@ -251,7 +253,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         ''', unsafe_allow_html=True)
 
         if df_display.empty:
-            st.info("No items found. Select an Outlet/Location from the sidebar or check if the Location spelling matches the database.")
+            st.info("No items found. Check if the Location spelling matches the database.")
         else:
             for index, row in df_display.iterrows():
                 item_name = row['item_name']
@@ -280,6 +282,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                 preview_list = [{"Item Name": v['row_data'].get('item_name', k), "Type": v['row_data'].get('item_type', 'Inventory'), "Qty Wasted": v['qty'], "Unit": v['row_data'].get('count_unit', 'Unit')} for k, v in st.session_state['waste_cart'].items()]
                 st.dataframe(pd.DataFrame(preview_list), use_container_width=True, hide_index=True)
 
+                # --- 🧠 THE SMART "SPEED BUMP" ---
                 has_massive_waste = False
                 for k, v in st.session_state['waste_cart'].items():
                     cart_unit = str(v['row_data'].get('count_unit', '')).strip().lower()
@@ -291,7 +294,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                     st.error("⚠️ **Massive Waste Detected!** You have items exceeding 50 kg or 50 ltr in your cart.")
                     confirm_huge = st.checkbox("🛑 These unusually large amounts are 100% correct.", value=False)
                 else:
-                    confirm_huge = True 
+                    confirm_huge = True # Auto-approve normal amounts
 
                 if st.button("🚀 SUBMIT TICKET TO CLOUD", type="primary", use_container_width=True):
                     if ticket_type == "Event" and not event_name_val.strip():
@@ -309,7 +312,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                             elif ticket_type == "Staff Meal": reason_code = "SM"
                             elif ticket_type == "Event": reason_code = f"Event: {event_name_val}"
                             
-                            # Safely extract the physical location for the log entry
+                            # Use final_location to save correctly to the database
                             save_location = final_location if final_location != "All" else str(r_data.get('location', 'Unknown'))
                             
                             logs.append({
