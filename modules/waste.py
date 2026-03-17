@@ -162,17 +162,46 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         else:
             df_items = pd.DataFrame(all_items)
             df_items.columns = [str(c).strip().lower() for c in df_items.columns]
-            
-            user_loc_raw = str(assigned_location).strip().lower()
-            if user_loc_raw != 'all':
-                allowed_locs = [loc.strip().lower() for loc in user_loc_raw.split(',')]
-                df_items = df_items[df_items['location'].str.lower().isin(allowed_locs)]
-            
+            if 'location' not in df_items.columns: df_items['location'] = "Main Store"
             if 'item_type' not in df_items.columns: df_items['item_type'] = "inventory"
             if 'count_unit' in df_items.columns:
                 df_items['count_unit'] = df_items['count_unit'].apply(
                     lambda x: "Unit" if pd.isna(x) or str(x).strip().lower() in ['none', 'nan', ''] else str(x)
                 )
+
+        # --- BUILD LOCATION SELECTOR FROM assigned_location + DB ---
+        # Get all locations that exist in the DB for this outlet
+        db_locs = sorted(df_items['location'].dropna().astype(str).str.strip().str.title().unique().tolist()) if not df_items.empty else []
+
+        raw_loc = str(assigned_location).strip()
+
+        if raw_loc.lower() == 'all':
+            # Admin / unrestricted: show all DB locations
+            loc_options = db_locs if db_locs else ["Main Store"]
+            if len(loc_options) > 1:
+                loc_filter = st.sidebar.selectbox("📍 Select Location", loc_options, key="waste_loc")
+            else:
+                loc_filter = loc_options[0]
+                st.sidebar.markdown(f"**📍 Location:** {loc_filter}")
+        else:
+            # User has specific locations assigned (comma-separated)
+            allowed_locs = [l.strip().title() for l in raw_loc.split(',') if l.strip()]
+            # Only show locations that actually exist in the DB
+            valid_locs = [l for l in allowed_locs if l in db_locs]
+            if not valid_locs:
+                # Fallback: show assigned ones even if not in DB yet (user sees what they expect)
+                valid_locs = allowed_locs if allowed_locs else ["Main Store"]
+                st.sidebar.warning(f"⚠️ Assigned locations not found in DB: {', '.join(allowed_locs)}")
+            if len(valid_locs) > 1:
+                loc_filter = st.sidebar.selectbox("📍 Select Location", valid_locs, key="waste_loc")
+            else:
+                loc_filter = valid_locs[0]
+                st.sidebar.markdown(f"**📍 Location:** {loc_filter}")
+
+        # NOW filter df_items by the selected location
+        if not df_items.empty and loc_filter:
+            df_items = df_items[df_items['location'].str.strip().str.title() == loc_filter]
+            df_items = df_items.drop_duplicates(subset=['item_name']).copy()
 
         waste_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")))
         st.divider()

@@ -160,7 +160,8 @@ else:
     else:
         outlet = st.session_state['assigned_outlet']
         
-    location = st.session_state['assigned_location']
+    raw_location = str(st.session_state.get('assigned_location', 'All')).strip()
+    location = "All" if raw_location.lower() in ['all', '', 'none', 'nan'] else raw_location
     
     # Parse allowed modules
     raw_modules = str(st.session_state.get('module', '')).lower().strip()
