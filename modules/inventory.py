@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import zoneinfo
 from supabase import create_client, Client
 from fpdf import FPDF
+from modules.nav_helper import build_outlet_location_sidebar, get_nav_data
 
 # --- SAFELY INITIALIZE SUPABASE ---
 @st.cache_resource
@@ -80,34 +81,11 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
     # =========================================================
     # 🌐 GLOBAL SMART ROUTING (Locks both Reports & Counting)
     # =========================================================
-    nav_res = supabase.table("users").select("client_name, outlet").execute()
-    df_nav = pd.DataFrame(nav_res.data)
-    
-    if not df_nav.empty:
-        df_nav['client_name'] = df_nav['client_name'].astype(str).str.strip().str.title()
-        df_nav['outlet'] = df_nav['outlet'].astype(str).str.strip().str.title()
-        
-    clean_client = str(assigned_client).strip().title()
-    clean_outlet = str(assigned_outlet).strip().title()
-
-    st.sidebar.markdown("### 📍 Location Details")
-
-    if clean_client.lower() != 'all':
-        final_client = clean_client
-        st.sidebar.markdown(f"**🏢 Branch:** {final_client}")
-    else:
-        c_list = sorted([c for c in df_nav['client_name'].unique() if c.lower() != 'all']) if not df_nav.empty else ["Select Branch"]
-        final_client = st.sidebar.selectbox("🏢 Select Branch", c_list, key="global_c_branch")
-
-    if clean_outlet.lower() != 'all':
-        final_outlet = clean_outlet
-        st.sidebar.markdown(f"**🏠 Outlet:** {final_outlet}")
-    else:
-        if not df_nav.empty and final_client != "Select Branch":
-            outlets_for_client = sorted([o for o in df_nav[df_nav['client_name'] == final_client]['outlet'].unique() if o.lower() != 'all'])
-        else:
-            outlets_for_client = []
-        final_outlet = st.sidebar.selectbox("🏠 Select Outlet", outlets_for_client, key="global_c_outlet") if outlets_for_client else "None"
+    # ── Sidebar navigation (shared helper handles users→master_items fallback) ──
+    final_client, final_outlet, final_location_sidebar = build_outlet_location_sidebar(
+        assigned_client, assigned_outlet, assigned_location,
+        outlet_key="inv_outlet", location_key="inv_location"
+    )
 
 
     # ---------------------------------------------------------
@@ -229,33 +207,12 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
             if 'location' not in df_items.columns: df_items['location'] = "Main Store"
             if 'item_type' in df_items.columns: df_items = df_items[df_items['item_type'].astype(str).str.lower() == 'inventory']
 
-        db_locs = sorted(df_items['location'].dropna().astype(str).str.strip().str.title().unique().tolist()) if not df_items.empty else []
-        raw_loc = str(assigned_location).strip()
+        # Location already selected in sidebar via build_outlet_location_sidebar
+        loc_filter = final_location_sidebar
 
-        if raw_loc.lower() == 'all':
-            # Admin / unrestricted: show all DB locations
-            loc_options = db_locs if db_locs else ["Main Store"]
-            if len(loc_options) > 1:
-                loc_filter = st.sidebar.selectbox("📍 Select Location Room", loc_options, key="c_loc")
-            else:
-                loc_filter = loc_options[0]
-                st.sidebar.markdown(f"**📍 Location Room:** {loc_filter}")
-        else:
-            # User has specific locations assigned (comma-separated)
-            allowed_locs = [l.strip().title() for l in raw_loc.split(',') if l.strip()]
-            valid_locs = [l for l in allowed_locs if l in db_locs]
-            if not valid_locs:
-                valid_locs = allowed_locs if allowed_locs else ["Main Store"]
-                st.sidebar.warning(f"⚠️ Assigned locations not found in DB: {', '.join(allowed_locs)}")
-            if len(valid_locs) > 1:
-                loc_filter = st.sidebar.selectbox("📍 Select Location Room", valid_locs, key="c_loc")
-            else:
-                loc_filter = valid_locs[0]
-                st.sidebar.markdown(f"**📍 Location Room:** {loc_filter}")
-
-        # Filter items by selected location
         if not df_items.empty:
-            df_items = df_items[df_items['location'].str.strip().str.title() == loc_filter]
+            if loc_filter and loc_filter.lower() not in ['all', 'none', '']:
+                df_items = df_items[df_items['location'].str.strip().str.title() == loc_filter]
             df_items = df_items.drop_duplicates(subset=['item_name']).copy()
 
         count_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")), key="count_date")

@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import zoneinfo
 from supabase import create_client, Client
 from fpdf import FPDF
+from modules.nav_helper import build_outlet_location_sidebar
 
 @st.cache_resource
 def get_supabase() -> Client:
@@ -105,33 +106,11 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         # ==========================================
         # 1. DATA FETCHING & DYNAMIC NAVIGATION
         # ==========================================
-        nav_res = supabase.table("users").select("client_name, outlet").execute()
-        df_nav = pd.DataFrame(nav_res.data)
-        if not df_nav.empty:
-            df_nav['client_name'] = df_nav['client_name'].astype(str).str.strip().str.title()
-            df_nav['outlet'] = df_nav['outlet'].astype(str).str.strip().str.title()
-        
-        user_client_access = str(assigned_client).strip().title()
-        if user_client_access != 'All':
-            final_client = user_client_access
-            st.sidebar.info(f"🏢 Branch: {final_client}")
-        else:
-            c_list = sorted([c for c in df_nav['client_name'].unique() if c.lower() != 'all']) if not df_nav.empty else ["All Branches"]
-            final_client = st.sidebar.selectbox("🏢 Select Branch", c_list)
-
-        user_outlet_access = str(assigned_outlet).strip().title()
-        if user_outlet_access != 'All':
-            final_outlet = user_outlet_access
-            st.sidebar.info(f"🏠 Outlet: {final_outlet}")
-        else:
-            if final_client != "All Branches" and not df_nav.empty:
-                outlets_for_client = sorted([o for o in df_nav[df_nav['client_name'] == final_client]['outlet'].unique() if o.lower() != 'all'])
-            elif not df_nav.empty:
-                outlets_for_client = sorted([o for o in df_nav['outlet'].unique() if o.lower() != 'all'])
-            else:
-                outlets_for_client = []
-                
-            final_outlet = st.sidebar.selectbox("🏠 Select Outlet", outlets_for_client) if outlets_for_client else "None"
+        # ── Sidebar navigation (shared helper handles users→master_items fallback) ──
+        final_client, final_outlet, final_location_sidebar = build_outlet_location_sidebar(
+            assigned_client, assigned_outlet, assigned_location,
+            outlet_key="waste_outlet", location_key="waste_location"
+        )
 
         if 'last_waste_receipt' in st.session_state:
             st.success("✅ **Success!** Waste ticket has been logged.")
@@ -162,44 +141,16 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         else:
             df_items = pd.DataFrame(all_items)
             df_items.columns = [str(c).strip().lower() for c in df_items.columns]
-            if 'location' not in df_items.columns: df_items['location'] = "Main Store"
+            
             if 'item_type' not in df_items.columns: df_items['item_type'] = "inventory"
             if 'count_unit' in df_items.columns:
                 df_items['count_unit'] = df_items['count_unit'].apply(
                     lambda x: "Unit" if pd.isna(x) or str(x).strip().lower() in ['none', 'nan', ''] else str(x)
                 )
 
-        # --- BUILD LOCATION SELECTOR FROM assigned_location + DB ---
-        # Get all locations that exist in the DB for this outlet
-        db_locs = sorted(df_items['location'].dropna().astype(str).str.strip().str.title().unique().tolist()) if not df_items.empty else []
-
-        raw_loc = str(assigned_location).strip()
-
-        if raw_loc.lower() == 'all':
-            # Admin / unrestricted: show all DB locations
-            loc_options = db_locs if db_locs else ["Main Store"]
-            if len(loc_options) > 1:
-                loc_filter = st.sidebar.selectbox("📍 Select Location", loc_options, key="waste_loc")
-            else:
-                loc_filter = loc_options[0]
-                st.sidebar.markdown(f"**📍 Location:** {loc_filter}")
-        else:
-            # User has specific locations assigned (comma-separated)
-            allowed_locs = [l.strip().title() for l in raw_loc.split(',') if l.strip()]
-            # Only show locations that actually exist in the DB
-            valid_locs = [l for l in allowed_locs if l in db_locs]
-            if not valid_locs:
-                # Fallback: show assigned ones even if not in DB yet (user sees what they expect)
-                valid_locs = allowed_locs if allowed_locs else ["Main Store"]
-                st.sidebar.warning(f"⚠️ Assigned locations not found in DB: {', '.join(allowed_locs)}")
-            if len(valid_locs) > 1:
-                loc_filter = st.sidebar.selectbox("📍 Select Location", valid_locs, key="waste_loc")
-            else:
-                loc_filter = valid_locs[0]
-                st.sidebar.markdown(f"**📍 Location:** {loc_filter}")
-
-        # NOW filter df_items by the selected location
-        if not df_items.empty and loc_filter:
+        # Filter df_items by the sidebar-selected location
+        loc_filter = final_location_sidebar
+        if not df_items.empty and loc_filter and loc_filter.lower() not in ['all', 'none', '']:
             df_items = df_items[df_items['location'].str.strip().str.title() == loc_filter]
             df_items = df_items.drop_duplicates(subset=['item_name']).copy()
 
