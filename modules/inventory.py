@@ -4,7 +4,8 @@ from datetime import datetime, timedelta
 import zoneinfo
 from supabase import create_client, Client
 from fpdf import FPDF
-from modules.nav_helper import build_outlet_location_sidebar, get_nav_data
+import json
+from modules.nav_helper import build_outlet_location_sidebar
 
 # --- SAFELY INITIALIZE SUPABASE ---
 @st.cache_resource
@@ -56,10 +57,73 @@ def add_inventory_qty(item_key, row_dict, input_key):
             st.session_state['mobile_counts'][item_key] = {'row_data': row_dict, 'qty': 0.0}
         st.session_state['mobile_counts'][item_key]['qty'] += added_val
         st.session_state[input_key] = 0.0
+        # Auto-save draft to Supabase after every item added
+        _ctx = st.session_state.get('_inv_draft_ctx', {})
+        if _ctx:
+            save_draft(
+                get_supabase(),
+                _ctx.get('user', ''),
+                _ctx.get('client', ''),
+                _ctx.get('outlet', ''),
+                _ctx.get('location', ''),
+                st.session_state['mobile_counts']
+            )
 
 def undo_inventory_count(item_key):
     if item_key in st.session_state['mobile_counts']:
         del st.session_state['mobile_counts'][item_key]
+        # Auto-save draft after undo too
+        _ctx = st.session_state.get('_inv_draft_ctx', {})
+        if _ctx:
+            save_draft(
+                get_supabase(),
+                _ctx.get('user', ''),
+                _ctx.get('client', ''),
+                _ctx.get('outlet', ''),
+                _ctx.get('location', ''),
+                st.session_state['mobile_counts']
+            )
+
+# ── DRAFT AUTO-SAVE / RESTORE ─────────────────────────────────────────────
+def save_draft(supabase, user, client, outlet, location, counts):
+    """Upsert current cart to inventory_drafts table."""
+    try:
+        if not counts:
+            # Cart is empty — delete any existing draft
+            supabase.table("inventory_drafts")                .delete()                .eq("user_name", user)                .eq("client_name", client)                .eq("outlet", outlet)                .execute()
+            return
+        draft = {
+            "user_name":   user,
+            "client_name": client,
+            "outlet":      outlet,
+            "location":    location,
+            "draft_data":  json.dumps(counts),
+            "updated_at":  datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).isoformat()
+        }
+        # Upsert on user+client+outlet combination
+        supabase.table("inventory_drafts")            .upsert(draft, on_conflict="user_name,client_name,outlet")            .execute()
+    except Exception:
+        pass  # Draft save is best-effort — never block the user
+
+def load_draft(supabase, user, client, outlet):
+    """Return saved draft counts dict or None."""
+    try:
+        res = supabase.table("inventory_drafts")            .select("draft_data, updated_at")            .eq("user_name", user)            .eq("client_name", client)            .eq("outlet", outlet)            .execute()
+        if res.data:
+            row = res.data[0]
+            counts = json.loads(row["draft_data"])
+            updated = str(row.get("updated_at", ""))[:16].replace("T", " ")
+            return counts, updated
+    except Exception:
+        pass
+    return None, None
+
+def delete_draft(supabase, user, client, outlet):
+    """Delete draft after successful submission."""
+    try:
+        supabase.table("inventory_drafts")            .delete()            .eq("user_name", user)            .eq("client_name", client)            .eq("outlet", outlet)            .execute()
+    except Exception:
+        pass
 
 # ==========================================
 # MAIN RENDER FUNCTION
@@ -78,10 +142,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
     def lock_submit():
         st.session_state['submit_lock'] = True
 
-    # =========================================================
-    # 🌐 GLOBAL SMART ROUTING (Locks both Reports & Counting)
-    # =========================================================
-    # ── Sidebar navigation (shared helper handles users→master_items fallback) ──
+    # ── Sidebar navigation (shared helper) ───────────────────────────────────
     final_client, final_outlet, final_location_sidebar = build_outlet_location_sidebar(
         assigned_client, assigned_outlet, assigned_location,
         outlet_key="inv_outlet", location_key="inv_location"
@@ -177,9 +238,30 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
             if st.button("Start New Count", use_container_width=True, key="new_count_btn"):
                 del st.session_state['last_inv_receipt']
                 st.session_state['submit_lock'] = False
+                delete_draft(supabase, user, final_client, final_outlet)
                 st.rerun()
             st.divider()
             return
+
+        # ── DRAFT RESTORE PROMPT ──────────────────────────────────────────
+        # Check for a saved draft if the cart is currently empty
+        if not st.session_state['mobile_counts'] and not st.session_state.get('draft_checked'):
+            saved_counts, saved_time = load_draft(supabase, user, final_client, final_outlet)
+            if saved_counts:
+                st.session_state['draft_checked'] = True
+                st.warning(f"📋 **Unsaved count found** from {saved_time} — {len(saved_counts)} items were counted.")
+                col_r1, col_r2 = st.columns(2)
+                with col_r1:
+                    if st.button("✅ Resume Previous Count", type="primary", use_container_width=True, key="resume_draft"):
+                        st.session_state['mobile_counts'] = saved_counts
+                        st.session_state['draft_checked'] = True
+                        st.rerun()
+                with col_r2:
+                    if st.button("🗑️ Discard & Start Fresh", use_container_width=True, key="discard_draft"):
+                        delete_draft(supabase, user, final_client, final_outlet)
+                        st.session_state['draft_checked'] = True
+                        st.rerun()
+                st.divider()
 
         # MEGA-FETCH LOOP
         all_items = []
@@ -207,13 +289,21 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
             if 'location' not in df_items.columns: df_items['location'] = "Main Store"
             if 'item_type' in df_items.columns: df_items = df_items[df_items['item_type'].astype(str).str.lower() == 'inventory']
 
-        # Location already selected in sidebar via build_outlet_location_sidebar
+        # Location already selected via build_outlet_location_sidebar
         loc_filter = final_location_sidebar
 
         if not df_items.empty:
             if loc_filter and loc_filter.lower() not in ['all', 'none', '']:
                 df_items = df_items[df_items['location'].str.strip().str.title() == loc_filter]
             df_items = df_items.drop_duplicates(subset=['item_name']).copy()
+            if df_items.empty:
+                st.warning(f"⚠️ No items found for location **{loc_filter}**. This location may not have items uploaded yet.")
+
+        # Store context for auto-save callbacks
+        st.session_state['_inv_draft_ctx'] = {
+            'user': user, 'client': final_client,
+            'outlet': final_outlet, 'location': loc_filter
+        }
 
         count_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")), key="count_date")
         st.divider()
@@ -268,9 +358,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                 if selected_group != "All":
                     df_display = df_display[df_display['sub_category'] == selected_group]
         else:
-            df_display = pd.DataFrame(columns=['item_name', 'category', 'sub_category', 'count_unit', 'location', 'item_type'])
-            if loc_filter and loc_filter.lower() not in ['all', 'none', '']:
-                st.warning(f"⚠️ No items found for location **{loc_filter}**. This location may not have items uploaded yet in the master list.")
+            df_display = pd.DataFrame()
 
         total_items = len(df_display)
         counted_in_view = sum(1 for item in df_display['item_name'] if item in st.session_state['mobile_counts']) if not df_display.empty else 0
@@ -351,7 +439,9 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                                 st.session_state['last_inv_receipt'] = {"bytes": pdf_bytes, "filename": f"Inventory_Receipt_{final_outlet.replace(' ', '_')}_{str(count_date)}.pdf"}
                                 
                                 st.session_state['mobile_counts'] = {}
-                                st.session_state['submit_lock'] = False 
+                                st.session_state['submit_lock'] = False
+                                st.session_state['draft_checked'] = False
+                                delete_draft(supabase, user, final_client, final_outlet)
                                 st.rerun()
                                 
                             except Exception as e:
