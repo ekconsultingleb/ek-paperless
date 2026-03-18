@@ -387,12 +387,16 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
         with c1:
             cats = sorted(list(df_items['category'].dropna().astype(str).unique())) if not df_items.empty else []
             cat_options = ["All"] + cats
-            selected_category = st.selectbox("📂 Category", cat_options, index=1 if cats else 0, key="cat_filter")
+            # Default to "All" if items were resumed so all counted items are visible
+            has_resumed = bool(st.session_state.get('mobile_counts'))
+            cat_default = 0 if has_resumed else (1 if cats else 0)
+            selected_category = st.selectbox("📂 Category", cat_options, index=cat_default, key="cat_filter")
         with c2:
             df_grp_list = df_items if selected_category == "All" else df_items[df_items['category'] == selected_category]
             grps = sorted(list(df_grp_list['sub_category'].dropna().astype(str).unique())) if not df_grp_list.empty else []
             grp_options = ["All"] + grps
-            selected_group = st.selectbox("🏷️ Sub Category", grp_options, index=1 if grps else 0, key="sub_filter")
+            grp_default = 0 if has_resumed else (1 if grps else 0)
+            selected_group = st.selectbox("🏷️ Sub Category", grp_options, index=grp_default, key="sub_filter")
 
         if not df_items.empty:
             if search_query:
