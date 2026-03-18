@@ -277,7 +277,7 @@ def render_invoices(conn, sheet_link, user, role):
         st.markdown("#### 📋 My Invoice History")
 
         try:
-            today     = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).date()
+            today         = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).date()
             default_start = today - timedelta(days=7)
 
             col_d1, col_d2 = st.columns(2)
@@ -291,7 +291,27 @@ def render_invoices(conn, sheet_link, user, role):
             if not my_res.data:
                 st.info(f"No invoices found between {hist_start} and {hist_end}.")
             else:
-                st.caption(f"Found {len(my_res.data)} invoice(s)")
+                # ── Supplier filter ───────────────────────────────────────
+                all_suppliers = sorted(set(i["supplier"] for i in my_res.data if i.get("supplier")))
+                sup_search = st.text_input(
+                    "🔍 Filter by Supplier",
+                    placeholder="Type supplier name to filter...",
+                    key="hist_sup_search"
+                )
+
+                filtered_data = my_res.data
+                if sup_search.strip():
+                    filtered_data = [
+                        i for i in my_res.data
+                        if sup_search.strip().lower() in str(i.get("supplier", "")).lower()
+                    ]
+
+                total = len(my_res.data)
+                showing = len(filtered_data)
+                if sup_search.strip():
+                    st.caption(f"Showing {showing} of {total} matching '{sup_search.strip()}'")
+                else:
+                    st.caption(f"Found {total} invoice(s)")
 
                 STATUS_COLORS = {
                     "Pending": ("#854F0B", "#FAEEDA"),
@@ -299,7 +319,7 @@ def render_invoices(conn, sheet_link, user, role):
                     "On Hold": ("#A32D2D", "#FCEBEB"),
                 }
 
-                for inv in my_res.data:
+                for inv in filtered_data:
                     # Format date + time in Beirut timezone
                     raw_time = str(inv.get("created_at", ""))
                     try:
