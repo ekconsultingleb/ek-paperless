@@ -272,51 +272,74 @@ def render_invoices(conn, sheet_link, user, role):
                     except Exception as e:
                         st.error(f"❌ Error: {e}")
 
-        # ── MY UPLOADS TODAY ─────────────────────────────────────────────
+        # ── MY UPLOAD HISTORY ────────────────────────────────────────────
         st.divider()
-        st.markdown("#### 📋 My Uploads Today")
+        st.markdown("#### 📋 My Invoice History")
 
         try:
-            today_str = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).strftime("%Y-%m-%d")
-            my_res = supabase.table("invoices_log")                .select("supplier, image_url, status, created_at")                .eq("uploaded_by", user)                .gte("created_at", f"{today_str}T00:00:00")                .order("created_at", desc=True)                .limit(20)                .execute()
+            today     = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).date()
+            default_start = today - timedelta(days=7)
+
+            col_d1, col_d2 = st.columns(2)
+            with col_d1:
+                hist_start = st.date_input("From", value=default_start, max_value=today, key="hist_start")
+            with col_d2:
+                hist_end = st.date_input("To", value=today, max_value=today, key="hist_end")
+
+            my_res = supabase.table("invoices_log")                .select("supplier, image_url, status, created_at")                .eq("uploaded_by", user)                .gte("created_at", f"{hist_start}T00:00:00")                .lte("created_at", f"{hist_end}T23:59:59")                .order("created_at", desc=True)                .limit(100)                .execute()
 
             if not my_res.data:
-                st.caption("No invoices uploaded yet today.")
+                st.info(f"No invoices found between {hist_start} and {hist_end}.")
             else:
+                st.caption(f"Found {len(my_res.data)} invoice(s)")
+
+                STATUS_COLORS = {
+                    "Pending": ("#854F0B", "#FAEEDA"),
+                    "Posted":  ("#3B6D11", "#EAF3DE"),
+                    "On Hold": ("#A32D2D", "#FCEBEB"),
+                }
+
                 for inv in my_res.data:
-                    # Format time
+                    # Format date + time in Beirut timezone
                     raw_time = str(inv.get("created_at", ""))
                     try:
-                        from datetime import timezone
                         dt = datetime.fromisoformat(raw_time.replace("Z", "+00:00"))
                         beirut_dt = dt.astimezone(zoneinfo.ZoneInfo("Asia/Beirut"))
+                        date_str = beirut_dt.strftime("%d %b %Y")
                         time_str = beirut_dt.strftime("%I:%M %p")
                     except Exception:
+                        date_str = raw_time[:10]
                         time_str = raw_time[11:16]
 
                     status = inv.get("status", "Pending")
-                    status_color = {
-                        "Pending": "#854F0B",
-                        "Posted":  "#3B6D11",
-                        "On Hold": "#A32D2D"
-                    }.get(status, "#888")
+                    txt_col, bg_col = STATUS_COLORS.get(status, ("#888", "#eee"))
+                    img_url = inv.get("image_url", "")
+                    is_pdf  = img_url.lower().endswith(".pdf")
 
                     with st.container(border=True):
                         col_img, col_info = st.columns([1, 2], vertical_alignment="center")
                         with col_img:
-                            img_url = inv.get("image_url", "")
-                            if img_url and not img_url.endswith(".pdf"):
+                            if img_url and not is_pdf:
                                 st.image(img_url, use_container_width=True)
                             else:
-                                st.markdown("📄 **PDF**")
+                                st.markdown(
+                                    "<div style='text-align:center; padding:20px; font-size:36px;'>📄</div>",
+                                    unsafe_allow_html=True
+                                )
                         with col_info:
                             st.markdown(f"**{inv.get('supplier', 'Unknown')}**")
-                            st.markdown(f"🕐 {time_str}")
+                            st.markdown(f"📅 {date_str} &nbsp; 🕐 {time_str}")
                             st.markdown(
-                                f"<span style='background:{status_color}20; color:{status_color}; "
-                                f"padding:2px 10px; border-radius:20px; font-size:12px; font-weight:500;'>"
+                                f"<span style='background:{bg_col}; color:{txt_col}; "
+                                f"padding:3px 12px; border-radius:20px; font-size:12px; font-weight:500;'>"
                                 f"{status}</span>",
                                 unsafe_allow_html=True
                             )
+                            if img_url:
+                                st.markdown(
+                                    f"<a href='{img_url}' target='_blank' style='font-size:12px; color:#8a9eaa;'>"
+                                    f"🔍 View full size</a>",
+                                    unsafe_allow_html=True
+                                )
         except Exception as e:
-            st.caption(f"Could not load today's uploads: {e}")
+            st.caption(f"Could not load invoice history: {e}")
