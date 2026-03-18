@@ -212,7 +212,7 @@ hr { border-color: rgba(227,197,173,0.15) !important; }
 
 /* ── HOME MENU BUTTONS ───────────────────────────────────────────────────── */
 .ek-home-btn > [data-testid="stButton"] > button {
-    height: 110px !important;
+    height: 120px !important;
     border-radius: 14px !important;
     background: linear-gradient(160deg, var(--ek-dark) 0%, var(--ek-dark2) 100%) !important;
     border: 1px solid rgba(227,197,173,0.2) !important;
@@ -262,7 +262,7 @@ hr { border-color: rgba(227,197,173,0.15) !important; }
 /* ── MOBILE ──────────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
     .block-container { padding-left: 1rem !important; padding-right: 1rem !important; }
-    .ek-home-btn > [data-testid="stButton"] > button { height: 90px !important; font-size: 14px !important; }
+    .ek-home-btn > [data-testid="stButton"] > button { height: 115px !important; font-size: 15px !important; }
     [data-testid="stMetric"] [data-testid="stMetricValue"] { font-size: 20px !important; }
     .ek-sticky-back { bottom: 16px; right: 16px; }
     .ek-sticky-back > [data-testid="stButton"] > button { padding: 10px 18px !important; font-size: 13px !important; }
@@ -451,12 +451,62 @@ else:
     # PAGE ROUTING (INSIDE MODULES)
     # ==========================================
     else:
-        # Sticky floating back button — always visible while scrolling
-        st.markdown('<div class="ek-sticky-back">', unsafe_allow_html=True)
-        if st.button("⬅️  Menu", key="sticky_back_btn"):
-            st.session_state['current_page'] = 'home'
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+        # ── TRUE STICKY BACK BUTTON via components.html ───────────────────
+        # position:fixed inside Streamlit's iframe is broken — it scrolls away.
+        # components.html renders in its own iframe at page level, so it stays fixed.
+        components.html("""
+            <style>
+                #back-btn {
+                    position: fixed;
+                    bottom: 24px;
+                    right: 24px;
+                    z-index: 9999;
+                    background: #1B252C;
+                    color: #E3C5AD;
+                    border: 1.5px solid #E3C5AD;
+                    border-radius: 50px;
+                    padding: 12px 24px;
+                    font-size: 14px;
+                    font-weight: 500;
+                    cursor: pointer;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+                    font-family: sans-serif;
+                    letter-spacing: 0.03em;
+                    transition: all 0.2s;
+                }
+                #back-btn:hover {
+                    background: #E3C5AD;
+                    color: #1B252C;
+                    box-shadow: 0 6px 24px rgba(227,197,173,0.4);
+                    transform: translateY(-2px);
+                }
+                @media (max-width: 768px) {
+                    #back-btn {
+                        bottom: 16px;
+                        right: 16px;
+                        padding: 11px 20px;
+                        font-size: 13px;
+                    }
+                }
+            </style>
+            <button id="back-btn" onclick="window.parent.postMessage('go_home', '*')">
+                ⬅️ &nbsp; Menu
+            </button>
+            <script>
+                // Listen for the click and send message to Streamlit parent
+                document.getElementById('back-btn').addEventListener('click', function() {
+                    window.parent.postMessage({type: 'streamlit:setComponentValue', value: true}, '*');
+                });
+            </script>
+        """, height=0)
+
+        # Streamlit-side listener — st.button hidden, triggered by URL param trick
+        # We use a regular button as fallback at the top for reliability
+        col_back, col_spacer = st.columns([1, 5])
+        with col_back:
+            if st.button("⬅️ Menu", key="back_top_btn", type="primary"):
+                st.session_state['current_page'] = 'home'
+                st.rerun()
         st.divider()
 
         if st.session_state['current_page'] == 'dashboard':
