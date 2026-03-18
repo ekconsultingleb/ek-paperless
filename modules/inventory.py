@@ -98,21 +98,32 @@ def save_draft(supabase, user, client, outlet, location, counts):
         pass  # Draft save is best-effort — never block the user
 
 def maybe_save_draft(supabase, user, client, outlet, location, counts):
-    """Debounced save — only hits Supabase if dirty AND 30s have passed."""
+    """Debounced save — hits Supabase immediately on first item, then every 30s.
+    This ensures even a quick refresh captures all counted items."""
     if not st.session_state.get('_draft_dirty', False):
         return  # Nothing changed since last save
     last_saved = st.session_state.get('_draft_last_saved', 0)
+    is_first_save = (last_saved == 0)  # Never saved before in this session
     seconds_since = datetime.now().timestamp() - last_saved
-    if seconds_since >= DRAFT_SAVE_INTERVAL_SECONDS:
+    if is_first_save or seconds_since >= DRAFT_SAVE_INTERVAL_SECONDS:
         save_draft(supabase, user, client, outlet, location, counts)
 
 def load_draft(supabase, user, client, outlet):
-    """Return saved draft counts dict or None."""
+    """Return saved draft counts dict or None.
+    Ensures row_data values are properly typed after JSON round-trip."""
     try:
         res = supabase.table("inventory_drafts")            .select("draft_data, updated_at")            .eq("user_name", user)            .eq("client_name", client)            .eq("outlet", outlet)            .execute()
         if res.data:
             row = res.data[0]
-            counts = json.loads(row["draft_data"])
+            raw = json.loads(row["draft_data"])
+            # Normalize after JSON round-trip: ensure qty is float
+            # and row_data keys/values are clean strings
+            counts = {}
+            for item_key, item_val in raw.items():
+                counts[str(item_key)] = {
+                    'qty': float(item_val.get('qty', 0)),
+                    'row_data': {str(k): v for k, v in item_val.get('row_data', {}).items()}
+                }
             updated = str(row.get("updated_at", ""))[:16].replace("T", " ")
             return counts, updated
     except Exception:
