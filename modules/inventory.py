@@ -57,39 +57,30 @@ def add_inventory_qty(item_key, row_dict, input_key):
             st.session_state['mobile_counts'][item_key] = {'row_data': row_dict, 'qty': 0.0}
         st.session_state['mobile_counts'][item_key]['qty'] += added_val
         st.session_state[input_key] = 0.0
-        # Auto-save draft to Supabase after every item added
-        _ctx = st.session_state.get('_inv_draft_ctx', {})
-        if _ctx:
-            save_draft(
-                get_supabase(),
-                _ctx.get('user', ''),
-                _ctx.get('client', ''),
-                _ctx.get('outlet', ''),
-                _ctx.get('location', ''),
-                st.session_state['mobile_counts']
-            )
+        # Mark draft as dirty — actual save is debounced (max 1 API call per 30s)
+        st.session_state['_draft_dirty'] = True
 
 def undo_inventory_count(item_key):
     if item_key in st.session_state['mobile_counts']:
         del st.session_state['mobile_counts'][item_key]
-        # Auto-save draft after undo too
-        _ctx = st.session_state.get('_inv_draft_ctx', {})
-        if _ctx:
-            save_draft(
-                get_supabase(),
-                _ctx.get('user', ''),
-                _ctx.get('client', ''),
-                _ctx.get('outlet', ''),
-                _ctx.get('location', ''),
-                st.session_state['mobile_counts']
-            )
+        # Mark draft as dirty — debounced save handles the actual API call
+        st.session_state['_draft_dirty'] = True
 
 # ── DRAFT AUTO-SAVE / RESTORE ─────────────────────────────────────────────
+# SCALE NOTE: We never save on every keystroke — that would destroy Supabase
+# under load (100+ restaurants × 200 items = 20,000+ API calls per session).
+# Instead we use a dirty flag + 30-second debounce:
+#   - Every item add/undo sets _draft_dirty = True  (zero API calls)
+#   - Once per 30 seconds, if dirty, we do ONE upsert  (1 API call)
+#   - On submit/discard we do ONE delete  (1 API call)
+# Result: ~5-10 API calls per full count session regardless of item count.
+
+DRAFT_SAVE_INTERVAL_SECONDS = 30
+
 def save_draft(supabase, user, client, outlet, location, counts):
-    """Upsert current cart to inventory_drafts table."""
+    """Upsert current cart to inventory_drafts. Call only from debounce check."""
     try:
         if not counts:
-            # Cart is empty — delete any existing draft
             supabase.table("inventory_drafts")                .delete()                .eq("user_name", user)                .eq("client_name", client)                .eq("outlet", outlet)                .execute()
             return
         draft = {
@@ -100,10 +91,20 @@ def save_draft(supabase, user, client, outlet, location, counts):
             "draft_data":  json.dumps(counts),
             "updated_at":  datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).isoformat()
         }
-        # Upsert on user+client+outlet combination
         supabase.table("inventory_drafts")            .upsert(draft, on_conflict="user_name,client_name,outlet")            .execute()
+        st.session_state['_draft_dirty'] = False
+        st.session_state['_draft_last_saved'] = datetime.now().timestamp()
     except Exception:
         pass  # Draft save is best-effort — never block the user
+
+def maybe_save_draft(supabase, user, client, outlet, location, counts):
+    """Debounced save — only hits Supabase if dirty AND 30s have passed."""
+    if not st.session_state.get('_draft_dirty', False):
+        return  # Nothing changed since last save
+    last_saved = st.session_state.get('_draft_last_saved', 0)
+    seconds_since = datetime.now().timestamp() - last_saved
+    if seconds_since >= DRAFT_SAVE_INTERVAL_SECONDS:
+        save_draft(supabase, user, client, outlet, location, counts)
 
 def load_draft(supabase, user, client, outlet):
     """Return saved draft counts dict or None."""
@@ -138,6 +139,12 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
         
     if 'submit_lock' not in st.session_state:
         st.session_state['submit_lock'] = False
+    if '_draft_dirty' not in st.session_state:
+        st.session_state['_draft_dirty'] = False
+    if '_draft_last_saved' not in st.session_state:
+        st.session_state['_draft_last_saved'] = 0.0
+    if 'draft_checked' not in st.session_state:
+        st.session_state['draft_checked'] = False
 
     def lock_submit():
         st.session_state['submit_lock'] = True
@@ -305,6 +312,15 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
             'outlet': final_outlet, 'location': loc_filter
         }
 
+        # ── DEBOUNCED DRAFT SAVE ──────────────────────────────────────────
+        # Runs on every Streamlit rerun but only hits Supabase every 30s max.
+        # This is the ONLY place we write to Supabase during counting.
+        if st.session_state['mobile_counts']:
+            maybe_save_draft(
+                supabase, user, final_client, final_outlet,
+                loc_filter, st.session_state['mobile_counts']
+            )
+
         count_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")), key="count_date")
         st.divider()
 
@@ -388,9 +404,13 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                     input_key = f"inv_add_{row.get('id', index)}_{item_name}"
                     
                     with col_add:
+                        # No value= param — session_state is the only source of truth
+                        # This prevents the "widget created with default value AND session state" warning
+                        if input_key not in st.session_state:
+                            st.session_state[input_key] = 0.0
                         st.number_input(
-                            "+ Add Qty", 
-                            value=0.0, min_value=0.0, step=1.0, format="%g", 
+                            "+ Add Qty",
+                            min_value=0.0, step=1.0, format="%g",
                             key=input_key,
                             on_change=add_inventory_qty,
                             args=(item_name, row.to_dict(), input_key),
