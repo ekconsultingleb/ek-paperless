@@ -1,15 +1,22 @@
 [theme]
-# The main accent color (The EK Consulting Tan/Beige)
-primaryColor = "#D4B89F"
+# ── EK Consulting Brand Theme — Dark Edition ──────────────────────────────
+# PANTONE 433 C  → #1B252C  (charcoal — your exact brand dark)
+# PANTONE 4685 C → #E3C5AD  (warm sand — your exact brand accent)
 
-# The background color (Dark Charcoal to match your proposal aesthetic)
-backgroundColor = "#1E1E1E"
+# Accent color — your exact brand sand (buttons, sliders, checkboxes, links)
+primaryColor            = "#E3C5AD"
 
-# The secondary background for sidebars and input boxes
-secondaryBackgroundColor = "#2D2D2D"
+# Main background — deep charcoal (your brand dark, not generic #1E1E1E)
+backgroundColor         = "#1B252C"
 
-# Text color (White/Off-white for high contrast on dark backgrounds)
-textColor = "#F5F5F5"
+# Sidebar + input boxes — slightly lighter charcoal for depth
+secondaryBackgroundColor = "#2E3D47"
 
-# Font family
-font = "sans serif"
+# Text — warm off-white (easier on eyes than pure #F5F5F5)
+textColor               = "#EDE8E0"
+
+# Font
+font                    = "sans serif"
+
+[server]
+headless = true
