@@ -29,25 +29,16 @@ def inject_back_button_protection():
     components.html(
         """
         <script>
-        // 1. Standard protection for refreshing or closing the tab
         window.parent.addEventListener('beforeunload', function (e) {
             e.preventDefault();
             e.returnValue = '';
         });
-
-        // 2. Mobile Hardware Back Button trick (History API)
-        // Push a fake state into the phone's memory
         window.parent.history.pushState('fake-route', null, '');
-        
-        // Listen for the user hitting the Android back button
         window.parent.addEventListener('popstate', function (e) {
-            // Ask for confirmation
             var stay = window.parent.confirm("⚠️ Warning: Leaving this page will erase unsaved work! Do you want to stay?");
             if (stay) {
-                // If they want to stay, push the fake state again to trap the back button
                 window.parent.history.pushState('fake-route', null, '');
             } else {
-                // If they want to leave, let them go back again
                 window.parent.history.back();
             }
         });
@@ -57,7 +48,6 @@ def inject_back_button_protection():
         width=0,
     )
 
-# Run the protection immediately so it guards every page
 inject_back_button_protection()
 
 # --- BRANDING & LOGO ---
@@ -75,18 +65,17 @@ custom_css = """
    PANTONE 4685 C →  #E3C5AD  (warm sand)
    ──────────────────────────────────────────────────────────────────────── */
 
-/* Base & layout */
 :root {
-    --ek-dark:    #1B252C;
-    --ek-dark2:   #2E3D47;
-    --ek-sand:    #E3C5AD;
-    --ek-sand2:   #F5EDE4;
-    --ek-sand3:   #c9a98a;
+    --ek-dark:  #1B252C;
+    --ek-dark2: #2E3D47;
+    --ek-sand:  #E3C5AD;
+    --ek-sand2: #F5EDE4;
+    --ek-sand3: #c9a98a;
 }
 
 .block-container {
     padding-top: 1.5rem !important;
-    padding-bottom: 1rem !important;
+    padding-bottom: 5rem !important;
     max-width: 1100px !important;
 }
 
@@ -99,9 +88,7 @@ footer    { visibility: hidden;  }
     background-color: var(--ek-dark) !important;
     border-right: 1px solid var(--ek-dark2) !important;
 }
-[data-testid="stSidebar"] * {
-    color: var(--ek-sand) !important;
-}
+[data-testid="stSidebar"] * { color: var(--ek-sand) !important; }
 [data-testid="stSidebar"] .stMarkdown p,
 [data-testid="stSidebar"] .stMarkdown h3,
 [data-testid="stSidebar"] label,
@@ -109,16 +96,12 @@ footer    { visibility: hidden;  }
     color: var(--ek-sand) !important;
     opacity: 0.9;
 }
-[data-testid="stSidebar"] hr {
-    border-color: var(--ek-dark2) !important;
-    opacity: 0.6;
-}
+[data-testid="stSidebar"] hr { border-color: var(--ek-dark2) !important; opacity: 0.6; }
 [data-testid="stSidebar"] [data-testid="stSelectbox"] > div > div {
     background-color: var(--ek-dark2) !important;
     border-color: var(--ek-sand3) !important;
     color: var(--ek-sand) !important;
 }
-/* Sidebar logout & control panel buttons */
 [data-testid="stSidebar"] [data-testid="stButton"] > button {
     background-color: var(--ek-dark2) !important;
     border: 1px solid var(--ek-sand3) !important;
@@ -132,7 +115,7 @@ footer    { visibility: hidden;  }
     color: var(--ek-dark) !important;
 }
 
-/* ── PRIMARY ACTION BUTTONS (submit / save) ──────────────────────────────── */
+/* ── PRIMARY BUTTONS ─────────────────────────────────────────────────────── */
 [data-testid="stButton"] > button[kind="primary"] {
     background-color: var(--ek-dark) !important;
     color: var(--ek-sand) !important;
@@ -202,7 +185,7 @@ footer    { visibility: hidden;  }
     padding: 4px !important;
 }
 
-/* ── INPUTS & SELECTS ────────────────────────────────────────────────────── */
+/* ── INPUTS ──────────────────────────────────────────────────────────────── */
 [data-testid="stTextInput"] input,
 [data-testid="stNumberInput"] input,
 [data-testid="stTextArea"] textarea,
@@ -225,9 +208,7 @@ footer    { visibility: hidden;  }
 }
 
 /* ── DIVIDERS ────────────────────────────────────────────────────────────── */
-hr {
-    border-color: rgba(227,197,173,0.15) !important;
-}
+hr { border-color: rgba(227,197,173,0.15) !important; }
 
 /* ── HOME MENU BUTTONS ───────────────────────────────────────────────────── */
 .ek-home-btn > [data-testid="stButton"] > button {
@@ -252,19 +233,39 @@ hr {
     line-height: 1.5 !important;
 }
 
-/* ── MOBILE RESPONSIVE ───────────────────────────────────────────────────── */
+/* ── STICKY BACK BUTTON ──────────────────────────────────────────────────── */
+.ek-sticky-back {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 9999;
+}
+.ek-sticky-back > [data-testid="stButton"] > button {
+    background: var(--ek-dark) !important;
+    color: var(--ek-sand) !important;
+    border: 1px solid var(--ek-sand) !important;
+    border-radius: 50px !important;
+    padding: 10px 24px !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4) !important;
+    transition: all 0.2s !important;
+    white-space: nowrap !important;
+}
+.ek-sticky-back > [data-testid="stButton"] > button:hover {
+    background: var(--ek-sand) !important;
+    color: var(--ek-dark) !important;
+    box-shadow: 0 6px 20px rgba(227,197,173,0.35) !important;
+    transform: translateY(-2px) !important;
+}
+
+/* ── MOBILE ──────────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
-    .block-container {
-        padding-left: 1rem !important;
-        padding-right: 1rem !important;
-    }
-    .ek-home-btn > [data-testid="stButton"] > button {
-        height: 90px !important;
-        font-size: 14px !important;
-    }
-    [data-testid="stMetric"] [data-testid="stMetricValue"] {
-        font-size: 20px !important;
-    }
+    .block-container { padding-left: 1rem !important; padding-right: 1rem !important; }
+    .ek-home-btn > [data-testid="stButton"] > button { height: 90px !important; font-size: 14px !important; }
+    [data-testid="stMetric"] [data-testid="stMetricValue"] { font-size: 20px !important; }
+    .ek-sticky-back { bottom: 16px; right: 16px; }
+    .ek-sticky-back > [data-testid="stButton"] > button { padding: 10px 18px !important; font-size: 13px !important; }
 }
 
 /* ── SCROLLBAR ───────────────────────────────────────────────────────────── */
@@ -291,20 +292,15 @@ if 'logged_in' not in st.session_state:
 
 if not st.session_state.get('logged_in', False):
     st.markdown("""
-        <div style="
-            text-align: center;
-            padding: 32px 0 24px;
-        ">
+        <div style="text-align:center; padding:32px 0 24px;">
             <div style="
-                display: inline-block;
-                background: linear-gradient(135deg, #1B252C 0%, #2E3D47 100%);
-                border-radius: 20px;
-                padding: 28px 48px;
-                border: 1px solid rgba(227,197,173,0.2);
-                margin-bottom: 8px;
+                display:inline-block;
+                background:linear-gradient(135deg,#1B252C 0%,#2E3D47 100%);
+                border-radius:20px; padding:28px 48px;
+                border:1px solid rgba(227,197,173,0.2); margin-bottom:8px;
             ">
-                <div style="color:#E3C5AD; font-size:28px; font-weight:700; letter-spacing:0.04em;">EK CONSULTING</div>
-                <div style="color:#8a9eaa; font-size:13px; margin-top:6px; letter-spacing:0.08em; text-transform:uppercase;">Partner Portal</div>
+                <div style="color:#E3C5AD;font-size:28px;font-weight:700;letter-spacing:0.04em;">EK CONSULTING</div>
+                <div style="color:#8a9eaa;font-size:13px;margin-top:6px;letter-spacing:0.08em;text-transform:uppercase;">Partner Portal</div>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -312,30 +308,21 @@ if not st.session_state.get('logged_in', False):
     with st.container(border=True):
         u_input = st.text_input("Username").strip()
         p_input = st.text_input("Password", type="password").strip()
-        
-        if st.button("Sign In", use_container_width=True):
+
+        if st.button("Sign In", use_container_width=True, type="primary"):
             try:
-                # Search Supabase for the user
                 response = supabase.table("users").select("*").eq("username", u_input).eq("password", p_input).execute()
-                
                 if len(response.data) > 0:
                     match = response.data[0]
-                    
-                    # Clean up data from database
-                    assigned_out = str(match.get('outlet', 'All')).strip()
-                    assigned_loc = str(match.get('location', 'All')).strip()
-                    assigned_cli = str(match.get('client_name', 'All')).strip()
-
-                    # Save EVERYTHING to Session State
                     st.session_state.update({
                         'logged_in': True,
                         'user': match.get('username', u_input),
                         'role': str(match.get('role', 'staff')).lower().strip(),
                         'module': match.get('module', 'All'),
                         'link': None,
-                        'assigned_outlet': assigned_out,
-                        'assigned_location': assigned_loc,
-                        'client_name': assigned_cli,
+                        'assigned_outlet':   str(match.get('outlet',      'All')).strip(),
+                        'assigned_location': str(match.get('location',    'All')).strip(),
+                        'client_name':       str(match.get('client_name', 'All')).strip(),
                         'current_page': 'home'
                     })
                     st.rerun()
@@ -348,36 +335,29 @@ else:
     # --- SIDEBAR & USER INFO ---
     st.sidebar.title(f"👤 {st.session_state['user'].title()}")
     st.sidebar.write(f"**Role:** {st.session_state['role'].title()}")
-    
-    # Show specifics in sidebar if not 'All'
+
     if st.session_state['client_name'].lower() != 'all':
         st.sidebar.write(f"🏢 **Client:** {st.session_state['client_name']}")
     if st.session_state['assigned_outlet'].lower() != 'all':
         st.sidebar.write(f"🏠 **Outlet:** {st.session_state['assigned_outlet']}")
     if st.session_state['assigned_location'].lower() != 'all':
         st.sidebar.write(f"📍 **Location:** {st.session_state['assigned_location']}")
-    
+
     if st.sidebar.button("Logout", use_container_width=True):
         st.session_state.clear()
         st.rerun()
 
-    # --- TRAFFIC COP (NAVIGATION LOGIC) ---
+    # --- NAVIGATION LOGIC ---
     role = st.session_state['role']
     user = st.session_state['user']
-    
-    # CRITICAL FIX: If assigned 'All', we send 'All' to the module to unlock dropdowns
-    if role == "admin" or st.session_state['client_name'].lower() == "all":
-        client = "All"
-    else:
-        client = st.session_state['client_name']
 
-    if role == "admin" or st.session_state['assigned_outlet'].lower() == "all":
-        outlet = "All"
-    else:
-        outlet = st.session_state['assigned_outlet']
-        
-    location = st.session_state['assigned_location']
-    
+    client = "All" if (role in ["admin", "admin_all"] or st.session_state['client_name'].lower() == "all") else st.session_state['client_name']
+    outlet = "All" if (role in ["admin", "admin_all"] or st.session_state['assigned_outlet'].lower() == "all") else st.session_state['assigned_outlet']
+
+    # Normalize location — same treatment as client and outlet
+    raw_location = str(st.session_state.get('assigned_location', 'All')).strip()
+    location = "All" if raw_location.lower() in ['all', '', 'none', 'nan'] else raw_location
+
     # Parse allowed modules
     raw_modules = str(st.session_state.get('module', '')).lower().strip()
     if raw_modules == "all_modules" or role in ["admin", "admin_all"]:
@@ -385,7 +365,7 @@ else:
     else:
         allowed_modules = [m.strip() for m in raw_modules.split(",") if m.strip()]
 
-    # Secret Admin Panel Button (Double-Locked!)
+    # Control Panel button (admin only)
     if role in ["admin", "admin_all"] or (role == "manager" and st.session_state['client_name'].lower() == 'all'):
         st.sidebar.divider()
         if st.sidebar.button("⚙️ Control Panel", type="primary"):
@@ -397,61 +377,52 @@ else:
     # ==========================================
     if st.session_state['current_page'] == 'home':
 
-        # ── Welcome banner ────────────────────────────────────────────────
         client_label = f" · {st.session_state['client_name']}" if st.session_state['client_name'].lower() != 'all' else ""
         st.markdown(f"""
             <div style="
-                background: linear-gradient(135deg, #1B252C 0%, #2E3D47 100%);
-                border-radius: 16px;
-                padding: 24px 28px;
-                margin-bottom: 28px;
-                border: 1px solid rgba(227,197,173,0.15);
+                background:linear-gradient(135deg,#1B252C 0%,#2E3D47 100%);
+                border-radius:16px; padding:24px 28px; margin-bottom:28px;
+                border:1px solid rgba(227,197,173,0.15);
             ">
-                <div style="color:#E3C5AD; font-size:22px; font-weight:600; margin-bottom:4px;">
+                <div style="color:#E3C5AD;font-size:22px;font-weight:600;margin-bottom:4px;">
                     Welcome back, {user.title()} 👋
                 </div>
-                <div style="color:#8a9eaa; font-size:14px;">
+                <div style="color:#8a9eaa;font-size:14px;">
                     {role.title()}{client_label} · Partner Portal
                 </div>
             </div>
         """, unsafe_allow_html=True)
 
-        # ── Module grid — row 1 ───────────────────────────────────────────
         col_a, col_b, col_c, col_d = st.columns(4)
 
         if "dashboard" in allowed_modules:
             with col_a:
                 st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
                 if st.button("📊\nDashboard", use_container_width=True, key="btn_dashboard"):
-                    st.session_state['current_page'] = 'dashboard'
-                    st.rerun()
+                    st.session_state['current_page'] = 'dashboard'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
         if "inventory" in allowed_modules:
             with col_b:
                 st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
                 if st.button("📦\nInventory", use_container_width=True, key="btn_inventory"):
-                    st.session_state['current_page'] = 'inventory'
-                    st.rerun()
+                    st.session_state['current_page'] = 'inventory'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
         if "waste" in allowed_modules:
             with col_c:
                 st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
                 if st.button("🗑️\nWaste", use_container_width=True, key="btn_waste"):
-                    st.session_state['current_page'] = 'waste'
-                    st.rerun()
+                    st.session_state['current_page'] = 'waste'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
         if "transfers" in allowed_modules or "transfer" in allowed_modules:
             with col_d:
                 st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
                 if st.button("🔄\nTransfers", use_container_width=True, key="btn_transfers"):
-                    st.session_state['current_page'] = 'transfers'
-                    st.rerun()
+                    st.session_state['current_page'] = 'transfers'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
-        # ── Module grid — row 2 ───────────────────────────────────────────
         st.write("")
         col_e, col_f, col_g, col_h = st.columns(4)
 
@@ -459,58 +430,48 @@ else:
             with col_e:
                 st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
                 if st.button("🏦\nDaily Cash", use_container_width=True, key="btn_cash"):
-                    st.session_state['current_page'] = 'cash'
-                    st.rerun()
+                    st.session_state['current_page'] = 'cash'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
         if "invoices" in allowed_modules:
             with col_f:
                 st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
                 if st.button("📸\nInvoices", use_container_width=True, key="btn_invoices"):
-                    st.session_state['current_page'] = 'invoices'
-                    st.rerun()
+                    st.session_state['current_page'] = 'invoices'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
         if "ledger" in allowed_modules:
             with col_g:
                 st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
                 if st.button("💸\nDebt Control", use_container_width=True, key="btn_ledger"):
-                    st.session_state['current_page'] = 'ledger'
-                    st.rerun()
+                    st.session_state['current_page'] = 'ledger'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
     # ==========================================
     # PAGE ROUTING (INSIDE MODULES)
     # ==========================================
     else:
-        st.markdown('<div style="margin-bottom:4px">', unsafe_allow_html=True)
-        if st.button("⬅️  Back to Menu", type="primary"):
+        # Sticky floating back button — always visible while scrolling
+        st.markdown('<div class="ek-sticky-back">', unsafe_allow_html=True)
+        if st.button("⬅️  Menu", key="sticky_back_btn"):
             st.session_state['current_page'] = 'home'
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
         st.divider()
 
-        # Route to the correct module file
         if st.session_state['current_page'] == 'dashboard':
             render_dashboard(None, None, user, role, client, outlet, location)
-            
         elif st.session_state['current_page'] == 'cash':
             render_daily_cash(None, None, user, role, client, outlet, location)
-            
         elif st.session_state['current_page'] == 'inventory':
             render_inventory(None, None, user, role, client, outlet, location)
-            
         elif st.session_state['current_page'] == 'waste':
             render_waste(None, None, user, role, client, outlet, location)
-            
         elif st.session_state['current_page'] == 'transfers':
             render_transfers(None, None, user, role, client, outlet, location)
-            
         elif st.session_state['current_page'] == 'invoices':
             render_invoices(None, None, user, role)
-            
-        # 👇 ROUTING TO LEDGER ADDED HERE 👇
         elif st.session_state['current_page'] == 'ledger':
             render_ledger(None, None, user, role)
-            
         elif st.session_state['current_page'] == 'main':
             render_main(None, None, user, role)
