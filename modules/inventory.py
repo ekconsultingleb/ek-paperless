@@ -120,9 +120,15 @@ def load_draft(supabase, user, client, outlet):
             # and row_data keys/values are clean strings
             counts = {}
             for item_key, item_val in raw.items():
-                counts[str(item_key)] = {
-                    'qty': float(item_val.get('qty', 0)),
-                    'row_data': {str(k): v for k, v in item_val.get('row_data', {}).items()}
+                # Keep item_key exactly as saved — must match df_items item_name
+                clean_key = str(item_key)
+                row_data  = {str(k): v for k, v in item_val.get('row_data', {}).items()}
+                # Ensure item_name inside row_data matches the key
+                if 'item_name' in row_data:
+                    clean_key = str(row_data['item_name'])
+                counts[clean_key] = {
+                    'qty':      float(item_val.get('qty', 0)),
+                    'row_data': row_data
                 }
             updated = str(row.get("updated_at", ""))[:16].replace("T", " ")
             return counts, updated
@@ -156,6 +162,10 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
         st.session_state['_draft_last_saved'] = 0.0
     if 'draft_checked' not in st.session_state:
         st.session_state['draft_checked'] = False
+    if '_pending_draft' not in st.session_state:
+        st.session_state['_pending_draft'] = {}
+    if '_pending_draft_time' not in st.session_state:
+        st.session_state['_pending_draft_time'] = ''
 
     def lock_submit():
         st.session_state['submit_lock'] = True
@@ -262,24 +272,33 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
             return
 
         # ── DRAFT RESTORE PROMPT ──────────────────────────────────────────
-        # Check for a saved draft if the cart is currently empty
+        # Only check DB for a draft if cart is empty and we haven't checked yet
         if not st.session_state['mobile_counts'] and not st.session_state.get('draft_checked'):
             saved_counts, saved_time = load_draft(supabase, user, final_client, final_outlet)
+            st.session_state['draft_checked'] = True  # Mark checked regardless
             if saved_counts:
-                st.session_state['draft_checked'] = True
-                st.warning(f"📋 **Unsaved count found** from {saved_time} — {len(saved_counts)} items were counted.")
-                col_r1, col_r2 = st.columns(2)
-                with col_r1:
-                    if st.button("✅ Resume Previous Count", type="primary", use_container_width=True, key="resume_draft"):
-                        st.session_state['mobile_counts'] = saved_counts
-                        st.session_state['draft_checked'] = True
-                        st.rerun()
-                with col_r2:
-                    if st.button("🗑️ Discard & Start Fresh", use_container_width=True, key="discard_draft"):
-                        delete_draft(supabase, user, final_client, final_outlet)
-                        st.session_state['draft_checked'] = True
-                        st.rerun()
-                st.divider()
+                # Store in a separate key so it survives until user decides
+                st.session_state['_pending_draft'] = saved_counts
+                st.session_state['_pending_draft_time'] = saved_time
+
+        # Show banner if there's a pending draft waiting for decision
+        if st.session_state.get('_pending_draft') and not st.session_state['mobile_counts']:
+            saved_counts = st.session_state['_pending_draft']
+            saved_time   = st.session_state.get('_pending_draft_time', '')
+            st.warning(f"📋 **Unsaved count found** from {saved_time} — {len(saved_counts)} item(s) were counted.")
+            col_r1, col_r2 = st.columns(2)
+            with col_r1:
+                if st.button("✅ Resume Previous Count", type="primary", use_container_width=True, key="resume_draft"):
+                    st.session_state['mobile_counts'] = saved_counts
+                    st.session_state['_pending_draft'] = {}
+                    st.session_state['_draft_dirty'] = False
+                    st.rerun()
+            with col_r2:
+                if st.button("🗑️ Discard & Start Fresh", use_container_width=True, key="discard_draft"):
+                    delete_draft(supabase, user, final_client, final_outlet)
+                    st.session_state['_pending_draft'] = {}
+                    st.rerun()
+            st.divider()
 
         # MEGA-FETCH LOOP
         all_items = []
