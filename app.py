@@ -63,16 +63,218 @@ inject_back_button_protection()
 # --- BRANDING & LOGO ---
 st.sidebar.image("https://hgvubaohmgvesblfvdps.supabase.co/storage/v1/object/public/assets/EK-Logo.png", use_container_width=True)
 st.sidebar.divider()
-st.sidebar.caption("Partner Portal v1.0")
+st.sidebar.markdown(
+    "<div style='color:#8a9eaa; font-size:11px; text-align:center; padding:4px 0; letter-spacing:0.06em;'>PARTNER PORTAL v1.0</div>",
+    unsafe_allow_html=True
+)
 
 custom_css = """
-            <style>
-            .block-container { padding-top: 2rem !important; padding-bottom: 1rem !important; }
-            #MainMenu {visibility: visible;}
-            header {visibility: visible;}
-            footer {visibility: hidden;}
-            </style>
-            """
+<style>
+/* ── EK CONSULTING — GLOBAL BRAND THEME ─────────────────────────────────────
+   PANTONE 433 C  →  #1B252C  (charcoal)
+   PANTONE 4685 C →  #E3C5AD  (warm sand)
+   ──────────────────────────────────────────────────────────────────────── */
+
+/* Base & layout */
+:root {
+    --ek-dark:    #1B252C;
+    --ek-dark2:   #2E3D47;
+    --ek-sand:    #E3C5AD;
+    --ek-sand2:   #F5EDE4;
+    --ek-sand3:   #c9a98a;
+}
+
+.block-container {
+    padding-top: 1.5rem !important;
+    padding-bottom: 1rem !important;
+    max-width: 1100px !important;
+}
+
+#MainMenu { visibility: visible; }
+header    { visibility: visible; }
+footer    { visibility: hidden;  }
+
+/* ── SIDEBAR ─────────────────────────────────────────────────────────────── */
+[data-testid="stSidebar"] {
+    background-color: var(--ek-dark) !important;
+    border-right: 1px solid var(--ek-dark2) !important;
+}
+[data-testid="stSidebar"] * {
+    color: var(--ek-sand) !important;
+}
+[data-testid="stSidebar"] .stMarkdown p,
+[data-testid="stSidebar"] .stMarkdown h3,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] .stCaption {
+    color: var(--ek-sand) !important;
+    opacity: 0.9;
+}
+[data-testid="stSidebar"] hr {
+    border-color: var(--ek-dark2) !important;
+    opacity: 0.6;
+}
+[data-testid="stSidebar"] [data-testid="stSelectbox"] > div > div {
+    background-color: var(--ek-dark2) !important;
+    border-color: var(--ek-sand3) !important;
+    color: var(--ek-sand) !important;
+}
+/* Sidebar logout & control panel buttons */
+[data-testid="stSidebar"] [data-testid="stButton"] > button {
+    background-color: var(--ek-dark2) !important;
+    border: 1px solid var(--ek-sand3) !important;
+    color: var(--ek-sand) !important;
+    border-radius: 8px !important;
+    font-weight: 500 !important;
+    transition: all 0.2s !important;
+}
+[data-testid="stSidebar"] [data-testid="stButton"] > button:hover {
+    background-color: var(--ek-sand) !important;
+    color: var(--ek-dark) !important;
+}
+
+/* ── PRIMARY ACTION BUTTONS (submit / save) ──────────────────────────────── */
+[data-testid="stButton"] > button[kind="primary"] {
+    background-color: var(--ek-dark) !important;
+    color: var(--ek-sand) !important;
+    border: 1px solid var(--ek-sand3) !important;
+    border-radius: 8px !important;
+    font-weight: 500 !important;
+    transition: all 0.2s !important;
+}
+[data-testid="stButton"] > button[kind="primary"]:hover {
+    background-color: var(--ek-dark2) !important;
+    border-color: var(--ek-sand) !important;
+    box-shadow: 0 0 12px rgba(227,197,173,0.25) !important;
+    transform: translateY(-1px) !important;
+}
+
+/* ── SECONDARY BUTTONS ───────────────────────────────────────────────────── */
+[data-testid="stButton"] > button:not([kind="primary"]) {
+    border-radius: 8px !important;
+    border: 1px solid rgba(227,197,173,0.3) !important;
+    transition: all 0.2s !important;
+}
+[data-testid="stButton"] > button:not([kind="primary"]):hover {
+    border-color: var(--ek-sand) !important;
+    color: var(--ek-sand) !important;
+}
+
+/* ── TABS ────────────────────────────────────────────────────────────────── */
+[data-testid="stTabs"] [data-baseweb="tab-list"] {
+    border-bottom: 2px solid rgba(227,197,173,0.2) !important;
+    gap: 4px !important;
+}
+[data-testid="stTabs"] [data-baseweb="tab"] {
+    border-radius: 8px 8px 0 0 !important;
+    padding: 8px 18px !important;
+    font-weight: 500 !important;
+    transition: all 0.2s !important;
+}
+[data-testid="stTabs"] [aria-selected="true"] {
+    background-color: var(--ek-dark) !important;
+    color: var(--ek-sand) !important;
+    border-bottom: 2px solid var(--ek-sand) !important;
+}
+
+/* ── METRIC CARDS ────────────────────────────────────────────────────────── */
+[data-testid="stMetric"] {
+    background: linear-gradient(135deg, var(--ek-dark) 0%, var(--ek-dark2) 100%) !important;
+    border-radius: 12px !important;
+    padding: 16px !important;
+    border: 1px solid rgba(227,197,173,0.15) !important;
+}
+[data-testid="stMetric"] label {
+    color: var(--ek-sand3) !important;
+    font-size: 12px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
+}
+[data-testid="stMetric"] [data-testid="stMetricValue"] {
+    color: var(--ek-sand) !important;
+    font-size: 24px !important;
+    font-weight: 600 !important;
+}
+
+/* ── CONTAINERS / CARDS ──────────────────────────────────────────────────── */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    border: 1px solid rgba(227,197,173,0.2) !important;
+    border-radius: 12px !important;
+    padding: 4px !important;
+}
+
+/* ── INPUTS & SELECTS ────────────────────────────────────────────────────── */
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input,
+[data-testid="stTextArea"] textarea,
+[data-testid="stDateInput"] input {
+    border-radius: 8px !important;
+    border-color: rgba(227,197,173,0.3) !important;
+    transition: border-color 0.2s !important;
+}
+[data-testid="stTextInput"] input:focus,
+[data-testid="stNumberInput"] input:focus,
+[data-testid="stTextArea"] textarea:focus {
+    border-color: var(--ek-sand) !important;
+    box-shadow: 0 0 0 2px rgba(227,197,173,0.15) !important;
+}
+
+/* ── DATAFRAMES ──────────────────────────────────────────────────────────── */
+[data-testid="stDataFrame"] thead tr th {
+    background-color: var(--ek-dark) !important;
+    color: var(--ek-sand) !important;
+}
+
+/* ── DIVIDERS ────────────────────────────────────────────────────────────── */
+hr {
+    border-color: rgba(227,197,173,0.15) !important;
+}
+
+/* ── HOME MENU BUTTONS ───────────────────────────────────────────────────── */
+.ek-home-btn > [data-testid="stButton"] > button {
+    height: 110px !important;
+    border-radius: 14px !important;
+    background: linear-gradient(160deg, var(--ek-dark) 0%, var(--ek-dark2) 100%) !important;
+    border: 1px solid rgba(227,197,173,0.2) !important;
+    color: var(--ek-sand) !important;
+    font-size: 16px !important;
+    font-weight: 500 !important;
+    transition: all 0.25s ease !important;
+}
+.ek-home-btn > [data-testid="stButton"] > button:hover {
+    border-color: var(--ek-sand) !important;
+    box-shadow: 0 4px 20px rgba(227,197,173,0.2) !important;
+    transform: translateY(-3px) !important;
+    background: linear-gradient(160deg, var(--ek-dark2) 0%, #3a4f5c 100%) !important;
+}
+.ek-home-btn > [data-testid="stButton"] > button p {
+    font-size: 16px !important;
+    font-weight: 500 !important;
+    line-height: 1.5 !important;
+}
+
+/* ── MOBILE RESPONSIVE ───────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    .block-container {
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+    .ek-home-btn > [data-testid="stButton"] > button {
+        height: 90px !important;
+        font-size: 14px !important;
+    }
+    [data-testid="stMetric"] [data-testid="stMetricValue"] {
+        font-size: 20px !important;
+    }
+}
+
+/* ── SCROLLBAR ───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--ek-dark2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ek-sand3); }
+
+</style>
+"""
 st.markdown(custom_css, unsafe_allow_html=True)
 
 # --- SESSION STATE INITIALIZATION ---
@@ -89,10 +291,24 @@ if 'logged_in' not in st.session_state:
 
 if not st.session_state.get('logged_in', False):
     st.markdown("""
-        <h1 style='text-align: center; margin-bottom: 0;'> EK Consulting</h1>
-        <p style='text-align: center; color: gray; font-size: 18px; margin-top: 0;'>Partner Portal</p>
+        <div style="
+            text-align: center;
+            padding: 32px 0 24px;
+        ">
+            <div style="
+                display: inline-block;
+                background: linear-gradient(135deg, #1B252C 0%, #2E3D47 100%);
+                border-radius: 20px;
+                padding: 28px 48px;
+                border: 1px solid rgba(227,197,173,0.2);
+                margin-bottom: 8px;
+            ">
+                <div style="color:#E3C5AD; font-size:28px; font-weight:700; letter-spacing:0.04em;">EK CONSULTING</div>
+                <div style="color:#8a9eaa; font-size:13px; margin-top:6px; letter-spacing:0.08em; text-transform:uppercase;">Partner Portal</div>
+            </div>
+        </div>
     """, unsafe_allow_html=True)
-    
+
     with st.container(border=True):
         u_input = st.text_input("Username").strip()
         p_input = st.text_input("Password", type="password").strip()
@@ -160,8 +376,7 @@ else:
     else:
         outlet = st.session_state['assigned_outlet']
         
-    raw_location = str(st.session_state.get('assigned_location', 'All')).strip()
-    location = "All" if raw_location.lower() in ['all', '', 'none', 'nan'] else raw_location
+    location = st.session_state['assigned_location']
     
     # Parse allowed modules
     raw_modules = str(st.session_state.get('module', '')).lower().strip()
@@ -181,86 +396,95 @@ else:
     # PAGE: HOME MENU
     # ==========================================
     if st.session_state['current_page'] == 'home':
-        st.markdown("""
-            <style>
-            div[data-testid="stButton"] > button {
-                height: 100px !important;
-                width: 100% !important;
-                border-radius: 15px !important;
-                border: 2px solid rgba(255,255,255,0.2) !important;
-                transition: all 0.3s ease-in-out !important;
-                padding: 0px !important;
-            }
-            div[data-testid="stButton"] > button:hover {
-                border-color: #00ff00 !important;
-                box-shadow: 0 0 20px rgba(0, 255, 0, 0.3) !important;
-                transform: translateY(-5px) !important;
-            }
-            div[data-testid="stButton"] > button p {
-                font-size: 24px !important;
-                font-weight: 500 !important;
-                margin: 0 !important;
-            }
-            </style>
+
+        # ── Welcome banner ────────────────────────────────────────────────
+        client_label = f" · {st.session_state['client_name']}" if st.session_state['client_name'].lower() != 'all' else ""
+        st.markdown(f"""
+            <div style="
+                background: linear-gradient(135deg, #1B252C 0%, #2E3D47 100%);
+                border-radius: 16px;
+                padding: 24px 28px;
+                margin-bottom: 28px;
+                border: 1px solid rgba(227,197,173,0.15);
+            ">
+                <div style="color:#E3C5AD; font-size:22px; font-weight:600; margin-bottom:4px;">
+                    Welcome back, {user.title()} 👋
+                </div>
+                <div style="color:#8a9eaa; font-size:14px;">
+                    {role.title()}{client_label} · Partner Portal
+                </div>
+            </div>
         """, unsafe_allow_html=True)
 
-        st.markdown(f"## Welcome back, {user.title()}! 👋")
-        st.markdown("<h4 style='color: #888888; font-weight: 400; margin-bottom: 30px;'>Explore</h4>", unsafe_allow_html=True)
-        
+        # ── Module grid — row 1 ───────────────────────────────────────────
         col_a, col_b, col_c, col_d = st.columns(4)
-        
+
         if "dashboard" in allowed_modules:
             with col_a:
-                if st.button("📊 Dashboard", use_container_width=True):
+                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
+                if st.button("📊\nDashboard", use_container_width=True, key="btn_dashboard"):
                     st.session_state['current_page'] = 'dashboard'
                     st.rerun()
-                    
+                st.markdown('</div>', unsafe_allow_html=True)
+
         if "inventory" in allowed_modules:
             with col_b:
-                if st.button("📦 Inventory", use_container_width=True):
+                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
+                if st.button("📦\nInventory", use_container_width=True, key="btn_inventory"):
                     st.session_state['current_page'] = 'inventory'
                     st.rerun()
-                    
+                st.markdown('</div>', unsafe_allow_html=True)
+
         if "waste" in allowed_modules:
             with col_c:
-                if st.button("🗑️ Waste", use_container_width=True):
+                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
+                if st.button("🗑️\nWaste", use_container_width=True, key="btn_waste"):
                     st.session_state['current_page'] = 'waste'
                     st.rerun()
-                    
+                st.markdown('</div>', unsafe_allow_html=True)
+
         if "transfers" in allowed_modules or "transfer" in allowed_modules:
             with col_d:
-                if st.button("🔄 Transfers", use_container_width=True):
+                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
+                if st.button("🔄\nTransfers", use_container_width=True, key="btn_transfers"):
                     st.session_state['current_page'] = 'transfers'
                     st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
 
-        # --- ROW 2 BUTTONS ---
-        st.write("") # Spacer for the second row
+        # ── Module grid — row 2 ───────────────────────────────────────────
+        st.write("")
         col_e, col_f, col_g, col_h = st.columns(4)
-        
+
         if "cash" in allowed_modules:
             with col_e:
-                if st.button("🏦 Daily Cash", use_container_width=True):
+                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
+                if st.button("🏦\nDaily Cash", use_container_width=True, key="btn_cash"):
                     st.session_state['current_page'] = 'cash'
                     st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
 
         if "invoices" in allowed_modules:
             with col_f:
-                if st.button("📸 Invoices", use_container_width=True):
+                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
+                if st.button("📸\nInvoices", use_container_width=True, key="btn_invoices"):
                     st.session_state['current_page'] = 'invoices'
                     st.rerun()
-                    
-        # 👇 NEW DEBT CONTROL BUTTON ADDED HERE 👇
+                st.markdown('</div>', unsafe_allow_html=True)
+
         if "ledger" in allowed_modules:
             with col_g:
-                if st.button("💸 Debt Control", use_container_width=True):
+                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
+                if st.button("💸\nDebt Control", use_container_width=True, key="btn_ledger"):
                     st.session_state['current_page'] = 'ledger'
                     st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
 
     # ==========================================
     # PAGE ROUTING (INSIDE MODULES)
     # ==========================================
     else:
-        if st.button("⬅️ Back to Main Menu"):
+        st.markdown('<div style="margin-bottom:4px">', unsafe_allow_html=True)
+        if st.button("⬅️  Back to Menu", type="primary"):
             st.session_state['current_page'] = 'home'
             st.rerun()
         st.divider()
