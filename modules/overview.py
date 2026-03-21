@@ -1264,22 +1264,24 @@ def chart_hbar(labels, values, title, color=MPL_SAND, max_items=8):
     return fig_bytes(fig)
 
 def chart_variance(products, values, title, max_items=12):
-    products  = [str(p)[:26] for p in products[:max_items]]
-    values    = [float(v) for v in values[:max_items]]
+    products   = [str(p)[:32] for p in products[:max_items]]
+    values     = [float(v) for v in values[:max_items]]
     bar_colors = [MPL_RED if v<0 else MPL_GRN for v in values]
-    h = max(3.5, len(products)*0.55)
-    fig, ax = plt.subplots(figsize=(7.5, h))
+    h = max(4.0, len(products)*0.62)
+    fig, ax = plt.subplots(figsize=(8.0, h))
     mpl_base(fig, ax)
-    ax.barh(products, values, color=bar_colors, edgecolor="none", height=0.58, zorder=3)
-    ax.set_title(title, color=MPL_SAND, fontsize=10, pad=8, fontweight="bold")
+    ax.barh(products, values, color=bar_colors, edgecolor="none", height=0.55, zorder=3)
+    ax.set_title(title, color=MPL_SAND, fontsize=10, pad=10, fontweight="bold")
     ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v,_: f"{v/1e6:.1f}M"))
     ax.axvline(0, color=MPL_GRAY, linewidth=1, zorder=4)
     ax.invert_yaxis()
     ax.xaxis.grid(True, color=MPL_BG3, alpha=0.6, linestyle="--", zorder=0)
     ax.set_axisbelow(True)
-    ax.tick_params(axis="y", labelsize=8.5, colors=MPL_SAND)
+    # Force horizontal labels, generous left margin
+    ax.tick_params(axis="y", labelsize=8, colors=MPL_SAND, rotation=0)
     ax.tick_params(axis="x", labelsize=8, colors=MPL_SAND)
-    fig.tight_layout(pad=0.8)
+    ax.set_yticklabels(products, rotation=0, ha="right", fontsize=8, color=MPL_SAND)
+    fig.subplots_adjust(left=0.32, right=0.97, top=0.92, bottom=0.06)
     return fig_bytes(fig)
 
 # ══════════════════════════════════════════════════════════════════════════════
