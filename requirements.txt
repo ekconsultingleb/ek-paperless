@@ -6,3 +6,5 @@ fpdf2
 plotly
 google-generativeai
 openpyxl
+matplotlib
+reportlab
