@@ -4,6 +4,7 @@ from supabase import create_client, Client
 import streamlit.components.v1 as components
 
 # --- IMPORT YOUR MODULES ---
+from modules.overview import render_overview
 from modules.ledger import render_ledger
 from modules.main import render_main
 from modules.dashboard import render_dashboard
@@ -361,7 +362,7 @@ else:
     # Parse allowed modules
     raw_modules = str(st.session_state.get('module', '')).lower().strip()
     if raw_modules == "all_modules" or role in ["admin", "admin_all"]:
-        allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers", "invoices", "ledger"]
+        allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers", "invoices", "ledger", "overview"]
     else:
         allowed_modules = [m.strip() for m in raw_modules.split(",") if m.strip()]
 
@@ -371,7 +372,6 @@ else:
         if st.sidebar.button("⚙️ Control Panel", type="primary"):
             st.session_state['current_page'] = "main"
             st.rerun()
-
     # ==========================================
     # PAGE: HOME MENU
     # ==========================================
@@ -445,6 +445,13 @@ else:
                 st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
                 if st.button("💸\nDebt Control", use_container_width=True, key="btn_ledger"):
                     st.session_state['current_page'] = 'ledger'; st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
+
+        if "overview" in allowed_modules:
+            with col_h:
+                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
+                if st.button("📊\nOverview", use_container_width=True, key="btn_overview"):
+                    st.session_state['current_page'] = 'overview'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
     # ==========================================
@@ -525,3 +532,5 @@ else:
             render_ledger(None, None, user, role)
         elif st.session_state['current_page'] == 'main':
             render_main(None, None, user, role)
+        elif st.session_state['current_page'] == 'overview':
+            render_overview(None, None, user, role, client, outlet, location)
