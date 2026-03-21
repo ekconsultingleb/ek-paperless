@@ -263,319 +263,539 @@ def chart_variance_bar(products, values, title, max_items=12):
     return fig_to_bytes(fig)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# PDF BUILDER
-# ══════════════════════════════════════════════════════════════════════════════
-def build_pdf(client, month, prev_m, cogs_cur, cogs_prev, cogs_all,
-              sales_df, var_df, theo_df):
+# ── Colors ─────────────────────────────────────────────────────────────────────
+C  = colors.HexColor  
+BG      = C("#1B252C")   # charcoal
+BG2     = C("#243038")   # slightly lighter
+SAND    = C("#E3C5AD")
+SAND2   = C("#F5EBE0")
+SAND3   = C("#c9a98a")
+RED     = C("#C0392B")
+GREEN   = C("#27AE60")
+GRAY    = C("#6B7B86")
+WHITE   = colors.white
+BLACK   = colors.black
 
+MPL_BG   = "#1B252C"
+MPL_BG2  = "#243038"
+MPL_SAND = "#E3C5AD"
+MPL_S3   = "#c9a98a"
+MPL_RED  = "#C0392B"
+MPL_GRN  = "#27AE60"
+MPL_GRAY = "#6B7B86"
+
+# ── Styles ─────────────────────────────────────────────────────────────────────
+def styles():
+    base = dict(fontName="Helvetica", textColor=SAND)
+    bold = dict(fontName="Helvetica-Bold", textColor=SAND)
+    return {
+        "cover_title": ParagraphStyle("ct", fontName="Helvetica-Bold", fontSize=26, textColor=SAND, spaceAfter=2),
+        "cover_sub":   ParagraphStyle("cs", fontName="Helvetica", fontSize=11, textColor=SAND3),
+        "h1":          ParagraphStyle("h1", fontName="Helvetica-Bold", fontSize=13, textColor=SAND, spaceBefore=8, spaceAfter=4),
+        "h2":          ParagraphStyle("h2", fontName="Helvetica-Bold", fontSize=10, textColor=SAND3, spaceBefore=6, spaceAfter=3),
+        "body":        ParagraphStyle("bd", fontName="Helvetica", fontSize=9, textColor=SAND, leading=14),
+        "body_red":    ParagraphStyle("br", fontName="Helvetica-Bold", fontSize=9, textColor=RED, leading=14),
+        "small":       ParagraphStyle("sm", fontName="Helvetica", fontSize=7.5, textColor=GRAY),
+        "kpi_val":     ParagraphStyle("kv", fontName="Helvetica-Bold", fontSize=20, textColor=SAND, alignment=TA_CENTER),
+        "kpi_lbl":     ParagraphStyle("kl", fontName="Helvetica", fontSize=8, textColor=SAND3, alignment=TA_CENTER),
+        "kpi_sub":     ParagraphStyle("ks", fontName="Helvetica", fontSize=9, textColor=GRAY, alignment=TA_CENTER),
+        "th":          ParagraphStyle("th", fontName="Helvetica-Bold", fontSize=8, textColor=SAND, alignment=TA_CENTER),
+        "td":          ParagraphStyle("td", fontName="Helvetica", fontSize=8, textColor=SAND),
+        "td_r":        ParagraphStyle("tr", fontName="Helvetica", fontSize=8, textColor=SAND, alignment=TA_RIGHT),
+        "td_b":        ParagraphStyle("tb", fontName="Helvetica-Bold", fontSize=8, textColor=SAND),
+        "td_br":       ParagraphStyle("tbr",fontName="Helvetica-Bold",fontSize=8, textColor=SAND, alignment=TA_RIGHT),
+        "td_red":      ParagraphStyle("trd",fontName="Helvetica-Bold",fontSize=8, textColor=RED,  alignment=TA_RIGHT),
+        "metric_val":  ParagraphStyle("mv", fontName="Helvetica-Bold", fontSize=11, textColor=SAND),
+        "metric_lbl":  ParagraphStyle("ml", fontName="Helvetica", fontSize=8, textColor=GRAY),
+    }
+
+# ── Table style ────────────────────────────────────────────────────────────────
+def ts(header_rows=1):
+    return TableStyle([
+        ("BACKGROUND",   (0,0), (-1,header_rows-1), BG2),
+        ("TEXTCOLOR",    (0,0), (-1,header_rows-1), SAND),
+        ("FONTNAME",     (0,0), (-1,header_rows-1), "Helvetica-Bold"),
+        ("FONTSIZE",     (0,0), (-1,-1), 8),
+        ("ROWBACKGROUNDS",(0,header_rows),(-1,-1), [BG, BG2]),
+        ("GRID",         (0,0), (-1,-1), 0.3, C("#2E3D47")),
+        ("VALIGN",       (0,0), (-1,-1), "MIDDLE"),
+        ("TOPPADDING",   (0,0), (-1,-1), 4),
+        ("BOTTOMPADDING",(0,0), (-1,-1), 4),
+        ("LEFTPADDING",  (0,0), (-1,-1), 6),
+        ("RIGHTPADDING", (0,0), (-1,-1), 6),
+        ("TEXTCOLOR",    (0,header_rows), (-1,-1), SAND),
+    ])
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+def n(val, dec=0):
+    try:
+        v = float(val)
+        if v == 0: return "-"
+        return f"{v:,.0f}" if dec==0 else f"{v:,.{dec}f}"
+    except: return "-"
+
+def pct(a,b):
+    try: return float(a)/float(b) if float(b) else 0
+    except: return 0
+
+def agg(df, col):
+    if df is None or df.empty or col not in df.columns: return 0
+    return pd.to_numeric(df[col], errors="coerce").fillna(0).sum()
+
+def agg_cat(df, col, cat):
+    if df is None or df.empty or col not in df.columns: return 0
+    return pd.to_numeric(df[df["category"]==cat][col], errors="coerce").fillna(0).sum()
+
+def mlabel(m):
+    try: return datetime.strptime(m[:10],"%Y-%m-%d").strftime("%B %Y")
+    except: return m
+
+def mshort(m):
+    try: return datetime.strptime(m[:10],"%Y-%m-%d").strftime("%b %Y")
+    except: return m
+
+def fig_bytes(fig):
     buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight", facecolor=fig.get_facecolor())
+    buf.seek(0)
+    plt.close(fig)
+    return buf
 
-    def S():
-        return {
-            "title":  ParagraphStyle("t1", fontName="Helvetica-Bold", fontSize=20, textColor=RL_WHITE),
-            "sub":    ParagraphStyle("t2", fontName="Helvetica", fontSize=10, textColor=RL_SAND),
-            "h1":     ParagraphStyle("h1", fontName="Helvetica-Bold", fontSize=12, textColor=RL_CHARCOAL, spaceBefore=10, spaceAfter=4),
-            "h2":     ParagraphStyle("h2", fontName="Helvetica-Bold", fontSize=10, textColor=RL_CHARCOAL, spaceBefore=6, spaceAfter=3),
-            "body":   ParagraphStyle("bd", fontName="Helvetica", fontSize=9, textColor=RL_CHARCOAL, leading=13),
-            "alert":  ParagraphStyle("al", fontName="Helvetica-Bold", fontSize=9, textColor=RL_RED),
-            "small":  ParagraphStyle("sm", fontName="Helvetica", fontSize=7.5, textColor=RL_GRAY),
-            "th":     ParagraphStyle("th", fontName="Helvetica-Bold", fontSize=8, textColor=RL_WHITE, alignment=TA_CENTER),
-            "td":     ParagraphStyle("td", fontName="Helvetica", fontSize=8, textColor=RL_CHARCOAL),
-            "td_r":   ParagraphStyle("tr", fontName="Helvetica", fontSize=8, textColor=RL_CHARCOAL, alignment=TA_RIGHT),
-            "td_b":   ParagraphStyle("tb", fontName="Helvetica-Bold", fontSize=8, textColor=RL_CHARCOAL),
-            "td_br":  ParagraphStyle("tbr",fontName="Helvetica-Bold", fontSize=8, textColor=RL_CHARCOAL, alignment=TA_RIGHT),
-        }
+def mpl_base(fig, ax):
+    fig.patch.set_facecolor(MPL_BG)
+    ax.set_facecolor(MPL_BG2)
+    ax.tick_params(colors=MPL_SAND, labelsize=8)
+    for spine in ax.spines.values(): spine.set_color(MPL_GRAY)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.yaxis.label.set_color(MPL_SAND)
+    ax.xaxis.label.set_color(MPL_SAND)
 
-    s = S()
+# ── Charts ─────────────────────────────────────────────────────────────────────
+def chart_monthly(monthly_df):
+    labels = monthly_df["month_label"].tolist()
+    sales  = monthly_df["net_sales"].tolist()
+    cogs_v = monthly_df["net_cogs"].tolist()
+    x = range(len(labels)); w = 0.38
+    fig, ax = plt.subplots(figsize=(7.5, 2.8))
+    mpl_base(fig, ax)
+    b1 = ax.bar([i-w/2 for i in x], sales, w, color=MPL_SAND,  label="Net Sales")
+    b2 = ax.bar([i+w/2 for i in x], cogs_v, w, color="#2E3D47", label="Net COGS",
+                edgecolor=MPL_S3, linewidth=0.6)
+    ax.set_xticks(list(x)); ax.set_xticklabels(labels, fontsize=8, color=MPL_SAND)
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v,_: f"{v/1e6:.0f}M"))
+    ax.legend(facecolor=MPL_BG, edgecolor=MPL_GRAY, labelcolor=MPL_SAND, fontsize=8, framealpha=0.8)
+    ax.set_title("Monthly Net Sales vs Net COGS", color=MPL_SAND, fontsize=9, pad=8, fontweight="bold")
+    ax.yaxis.grid(True, color=MPL_GRAY, alpha=0.2, linestyle="--")
+    ax.set_axisbelow(True)
+    for bar in b1:
+        h = bar.get_height()
+        if h > 0: ax.text(bar.get_x()+bar.get_width()/2, h*1.02,
+                          f"{h/1e6:.0f}M", ha="center", va="bottom", color=MPL_SAND, fontsize=7, fontweight="bold")
+    for bar in b2:
+        h = bar.get_height()
+        if h > 0: ax.text(bar.get_x()+bar.get_width()/2, h*1.02,
+                          f"{h/1e6:.0f}M", ha="center", va="bottom", color=MPL_S3, fontsize=7)
+    fig.tight_layout(pad=0.5)
+    return fig_bytes(fig)
+
+def chart_hbar(labels, values, title, color=MPL_SAND, max_items=8):
+    labels = [str(l)[:26] for l in labels[:max_items]]
+    values = [float(v) for v in values[:max_items]]
+    h = max(2.2, len(labels)*0.45)
+    fig, ax = plt.subplots(figsize=(5.5, h))
+    mpl_base(fig, ax)
+    bars = ax.barh(labels, values, color=color, edgecolor="none", height=0.55)
+    ax.set_title(title, color=MPL_SAND, fontsize=9, pad=6, fontweight="bold")
+    ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v,_: f"{v/1e6:.0f}M"))
+    ax.invert_yaxis()
+    ax.xaxis.grid(True, color=MPL_GRAY, alpha=0.2, linestyle="--")
+    ax.set_axisbelow(True)
+    for bar, val in zip(bars, values):
+        ax.text(val*1.01, bar.get_y()+bar.get_height()/2,
+                f"{val/1e6:.1f}M", va="center", color=MPL_SAND, fontsize=7.5, fontweight="bold")
+    fig.tight_layout(pad=0.5)
+    return fig_bytes(fig)
+
+def chart_variance(products, values, title, max_items=12):
+    products = [str(p)[:24] for p in products[:max_items]]
+    values   = [float(v) for v in values[:max_items]]
+    bar_colors = [MPL_RED if v<0 else MPL_GRN for v in values]
+    h = max(3, len(products)*0.5)
+    fig, ax = plt.subplots(figsize=(6.5, h))
+    mpl_base(fig, ax)
+    ax.barh(products, values, color=bar_colors, edgecolor="none", height=0.55)
+    ax.set_title(title, color=MPL_SAND, fontsize=9, pad=6, fontweight="bold")
+    ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v,_: f"{v/1e6:.1f}M"))
+    ax.axvline(0, color=MPL_GRAY, linewidth=0.8)
+    ax.invert_yaxis()
+    ax.xaxis.grid(True, color=MPL_GRAY, alpha=0.2, linestyle="--")
+    ax.set_axisbelow(True)
+    fig.tight_layout(pad=0.5)
+    return fig_bytes(fig)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MAIN BUILD FUNCTION
+# ══════════════════════════════════════════════════════════════════════════════
+def build_financial_overview_pdf(client, month, prev_m,
+                                  cogs_cur, cogs_prev, cogs_all,
+                                  sales_df, var_df):
+    buf = io.BytesIO()
+    S = styles()
     story = []
-    ml = mlabel(month); pml = mshort(prev_m) if prev_m else ""
 
-    # ── Aggregates ─────────────────────────────────────────────────────────────
-    gross = agg(cogs_cur, "gross_sales"); net   = agg(cogs_cur, "net_sales")
-    disc  = agg(cogs_cur, "discount");   gcogs = agg(cogs_cur, "gross_cogs")
-    ncogs = agg(cogs_cur, "net_cogs");   waste = agg(cogs_cur, "waste")
-    tvar  = agg(cogs_cur, "total_variance")
-    p_net = agg(cogs_prev, "net_sales") if not cogs_prev.empty else 0
-
-    def ts_base(hr=1):
-        return TableStyle([
-            ("BACKGROUND",(0,0),(-1,hr-1), RL_CHARCOAL),
-            ("TEXTCOLOR",(0,0),(-1,hr-1), RL_WHITE),
-            ("FONTNAME",(0,0),(-1,hr-1),"Helvetica-Bold"),
-            ("FONTSIZE",(0,0),(-1,-1),8),
-            ("ROWBACKGROUNDS",(0,hr),(-1,-1),[RL_WHITE, RL_SAND_LIGHT]),
-            ("GRID",(0,0),(-1,-1),0.25,colors.HexColor("#D0D0D0")),
-            ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
-            ("TOPPADDING",(0,0),(-1,-1),3),
-            ("BOTTOMPADDING",(0,0),(-1,-1),3),
-            ("LEFTPADDING",(0,0),(-1,-1),5),
-            ("RIGHTPADDING",(0,0),(-1,-1),5),
-        ])
+    gross = agg(cogs_cur,"gross_sales"); net   = agg(cogs_cur,"net_sales")
+    disc  = agg(cogs_cur,"discount");   gcogs = agg(cogs_cur,"gross_cogs")
+    ncogs = agg(cogs_cur,"net_cogs");   waste = agg(cogs_cur,"waste")
+    tvar  = agg(cogs_cur,"total_variance")
+    p_net = agg(cogs_prev,"net_sales") if not cogs_prev.empty else 0
+    ml    = mlabel(month); pml = mshort(prev_m) if prev_m else ""
 
     def footer(canvas, doc):
         canvas.saveState()
-        canvas.setFillColor(RL_GRAY)
+        # Footer bar
+        canvas.setFillColor(BG2)
+        canvas.rect(0, 0, A4[0], 18*mm, fill=1, stroke=0)
+        canvas.setFillColor(SAND3)
         canvas.setFont("Helvetica", 7)
-        canvas.drawString(18*mm, 10*mm, "EK Consulting — Confidential")
-        canvas.drawRightString(A4[0]-18*mm, 10*mm,
-            f"Page {doc.page} | {date.today().strftime('%d %b %Y')}")
+        canvas.drawString(18*mm, 7*mm, "EK Consulting — Confidential")
+        canvas.drawRightString(A4[0]-18*mm, 7*mm,
+            f"Page {doc.page}  |  {date.today().strftime('%d %B %Y')}")
+        # Top accent line
+        canvas.setStrokeColor(SAND3)
+        canvas.setLineWidth(1.5)
+        canvas.line(0, A4[1]-8*mm, A4[0], A4[1]-8*mm)
         canvas.restoreState()
 
-    # ── Banner ─────────────────────────────────────────────────────────────────
-    banner = Table([[
-        Paragraph("EK CONSULTING", s["title"]),
-        Paragraph(f"Financial Overview — {ml}", s["sub"])
-    ]], colWidths=[W*0.5, W*0.4])
-    banner.setStyle(TableStyle([
-        ("BACKGROUND",(0,0),(-1,-1),RL_CHARCOAL),
+    # ── PAGE 1 ─────────────────────────────────────────────────────────────────
+
+    # Cover header block
+    cover = Table([[
+        Paragraph("EK CONSULTING", S["cover_title"]),
+        Paragraph(f"Financial Overview<br/>{ml}", S["cover_sub"])
+    ]], colWidths=[W*0.52, W*0.38])
+    cover.setStyle(TableStyle([
+        ("BACKGROUND",(0,0),(-1,-1), BG2),
         ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
         ("LEFTPADDING",(0,0),(-1,-1),16),
-        ("TOPPADDING",(0,0),(-1,-1),14),
-        ("BOTTOMPADDING",(0,0),(-1,-1),14),
+        ("TOPPADDING",(0,0),(-1,-1),16),
+        ("BOTTOMPADDING",(0,0),(-1,-1),16),
+        ("LINEBELOW",(0,0),(-1,-1),2,SAND3),
     ]))
-    story.append(banner)
+    story.append(cover)
 
+    # Meta strip
     meta = Table([[
-        Paragraph(f"<b>Client:</b> {client}", s["body"]),
-        Paragraph(f"<b>Month:</b> {ml}", s["body"]),
-        Paragraph(f"<b>Generated:</b> {date.today().strftime('%d %B %Y')}", s["body"]),
-    ]], colWidths=[W*0.33, W*0.27, W*0.30])
+        Paragraph(f"<b>Client:</b>  {client}", S["body"]),
+        Paragraph(f"<b>Period:</b>  {ml}", S["body"]),
+        Paragraph(f"<b>Generated:</b>  {date.today().strftime('%d %B %Y')}", S["body"]),
+    ]], colWidths=[W*0.34, W*0.26, W*0.30])
     meta.setStyle(TableStyle([
-        ("BACKGROUND",(0,0),(-1,-1),RL_SAND_LIGHT),
-        ("LEFTPADDING",(0,0),(-1,-1),10),
-        ("TOPPADDING",(0,0),(-1,-1),6),
-        ("BOTTOMPADDING",(0,0),(-1,-1),6),
+        ("BACKGROUND",(0,0),(-1,-1), BG),
+        ("LEFTPADDING",(0,0),(-1,-1),12),
+        ("TOPPADDING",(0,0),(-1,-1),7),
+        ("BOTTOMPADDING",(0,0),(-1,-1),7),
+        ("TEXTCOLOR",(0,0),(-1,-1),SAND3),
+        ("LINEBELOW",(0,0),(-1,-1),0.5,C("#2E3D47")),
     ]))
     story.append(meta)
-    story.append(Spacer(1, 10))
-
-    # ── Page 1: Narrative + KPIs + Chart ──────────────────────────────────────
-    story.append(Paragraph(f"Month: {mshort(month)}", s["h1"]))
-    story.append(HRFlowable(width="100%", thickness=1, color=RL_SAND, spaceAfter=6))
-
-    # Narrative lines
-    if p_net:
-        chg = pct(net - p_net, p_net) * 100
-        direction = "decreased" if chg < 0 else "increased"
-        story.append(Paragraph(
-            f"The Sales of {mshort(month)} {direction} by {abs(chg):.1f}% for the month of {pml}",
-            s["alert"] if chg < 0 else s["body"]))
-        story.append(Spacer(1, 3))
-
-    disc_pct = pct(disc, gross) * 100
-    if disc_pct > 20:
-        story.append(Paragraph(
-            f"{n(disc)} of the discount is alarming, indicating a percentage of {disc_pct:.2f}%",
-            s["alert"]))
-        story.append(Spacer(1, 3))
-
-    if not cogs_all.empty and "month" in cogs_all.columns:
-        monthly = cogs_all.groupby("month").apply(
-            lambda df: agg(df, "net_sales")).reset_index()
-        monthly.columns = ["month", "net_sales"]
-        if len(monthly) > 1:
-            best  = monthly.loc[monthly["net_sales"].idxmax()]
-            worst = monthly.loc[monthly["net_sales"].idxmin()]
-            story.append(Paragraph(
-                f"{mshort(best['month'])} is the highest monthly sales till Day", s["body"]))
-            story.append(Spacer(1, 2))
-            story.append(Paragraph(
-                f"{mshort(worst['month'])} is the lowest monthly sales till Day", s["body"]))
-            story.append(Spacer(1, 3))
-
-    story.append(Paragraph(
-        f"Total F&B consumption for the month of {mshort(month)} is {n(gcogs)}", s["body"]))
     story.append(Spacer(1, 12))
 
-    # KPI boxes
-    kpi_table = Table([[
-        Table([[Paragraph("Net Sales", s["small"]),
-                Paragraph(n(net), ParagraphStyle("kv", fontName="Helvetica-Bold", fontSize=18,
-                                                  textColor=RL_CHARCOAL, alignment=TA_CENTER))]],
-               colWidths=[W*0.35]),
-        Table([[Paragraph(f"Net COGS", s["small"]),
-                Paragraph(f"{n(ncogs)}  {pct(ncogs,net)*100:.1f}%",
-                           ParagraphStyle("kv2", fontName="Helvetica-Bold", fontSize=14,
-                                          textColor=RL_CHARCOAL, alignment=TA_CENTER))]],
-               colWidths=[W*0.35]),
-    ]], colWidths=[W*0.42, W*0.42])
-    kpi_table.setStyle(TableStyle([
-        ("BACKGROUND",(0,0),(0,0),RL_SAND_LIGHT),
-        ("BACKGROUND",(1,0),(1,0),RL_SAND_LIGHT),
-        ("BOX",(0,0),(0,0),0.5,RL_SAND),
-        ("BOX",(1,0),(1,0),0.5,RL_SAND),
-        ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
-        ("TOPPADDING",(0,0),(-1,-1),12),
-        ("BOTTOMPADDING",(0,0),(-1,-1),12),
-        ("LEFTPADDING",(0,0),(-1,-1),14),
+    # Section title
+    story.append(Paragraph(f"Month: {mshort(month)}", S["h1"]))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=SAND3, spaceAfter=8))
+
+    # Narrative
+    narratives = []
+    if p_net:
+        chg = pct(net-p_net, p_net)*100
+        direction = "decreased" if chg<0 else "increased"
+        sty = S["body_red"] if chg<0 else S["body"]
+        narratives.append(Paragraph(
+            f"The Sales of {mshort(month)} {direction} by {abs(chg):.1f}% "
+            f"for the month of {pml}", sty))
+
+    disc_pct = pct(disc,gross)*100
+    if disc_pct > 20:
+        narratives.append(Paragraph(
+            f"{n(disc)} of the discount is alarming, "
+            f"indicating a percentage of {disc_pct:.2f}%", S["body_red"]))
+
+    if not cogs_all.empty and "month" in cogs_all.columns:
+        real = cogs_all[pd.to_numeric(cogs_all.get("net_sales",pd.Series()), errors="coerce").fillna(0)>0]
+        if not real.empty:
+            monthly = real.groupby("month").apply(
+                lambda df: agg(df,"net_sales")).reset_index()
+            monthly.columns = ["month","net_sales"]
+            if len(monthly)>1:
+                best  = monthly.loc[monthly["net_sales"].idxmax()]
+                worst = monthly.loc[monthly["net_sales"].idxmin()]
+                narratives.append(Paragraph(
+                    f"{mshort(best['month'])} is the highest monthly sales till date", S["body"]))
+                narratives.append(Paragraph(
+                    f"{mshort(worst['month'])} is the lowest monthly sales till date", S["body"]))
+
+    narratives.append(Paragraph(
+        f"Total F&B consumption for the month of {mshort(month)} is {n(gcogs)}", S["body"]))
+
+    for p in narratives:
+        story.append(p)
+        story.append(Spacer(1,3))
+
+    story.append(Spacer(1, 12))
+
+    # KPI boxes — 2 prominent cards
+    def kpi_cell(label, value, sub):
+        inner = Table([
+            [Paragraph(label, S["kpi_lbl"])],
+            [Paragraph(value, S["kpi_val"])],
+            [Paragraph(sub,   S["kpi_sub"])],
+        ], colWidths=[(W-50)/2-10])
+        inner.setStyle(TableStyle([
+            ("BACKGROUND",(0,0),(-1,-1), BG2),
+            ("BOX",(0,0),(-1,-1),1,SAND3),
+            ("TOPPADDING",(0,0),(-1,-1),10),
+            ("BOTTOMPADDING",(0,0),(-1,-1),10),
+            ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+        ]))
+        return inner
+
+    kpi_row = Table([[
+        kpi_cell("NET SALES", n(net), ml),
+        kpi_cell("NET COGS", n(ncogs), f"{pct(ncogs,net)*100:.2f}% of Net Sales"),
+    ]], colWidths=[(W-50)/2, (W-50)/2])
+    kpi_row.setStyle(TableStyle([
+        ("LEFTPADDING",(0,0),(-1,-1),4),
+        ("RIGHTPADDING",(0,0),(-1,-1),4),
     ]))
-    story.append(kpi_table)
+    story.append(kpi_row)
     story.append(Spacer(1, 14))
 
-    # Monthly chart
+    # Monthly chart — filter zero months
     if not cogs_all.empty:
-        monthly2 = cogs_all.groupby("month").agg(
-            net_sales=("net_sales", lambda x: pd.to_numeric(x, errors="coerce").sum()),
-            net_cogs=("net_cogs",   lambda x: pd.to_numeric(x, errors="coerce").sum()),
-        ).reset_index().sort_values("month")
-        monthly2["month_label"] = monthly2["month"].apply(mshort)
-        chart_buf = chart_monthly_bar(monthly2)
-        story.append(RLImage(chart_buf, width=W-60, height=140))
+        cogs_all2 = cogs_all.copy()
+        cogs_all2["net_sales"] = pd.to_numeric(cogs_all2["net_sales"], errors="coerce").fillna(0)
+        cogs_all2["net_cogs"]  = pd.to_numeric(cogs_all2["net_cogs"],  errors="coerce").fillna(0)
+        real_months = cogs_all2.groupby("month").agg(
+            net_sales=("net_sales","sum"), net_cogs=("net_cogs","sum")
+        ).reset_index()
+        real_months = real_months[real_months["net_sales"]>0].sort_values("month")
+        real_months["month_label"] = real_months["month"].apply(mshort)
+        if not real_months.empty:
+            chart_buf = chart_monthly(real_months)
+            story.append(RLImage(chart_buf, width=W-50, height=145))
 
     story.append(PageBreak())
 
-    # ── Pages 2–3: Category sections ──────────────────────────────────────────
-    for cat in ["Beverages", "Food"]:
-        ns_cat  = agg_cat(cogs_cur, "net_sales", cat)
-        gc_cat  = agg_cat(cogs_cur, "gross_cogs", cat)
-        nc_cat  = agg_cat(cogs_cur, "net_cogs", cat)
-        if ns_cat == 0: continue
+    # ── PAGES 2-3: Category sections ──────────────────────────────────────────
+    for cat in ["Beverages","Food"]:
+        ns_c  = agg_cat(cogs_cur,"net_sales",cat)
+        gc_c  = agg_cat(cogs_cur,"gross_cogs",cat)
+        nc_c  = agg_cat(cogs_cur,"net_cogs",cat)
+        if ns_c == 0: continue
 
-        story.append(Paragraph(f"{cat} Category", s["h1"]))
-        story.append(HRFlowable(width="100%", thickness=1, color=RL_SAND, spaceAfter=6))
-
-        # Category metrics row
-        metrics_row = Table([[
-            Paragraph("Net Sales", s["small"]),
-            Paragraph("Gross COGS", s["small"]),
-            Paragraph("Net COGS", s["small"]),
-        ],[
-            Paragraph(n(ns_cat), ParagraphStyle("mv", fontName="Helvetica-Bold", fontSize=11, textColor=RL_CHARCOAL)),
-            Paragraph(f"{n(gc_cat)}  {pct(gc_cat,ns_cat)*100:.1f}%",
-                      ParagraphStyle("mv2", fontName="Helvetica-Bold", fontSize=10, textColor=RL_CHARCOAL)),
-            Paragraph(f"{n(nc_cat)}  {pct(nc_cat,ns_cat)*100:.1f}%",
-                      ParagraphStyle("mv3", fontName="Helvetica-Bold", fontSize=10, textColor=RL_CHARCOAL)),
-        ]], colWidths=[W*0.28, W*0.28, W*0.28])
-        metrics_row.setStyle(TableStyle([
-            ("BACKGROUND",(0,0),(-1,-1),RL_SAND_LIGHT),
-            ("BOX",(0,0),(-1,-1),0.5,RL_SAND),
-            ("INNERGRID",(0,0),(-1,-1),0.25,RL_SAND),
-            ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+        # Category header
+        cat_hdr = Table([[Paragraph(f"{cat} Category", S["h1"])]],
+                        colWidths=[W-40])
+        cat_hdr.setStyle(TableStyle([
+            ("BACKGROUND",(0,0),(-1,-1),BG2),
+            ("LEFTPADDING",(0,0),(-1,-1),12),
             ("TOPPADDING",(0,0),(-1,-1),8),
             ("BOTTOMPADDING",(0,0),(-1,-1),8),
-            ("LEFTPADDING",(0,0),(-1,-1),10),
+            ("LINEBELOW",(0,0),(-1,-1),1.5,SAND3),
         ]))
-        story.append(metrics_row)
-        story.append(Spacer(1, 10))
+        story.append(cat_hdr)
+        story.append(Spacer(1,8))
 
+        # Metrics row
+        def metric_cell(lbl, val, sub=""):
+            t = Table([
+                [Paragraph(lbl, S["metric_lbl"])],
+                [Paragraph(val, S["metric_val"])],
+                [Paragraph(sub, S["small"])],
+            ], colWidths=[(W-50)/3-6])
+            t.setStyle(TableStyle([
+                ("BACKGROUND",(0,0),(-1,-1),BG2),
+                ("BOX",(0,0),(-1,-1),0.5,C("#2E3D47")),
+                ("LEFTPADDING",(0,0),(-1,-1),10),
+                ("TOPPADDING",(0,0),(-1,-1),7),
+                ("BOTTOMPADDING",(0,0),(-1,-1),7),
+            ]))
+            return t
+
+        metrics = Table([[
+            metric_cell("Net Sales",  n(ns_c), ""),
+            metric_cell("Gross COGS", n(gc_c), f"{pct(gc_c,ns_c)*100:.1f}% of Net Sales"),
+            metric_cell("Net COGS",   n(nc_c), f"{pct(nc_c,ns_c)*100:.1f}% of Net Sales"),
+        ]], colWidths=[(W-50)/3]*3)
+        metrics.setStyle(TableStyle([
+            ("LEFTPADDING",(0,0),(-1,-1),3),
+            ("RIGHTPADDING",(0,0),(-1,-1),3),
+        ]))
+        story.append(metrics)
+        story.append(Spacer(1,10))
+
+        # Groups & items list + chart
         if not sales_df.empty and "category" in sales_df.columns:
-            sub = sales_df[sales_df["category"] == cat].copy()
-            sub["gross_sales"] = pd.to_numeric(sub["gross_sales"], errors="coerce").fillna(0)
-            sub["qty_sold"]    = pd.to_numeric(sub["qty_sold"],    errors="coerce").fillna(0)
+            sub = sales_df[sales_df["category"]==cat].copy()
+            sub["gross_sales"] = pd.to_numeric(sub["gross_sales"],errors="coerce").fillna(0)
+            sub["qty_sold"]    = pd.to_numeric(sub["qty_sold"],   errors="coerce").fillna(0)
 
             if not sub.empty and "group" in sub.columns:
                 grp = sub.groupby("group").agg(
-                    revenue=("gross_sales","sum"), qty=("qty_sold","sum")
-                ).reset_index().sort_values("revenue", ascending=False)
+                    revenue=("gross_sales","sum")).reset_index().sort_values("revenue",ascending=False)
+                top3 = sub.nlargest(3,"gross_sales")
 
-                top3 = sub.nlargest(3, "gross_sales")
+                # Left column: lists
+                left = []
+                left.append(Paragraph("<b>Top 5 Groups by Revenue</b>", S["h2"]))
+                left.append(Spacer(1,4))
+                for i,(_, r) in enumerate(grp.head(5).iterrows(),1):
+                    left.append(Paragraph(
+                        f"{i}.  {str(r['group'])[:28]}",
+                        S["body"]))
+                    left.append(Paragraph(
+                        f"     {n(r['revenue'])} LBP", S["small"]))
+                    left.append(Spacer(1,3))
 
-                # Two columns: text lists + chart
-                left_rows = []
+                left.append(Spacer(1,8))
+                left.append(Paragraph("<b>Top 3 Menu Items by Revenue</b>", S["h2"]))
+                left.append(Spacer(1,4))
 
-                left_rows.append(Paragraph("<b>Top 5 Groups by Revenue</b>", s["h2"]))
-                left_rows.append(Spacer(1, 4))
-                for i, (_, r) in enumerate(grp.head(5).iterrows(), 1):
-                    left_rows.append(Paragraph(
-                        f"{i}. {str(r['group'])[:30]}  —  {n(r['revenue'])}",
-                        s["body"]))
-                    left_rows.append(Spacer(1, 2))
-
-                left_rows.append(Spacer(1, 8))
-                left_rows.append(Paragraph("<b>Top 3 Menu Items by Revenue</b>", s["h2"]))
-                left_rows.append(Spacer(1, 4))
-
-                # Header
-                hdr_t = Table([["Qty", "Revenue"]], colWidths=[40, 90])
+                hdr_t = Table([["","Qty","Revenue"]],colWidths=[110,35,85])
                 hdr_t.setStyle(TableStyle([
                     ("FONTNAME",(0,0),(-1,-1),"Helvetica-Bold"),
-                    ("FONTSIZE",(0,0),(-1,-1),8),
-                    ("TEXTCOLOR",(0,0),(-1,-1),RL_GRAY),
+                    ("FONTSIZE",(0,0),(-1,-1),7.5),
+                    ("TEXTCOLOR",(0,0),(-1,-1),SAND3),
+                    ("LINEBELOW",(0,0),(-1,-1),0.5,C("#2E3D47")),
+                    ("BOTTOMPADDING",(0,0),(-1,-1),3),
                 ]))
-                left_rows.append(hdr_t)
+                left.append(hdr_t)
 
-                for i, (_, r) in enumerate(top3.iterrows(), 1):
-                    item_t = Table([[
-                        Paragraph(f"{i}. {str(r.get('description',''))[:22]}", s["body"]),
-                        Paragraph(n(r["qty_sold"],0), s["td_r"]),
-                        Paragraph(n(r["gross_sales"]), s["td_r"]),
-                    ]], colWidths=[130, 40, 90])
-                    left_rows.append(item_t)
-                    left_rows.append(Spacer(1, 2))
+                for i,(_, r) in enumerate(top3.iterrows(),1):
+                    row_t = Table([[
+                        Paragraph(f"{i}.  {str(r.get('description',''))[:20]}", S["body"]),
+                        Paragraph(n(r["qty_sold"],0), S["td_r"]),
+                        Paragraph(n(r["gross_sales"]), S["td_r"]),
+                    ]], colWidths=[110,35,85])
+                    row_t.setStyle(TableStyle([
+                        ("TOPPADDING",(0,0),(-1,-1),3),
+                        ("BOTTOMPADDING",(0,0),(-1,-1),3),
+                        ("TEXTCOLOR",(0,0),(-1,-1),SAND),
+                        ("LINEBELOW",(0,0),(-1,-1),0.3,C("#2E3D47")),
+                    ]))
+                    left.append(row_t)
 
-                # Chart
-                chart_buf2 = chart_horizontal_bar(
+                # Right: chart
+                chart_buf2 = chart_hbar(
                     grp["group"].tolist(),
                     grp["revenue"].tolist(),
                     f"{cat} Revenue by Group"
                 )
-                chart_img = RLImage(chart_buf2, width=W*0.45, height=160)
+                chart_img = RLImage(chart_buf2, width=W*0.46, height=165)
 
-                # Layout: left content + right chart
-                content_col = left_rows
-                layout = Table([[content_col, chart_img]],
-                               colWidths=[W*0.43, W*0.47])
+                layout = Table([[left, chart_img]],
+                               colWidths=[W*0.40, W*0.48])
                 layout.setStyle(TableStyle([
                     ("VALIGN",(0,0),(-1,-1),"TOP"),
+                    ("LEFTPADDING",(0,0),(-1,-1),0),
+                    ("RIGHTPADDING",(0,0),(-1,-1),0),
                 ]))
                 story.append(layout)
 
         story.append(PageBreak())
 
-    # ── Page 4: Waste & Variance ───────────────────────────────────────────────
-    story.append(Paragraph("Waste & Variance Metrics", s["h1"]))
-    story.append(HRFlowable(width="100%", thickness=1, color=RL_SAND, spaceAfter=8))
+    # ── PAGE 4: Waste & Variance ────────────────────────────────────────────────
+    cat_hdr4 = Table([[Paragraph("Waste & Variance Metrics", S["h1"])]],
+                     colWidths=[W-40])
+    cat_hdr4.setStyle(TableStyle([
+        ("BACKGROUND",(0,0),(-1,-1),BG2),
+        ("LEFTPADDING",(0,0),(-1,-1),12),
+        ("TOPPADDING",(0,0),(-1,-1),8),
+        ("BOTTOMPADDING",(0,0),(-1,-1),8),
+        ("LINEBELOW",(0,0),(-1,-1),1.5,SAND3),
+    ]))
+    story.append(cat_hdr4)
+    story.append(Spacer(1,10))
 
-    for cat in ["Beverages", "Food"]:
-        waste_cat = agg_cat(cogs_cur, "waste", cat)
-        ns_cat    = agg_cat(cogs_cur, "net_sales", cat)
-        waste_pct = pct(waste_cat, ns_cat) * 100
-
-        if waste_pct > 20:
-            story.append(Paragraph(
-                f"🚨 Dangerous: {cat} waste is severely high {waste_pct:.1f}%. Immediate action required.",
-                s["alert"]))
-        elif waste_pct > 5:
-            story.append(Paragraph(
-                f"⚠️ High: {cat} waste at {waste_pct:.1f}%.", s["body"]))
-        elif waste_pct > 0:
-            story.append(Paragraph(
-                f"✅ Normal: {cat} waste is under {waste_pct:.1f}%.", s["body"]))
+    # Waste status
+    waste_rows = []
+    for cat in ["Beverages","Food"]:
+        w_val = agg_cat(cogs_cur,"waste",cat)
+        ns_c  = agg_cat(cogs_cur,"net_sales",cat)
+        w_pct = pct(w_val,ns_c)*100
+        if w_pct > 20:
+            indicator = "[DANGEROUS]"; sty = S["body_red"]
+            msg = f"Waste is severely high at {w_pct:.1f}%. Immediate action required."
+        elif w_pct > 5:
+            indicator = "[HIGH]"; sty = S["body_red"]
+            msg = f"Waste is high at {w_pct:.1f}%."
+        elif w_pct > 0:
+            indicator = "[NORMAL]"; sty = S["body"]
+            msg = f"Waste is under control at {w_pct:.1f}%."
         else:
-            story.append(Paragraph(f"✅ Normal: {cat} waste is under 3%.", s["body"]))
+            indicator = "[NORMAL]"; sty = S["body"]
+            msg = "Waste is under 3%."
+        waste_rows.append([
+            Paragraph(f"{cat}", S["td_b"]),
+            Paragraph(f"{indicator}  {msg}", sty),
+        ])
 
-        story.append(Spacer(1, 3))
+    w_table = Table(waste_rows, colWidths=[80, W-160])
+    w_table.setStyle(TableStyle([
+        ("ROWBACKGROUNDS",(0,0),(-1,-1),[BG2,BG]),
+        ("TOPPADDING",(0,0),(-1,-1),6),
+        ("BOTTOMPADDING",(0,0),(-1,-1),6),
+        ("LEFTPADDING",(0,0),(-1,-1),10),
+        ("GRID",(0,0),(-1,-1),0.3,C("#2E3D47")),
+        ("TEXTCOLOR",(0,0),(-1,-1),SAND),
+    ]))
+    story.append(w_table)
+    story.append(Spacer(1,12))
 
+    # Variance status
     if not var_df.empty:
         var_df2 = var_df.copy()
-        var_df2["tt_variance_lbp"] = pd.to_numeric(var_df2["tt_variance_lbp"], errors="coerce").fillna(0)
+        var_df2["tt_variance_lbp"] = pd.to_numeric(var_df2["tt_variance_lbp"],errors="coerce").fillna(0)
 
-        story.append(Spacer(1, 8))
-        for cat in ["Beverages", "Food"]:
-            sub = var_df2[var_df2["category"] == cat]
-            neg = sub[sub["tt_variance_lbp"] < 0]["tt_variance_lbp"].sum()
-            pos = sub[sub["tt_variance_lbp"] > 0]["tt_variance_lbp"].sum()
-            lvl = "✅ Acceptable" if abs(neg) < 5000000 else "⚠️ Watch"
-            story.append(Paragraph(
-                f"{lvl}: {cat} variance — Negative: ({n(abs(neg))}) | Positive: {n(pos)} LBP",
-                s["body"]))
-            story.append(Spacer(1, 3))
+        var_rows = []
+        for cat in ["Beverages","Food"]:
+            sub = var_df2[var_df2["category"]==cat]
+            neg = sub[sub["tt_variance_lbp"]<0]["tt_variance_lbp"].sum()
+            pos = sub[sub["tt_variance_lbp"]>0]["tt_variance_lbp"].sum()
+            status = "[ACCEPTABLE]" if abs(neg)<5000000 else "[WATCH]"
+            var_rows.append([
+                Paragraph(cat, S["td_b"]),
+                Paragraph(f"{status}  Variance — "
+                          f"Negative: ({n(abs(neg))}) | Positive: {n(pos)} LBP", S["body"]),
+            ])
+
+        v_table = Table(var_rows, colWidths=[80, W-160])
+        v_table.setStyle(TableStyle([
+            ("ROWBACKGROUNDS",(0,0),(-1,-1),[BG2,BG]),
+            ("TOPPADDING",(0,0),(-1,-1),6),
+            ("BOTTOMPADDING",(0,0),(-1,-1),6),
+            ("LEFTPADDING",(0,0),(-1,-1),10),
+            ("GRID",(0,0),(-1,-1),0.3,C("#2E3D47")),
+            ("TEXTCOLOR",(0,0),(-1,-1),SAND),
+        ]))
+        story.append(v_table)
+        story.append(Spacer(1,14))
 
         # Variance chart
-        story.append(Spacer(1, 10))
-        top_abs = var_df2.assign(abs_var=var_df2["tt_variance_lbp"].abs()).nlargest(12, "abs_var")
-        v_buf = chart_variance_bar(
+        top_abs = var_df2.assign(abs_var=var_df2["tt_variance_lbp"].abs()).nlargest(12,"abs_var")
+        v_buf = chart_variance(
             top_abs["product"].tolist(),
             top_abs["tt_variance_lbp"].tolist(),
             "Top Variances by Absolute Value (LBP)"
         )
-        story.append(RLImage(v_buf, width=W-60, height=180))
+        story.append(RLImage(v_buf, width=W-50, height=190))
 
+    # ── Build ──────────────────────────────────────────────────────────────────
     doc = SimpleDocTemplate(buf, pagesize=A4,
-        leftMargin=18*mm, rightMargin=18*mm,
-        topMargin=14*mm, bottomMargin=20*mm,
-        title=f"Financial Overview — {client} — {ml}",
+        leftMargin=20*mm, rightMargin=20*mm,
+        topMargin=14*mm, bottomMargin=22*mm,
+        title=f"Financial Overview — {client} — {mlabel(month)}",
         author="EK Consulting")
     doc.build(story, onFirstPage=footer, onLaterPages=footer)
     buf.seek(0)
@@ -662,10 +882,10 @@ def render_overview(supabase, conn, user, role, client_arg, outlet, location):
         if st.button("📄 Export PDF", type="primary", use_container_width=True, key="ov_pdf"):
             with st.spinner("Generating PDF..."):
                 try:
-                    pdf_buf = build_pdf(
+                    pdf_buf = build_financial_overview_pdf(
                         selected_client, selected_month, prev_m,
                         cogs_cur, cogs_prev, cogs_all,
-                        sales_df, var_df, theo_df
+                        sales_df, var_df
                     )
                     slug = selected_client.replace(" ","_").replace("/","-")
                     ml_  = mlabel(selected_month).replace(" ","_")
