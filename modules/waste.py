@@ -152,7 +152,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         loc_filter = final_location_sidebar
         if not df_items.empty and loc_filter and loc_filter.lower() not in ['all', 'none', '']:
             df_items = df_items[df_items['location'].str.strip().str.title() == loc_filter]
-            df_items = df_items.drop_duplicates(subset=['item_name']).copy()
+            df_items = df_items.drop_duplicates(subset=['item_name', 'item_type']).copy()
 
         waste_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")))
         st.divider()
