@@ -253,8 +253,9 @@ def render_main(conn, sheet_link, user, role):
                             clean.append(("item", vals))
 
                 # Step 3: Parse
-                # Same value repeated twice = Sub-category + Division
-                # Different single text = Category
+                # Single text = Category
+                # Same value x2 = Sub-category + Division (skip division)
+                # Same value x3+ = Category only (e.g. BOOKS BOOKS BOOKS)
                 records = []
                 current_category     = ""
                 current_sub_category = ""
@@ -262,10 +263,17 @@ def render_main(conn, sheet_link, user, role):
                 while i < len(clean):
                     rtype, rval = clean[i]
                     if rtype == "text":
-                        next_is_same = (i+1 < len(clean) and
-                                       clean[i+1][0] == "text" and
-                                       clean[i+1][1].strip().lower() == rval.strip().lower())
-                        if next_is_same:
+                        same_count = 1
+                        j = i + 1
+                        while j < len(clean) and clean[j][0] == "text" and                               clean[j][1].strip().lower() == rval.strip().lower():
+                            same_count += 1
+                            j += 1
+                        if same_count >= 3:
+                            # Category + Division + Sub-category all same name
+                            current_category     = proper(rval)
+                            current_sub_category = proper(rval)
+                            i += same_count
+                        elif same_count == 2:
                             current_sub_category = proper(rval)
                             i += 2
                         else:
