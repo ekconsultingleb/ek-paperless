@@ -213,78 +213,67 @@ def render_main(conn, sheet_link, user, role):
             def parse_menu_items(f, client, outlet, location):
                 raw = pd.read_excel(f, header=None)
 
-                def is_sys_menu(vals):
-                    if not vals: return True
-                    if len(vals) <= 3 and any("page" in str(v).lower() for v in vals): return True
-                    if any(str(v).strip().lower() in ["description","menu description",
-                                                       "kitchen","item id","printout 1"] for v in vals): return True
-                    if any(kw in str(v).lower() for v in vals
-                           for kw in ["programming summary","copyright","omega software","www."]): return True
-                    return False
-
-                # Build clean sequence
-                # Row 0 of Omega Menu Items is always the outlet/client name — skip it
-                clean = []
+                # Step 1: Pre-clean — strip all noise rows first
+                clean_rows = []
                 for row_idx, (_, row) in enumerate(raw.iterrows()):
-                    raw_vals = row.tolist()
-                    vals = [v for v in raw_vals if str(v) not in ["nan","NaT","None",""]]
-                    if row_idx == 0: continue  # skip client/outlet name row
-                    if is_sys_menu(vals): continue
+                    if row_idx == 0: continue  # always client/outlet name row
+                    vals = [v for v in row.tolist() if str(v) not in ["nan","NaT","None",""]]
+                    if not vals: continue
                     if len(vals) == 1:
                         v = vals[0]
-                        # Skip Timestamp rows (page break markers in Omega)
                         if isinstance(v, pd.Timestamp): continue
-                        # Integer type = Omega item ID
-                        if isinstance(v, (int, float)) and not isinstance(v, bool):
-                            try:
-                                id_val = int(v)
-                                clean.append(("id", id_val))
-                            except: pass
-                            continue
                         val_str = str(v).strip()
-                        # Skip page number strings like " 10" (string digits)
-                        if val_str.strip().isdigit(): continue
-                        clean.append(("text", val_str))
+                        if val_str.isdigit(): continue  # page numbers like "10"
+                        skip = ["description","menu description","kitchen","item id",
+                                "printout 1","programming summary","copyright",
+                                "omega software","www.","omegapos","omegasoftware"]
+                        if any(sk in val_str.lower() for sk in skip): continue
+                    else:
+                        skip = ["description","copyright","omega software","www.","omegapos"]
+                        if any(any(sk in str(v).lower() for sk in skip) for v in vals): continue
+                    clean_rows.append(vals)
+
+                # Step 2: Build typed sequence
+                clean = []
+                for vals in clean_rows:
+                    if len(vals) == 1:
+                        v = vals[0]
+                        if isinstance(v, (int, float)) and not isinstance(v, bool):
+                            try: clean.append(("id", int(v)))
+                            except: pass
+                        else:
+                            clean.append(("text", str(v).strip()))
                     else:
                         name = str(vals[0]).strip()
-                        if name and name.upper() != "DONE" and name.lower() != "item id":
+                        if name and name.upper() != "DONE":
                             clean.append(("item", vals))
 
-                # Menu Items Omega structure:
-                # Category   → single text row (different from next text row)
-                # Sub-cat    → same value repeated twice (sub + division)
-                # Item       → multi-value row
-                # ID         → single integer after item row
+                # Step 3: Parse
+                # Same value repeated twice = Sub-category + Division
+                # Different single text = Category
                 records = []
                 current_category     = ""
                 current_sub_category = ""
                 i = 0
                 while i < len(clean):
                     rtype, rval = clean[i]
-
                     if rtype == "text":
-                        next_is_same_text = (
-                            i+1 < len(clean) and
-                            clean[i+1][0] == "text" and
-                            clean[i+1][1].strip().lower() == rval.strip().lower()
-                        )
-                        if next_is_same_text:
-                            # Same value repeated = Sub-category + Division → keep sub, skip division
+                        next_is_same = (i+1 < len(clean) and
+                                       clean[i+1][0] == "text" and
+                                       clean[i+1][1].strip().lower() == rval.strip().lower())
+                        if next_is_same:
                             current_sub_category = proper(rval)
                             i += 2
                         else:
-                            # Different or single text = Category
                             current_category     = proper(rval)
                             current_sub_category = ""
                             i += 1
-
                     elif rtype == "item":
                         item_name    = proper(rval[0])
-                        product_code = item_name  # fallback
+                        product_code = item_name
                         if i+1 < len(clean) and clean[i+1][0] == "id":
                             product_code = str(clean[i+1][1])
-                            i += 1  # consume ID row
-
+                            i += 1
                         if item_name:
                             records.append({
                                 "client_name":   client,
@@ -298,10 +287,8 @@ def render_main(conn, sheet_link, user, role):
                                 "count_unit":    "Unit",
                             })
                         i += 1
-
                     else:
-                        i += 1  # orphan ID
-
+                        i += 1
                 return pd.DataFrame(records)
 
             # ── Preview & Push ─────────────────────────────────────────────
