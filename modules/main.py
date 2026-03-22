@@ -137,63 +137,70 @@ def render_main(conn, sheet_link, user, role):
             # ── Parse Inventory file ───────────────────────────────────────
             def parse_inventory(f, client, outlet, location):
                 raw = pd.read_excel(f, header=None)
-                records = []
-                current_category    = ""
-                current_sub_category = ""
-                
+
+                def is_sys(vals):
+                    if not vals: return True
+                    if len(vals) <= 3 and any("page" in str(v).lower() for v in vals): return True
+                    if any(str(v).strip().lower() in ["item id","product code","buying u"] for v in vals): return True
+                    if any(kw in str(v).lower() for v in vals
+                           for kw in ["programming summary","copyright","omega software","www."]): return True
+                    return False
+
+                # Build clean sequence: ("text", value) or ("item", vals)
+                clean = []
                 for _, row in raw.iterrows():
                     vals = [v for v in row.tolist() if str(v) not in ["nan","NaT","None",""]]
-                    
-                    # Skip empty / page break rows
-                    if not vals or is_page_break_row(row.tolist()): continue
-                    
-                    # Skip header rows (contain "Item Id" or "Product Code")
-                    if any(str(v).strip().lower() in ["item id","product code","buying u"] for v in vals): continue
-                    
-                    # Skip title rows (contain "Programming Summary")
-                    if any("programming summary" in str(v).lower() for v in vals): continue
-                    
-                    # Detect category / sub-category rows (single text value, not numeric)
-                    if len(vals) == 1 and not str(vals[0]).isdigit():
+                    if is_sys(vals): continue
+                    if len(vals) == 1:
                         val_str = str(vals[0]).strip()
-                        # First occurrence = category, second = sub-category
-                        # Pattern: category appears, then sub-category, then items
-                        # We detect by checking if it looks like a known category
-                        known_cats = ["beverages","food","tobacco","books"]
-                        if val_str.lower() in known_cats:
-                            current_category = proper(val_str)
+                        try: float(val_str); continue
+                        except ValueError: pass
+                        clean.append(("text", val_str))
+                    else:
+                        try: int(float(str(vals[0])))
+                        except (ValueError, TypeError): continue
+                        clean.append(("item", vals))
+
+                # Parse: two consecutive text rows = Category + Division (skip division)
+                #        one text row alone = Sub-category
+                records = []
+                current_category     = ""
+                current_sub_category = ""
+                i = 0
+                while i < len(clean):
+                    rtype, rval = clean[i]
+                    if rtype == "text":
+                        if i+1 < len(clean) and clean[i+1][0] == "text":
+                            # Category + Division pair
+                            current_category     = proper(rval)
                             current_sub_category = ""
+                            i += 2  # skip division row
                         else:
-                            current_sub_category = proper(val_str)
-                        continue
-                    
-                    # Item row: first value is numeric ID
-                    try:
-                        item_id = int(float(str(vals[0])))
-                    except (ValueError, TypeError):
-                        continue
-                    
-                    # Extract fields by position
-                    try:
-                        product_code = proper(vals[1]) if len(vals) > 1 else ""
-                        item_name    = proper(vals[2]) if len(vals) > 2 else ""
-                        count_unit   = proper(vals[5]) if len(vals) > 5 else proper(vals[3]) if len(vals) > 3 else ""
-                    except Exception:
-                        continue
-                    
-                    if not item_name: continue
-                    
-                    records.append({
-                        "client_name":   client,
-                        "outlet":        outlet,
-                        "location":      location,
-                        "item_type":     "inventory",
-                        "category":      current_category,
-                        "sub_category":  current_sub_category,
-                        "product_code":  product_code,
-                        "item_name":     item_name,
-                        "count_unit":    count_unit,
-                    })
+                            # Sub-category
+                            current_sub_category = proper(rval)
+                            i += 1
+                    else:
+                        vals = rval
+                        try:
+                            product_code = proper(vals[1]) if len(vals) > 1 else ""
+                            item_name    = proper(vals[2]) if len(vals) > 2 else ""
+                            count_unit   = proper(vals[5]) if len(vals) > 5 else (
+                                           proper(vals[3]) if len(vals) > 3 else "")
+                        except Exception:
+                            i += 1; continue
+                        if item_name:
+                            records.append({
+                                "client_name":   client,
+                                "outlet":        outlet,
+                                "location":      location,
+                                "item_type":     "inventory",
+                                "category":      current_category,
+                                "sub_category":  current_sub_category,
+                                "product_code":  product_code,
+                                "item_name":     item_name,
+                                "count_unit":    count_unit,
+                            })
+                        i += 1
                 return pd.DataFrame(records)
 
             # ── Parse Menu Items file ──────────────────────────────────────
