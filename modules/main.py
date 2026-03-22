@@ -247,6 +247,12 @@ def render_main(conn, sheet_link, user, role):
                         item_name  = proper(str(c)) if not _is_empty(c) else ""
                         count_unit = (proper(str(row[5])) if len(row) > 5 and not _is_empty(row[5])
                                       else proper(str(d)) if not _is_empty(d) else "")
+                        # Skip xxx items, xxx sub-categories, xxx categories
+                        if (str(b).lower().startswith("xxx") or
+                            str(c).lower().startswith("xxx") or
+                            cat.lower().startswith("xxx") or
+                            sub.lower().startswith("xxx")):
+                            i += 1; continue
                         if item_name:
                             records.append({
                                 "client_name": client, "outlet": outlet, "location": location,
@@ -293,6 +299,11 @@ def render_main(conn, sheet_link, user, role):
                             nr = data.iloc[i+1]
                             if not _is_empty(nr[0]) and isinstance(nr[0], (int,float)) and _is_empty(nr[1]):
                                 product_code = str(int(nr[0])); i += 1
+                        # Skip xxx items, xxx sub-categories, xxx categories
+                        if (str(b).lower().startswith("xxx") or
+                            cat.lower().startswith("xxx") or
+                            sub.lower().startswith("xxx")):
+                            i += 1; continue
                         if item_name:
                             records.append({
                                 "client_name": client, "outlet": outlet, "location": location,
