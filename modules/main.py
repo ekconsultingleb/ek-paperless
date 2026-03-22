@@ -234,16 +234,16 @@ def render_main(conn, sheet_link, user, role):
                         v = vals[0]
                         # Skip Timestamp rows (page break markers in Omega)
                         if isinstance(v, pd.Timestamp): continue
-                        val_str = str(v).strip()
-                        # Skip page number rows like " 10" or "10"
-                        if val_str.strip().isdigit(): continue
-                        # Pure integer = ID row
-                        try:
-                            id_val = int(float(val_str))
-                            clean.append(("id", id_val))
+                        # Integer type = Omega item ID
+                        if isinstance(v, (int, float)) and not isinstance(v, bool):
+                            try:
+                                id_val = int(v)
+                                clean.append(("id", id_val))
+                            except: pass
                             continue
-                        except ValueError:
-                            pass
+                        val_str = str(v).strip()
+                        # Skip page number strings like " 10" (string digits)
+                        if val_str.strip().isdigit(): continue
                         clean.append(("text", val_str))
                     else:
                         name = str(vals[0]).strip()
