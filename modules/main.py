@@ -193,7 +193,7 @@ def render_main(conn, sheet_link, user, role):
                                 "client_name":   client,
                                 "outlet":        outlet,
                                 "location":      location,
-                                "item_type":     "inventory",
+                                "item_type":     "Inventory",
                                 "category":      current_category,
                                 "sub_category":  current_sub_category,
                                 "product_code":  product_code,
@@ -206,61 +206,79 @@ def render_main(conn, sheet_link, user, role):
             # ── Parse Menu Items file ──────────────────────────────────────
             def parse_menu_items(f, client, outlet, location):
                 raw = pd.read_excel(f, header=None)
-                records = []
-                current_category = ""
-                current_group    = ""
-                header_found     = False
-                
+
+                def is_sys_menu(vals):
+                    if not vals: return True
+                    if len(vals) <= 3 and any("page" in str(v).lower() for v in vals): return True
+                    if any(str(v).strip().lower() in ["description","menu description",
+                                                       "kitchen","item id","printout 1"] for v in vals): return True
+                    if any(kw in str(v).lower() for v in vals
+                           for kw in ["programming summary","copyright","omega software","www."]): return True
+                    return False
+
+                # Build clean sequence
+                clean = []
                 for _, row in raw.iterrows():
                     vals = [v for v in row.tolist() if str(v) not in ["nan","NaT","None",""]]
-                    if not vals: continue
-                    
-                    # Skip title / date rows
-                    if any("programming summary" in str(v).lower() for v in vals): continue
-                    
-                    # Skip numeric-only rows (ID rows)
-                    if len(vals) == 1 and str(vals[0]).strip().lstrip("-").isdigit(): continue
-                    
-                    # Detect header row
-                    if any(str(v).strip().lower() == "description" for v in vals):
-                        header_found = True
-                        continue
-                    
-                    if not header_found: continue
-                    
-                    # Single text value = category or group
-                    if len(vals) == 1 and not str(vals[0]).strip().lstrip("-").isdigit():
+                    if is_sys_menu(vals): continue
+                    if len(vals) == 1:
                         val_str = str(vals[0]).strip()
-                        known_cats = ["beverages","food","tobacco","books"]
-                        if val_str.lower() in known_cats:
-                            current_category = proper(val_str)
-                            current_group    = ""
+                        # Pure integer = ID row
+                        try:
+                            id_val = int(float(val_str))
+                            clean.append(("id", id_val))
+                            continue
+                        except ValueError:
+                            pass
+                        clean.append(("text", val_str))
+                    else:
+                        name = str(vals[0]).strip()
+                        if name and name.upper() != "DONE" and name.lower() != "item id":
+                            clean.append(("item", vals))
+
+                # Parse: two consecutive text rows = Category + Division (skip division)
+                #        one text row alone = Sub-category
+                #        item row followed by id row → product_code = id
+                records = []
+                current_category     = ""
+                current_sub_category = ""
+                i = 0
+                while i < len(clean):
+                    rtype, rval = clean[i]
+
+                    if rtype == "text":
+                        if i+1 < len(clean) and clean[i+1][0] == "text":
+                            current_category     = proper(rval)
+                            current_sub_category = ""
+                            i += 2
                         else:
-                            current_group = proper(val_str)
-                        continue
-                    
-                    # Item row: has Description + price levels
-                    try:
-                        item_name    = proper(vals[0])
-                        product_code = proper(vals[0])  # use name as code for menu items
-                    except Exception:
-                        continue
-                    
-                    # Skip "DONE" placeholder items
-                    if item_name.upper() == "DONE": continue
-                    if not item_name: continue
-                    
-                    records.append({
-                        "client_name":   client,
-                        "outlet":        outlet,
-                        "location":      location,
-                        "item_type":     "menu",
-                        "category":      current_category,
-                        "sub_category":  current_group,
-                        "product_code":  product_code,
-                        "item_name":     item_name,
-                        "count_unit":    "Unit",
-                    })
+                            current_sub_category = proper(rval)
+                            i += 1
+
+                    elif rtype == "item":
+                        item_name    = proper(rval[0])
+                        product_code = item_name  # fallback
+                        if i+1 < len(clean) and clean[i+1][0] == "id":
+                            product_code = str(clean[i+1][1])
+                            i += 1  # consume ID row
+
+                        if item_name:
+                            records.append({
+                                "client_name":   client,
+                                "outlet":        outlet,
+                                "location":      location,
+                                "item_type":     "Menu Items",
+                                "category":      current_category,
+                                "sub_category":  current_sub_category,
+                                "product_code":  product_code,
+                                "item_name":     item_name,
+                                "count_unit":    "Unit",
+                            })
+                        i += 1
+
+                    else:
+                        i += 1  # orphan ID
+
                 return pd.DataFrame(records)
 
             # ── Preview & Push ─────────────────────────────────────────────
