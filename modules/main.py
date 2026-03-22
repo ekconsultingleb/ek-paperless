@@ -204,7 +204,8 @@ def render_main(conn, sheet_link, user, role):
                     ne = [v for v in vals if not _is_empty(v)]
                     if not ne: continue
                     if any(any(s in str(v).lower() for s in skip) for v in ne): continue
-                    if len(ne) == 1 and str(ne[0]).strip().isdigit(): continue
+                    # Skip page number strings like " 10" but keep integer IDs like 93
+                    if len(ne) == 1 and not isinstance(ne[0], (int, float)) and str(ne[0]).strip().isdigit(): continue
                     rows.append(row)
                 return pd.DataFrame(rows).reset_index(drop=True)
 
