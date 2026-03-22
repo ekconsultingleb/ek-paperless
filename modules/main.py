@@ -64,26 +64,270 @@ def render_main(conn, sheet_link, user, role):
     # TAB: MASTER ITEMS SYNC
     # ==========================================
     with t_sync:
-        st.markdown("#### 🔄 Smart Database Importer")
-        uploaded_file = st.file_uploader("Upload Master Items List", type=["csv", "xlsx"])
-        if uploaded_file:
-            try:
-                df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
-                df.columns = [str(c).strip().lower() for c in df.columns]
-                st.dataframe(df.head(5), use_container_width=True)
-                required_cols = ['client_name', 'outlet', 'location', 'item_type', 'product_code', 'item_name']
-                if all(c in df.columns for c in required_cols):
-                    if st.button("🚀 Run Smart Sync", type="primary", use_container_width=True):
-                        with st.spinner("Syncing..."):
-                            df = df.fillna('')
-                            records = df.to_dict(orient='records')
-                            for i in range(0, len(records), 500):
-                                supabase.table("master_items").upsert(records[i:i + 500], on_conflict="client_name,outlet,location,item_type,product_code").execute()
-                            st.success(f"✅ Synced {len(records)} items!")
-                else:
-                    st.error("❌ Missing required columns.")
-            except Exception as e:
-                st.error(f"❌ Error: {e}")
+
+        sync_mode = st.radio("Select Sync Mode", 
+                             ["🔄 Omega Sync (Auto Clean)", "📤 Smart Database Importer (Manual)"],
+                             horizontal=True, key="sync_mode")
+
+        # ── Helper: PROPER() equivalent ───────────────────────────────────────
+        def proper(val):
+            if pd.isna(val) or str(val).strip() == "": return ""
+            return str(val).strip().title()
+
+        def is_page_break_row(row):
+            vals = [v for v in row if str(v) not in ["nan","NaT","None",""]]
+            if not vals: return True
+            if len(vals) <= 2 and any("page" in str(v).lower() for v in vals): return True
+            return False
+
+        # ══════════════════════════════════════════════════════════════════════
+        # MODE 1: OMEGA SYNC
+        # ══════════════════════════════════════════════════════════════════════
+        if sync_mode == "🔄 Omega Sync (Auto Clean)":
+            st.markdown("#### 🔄 Omega Sync — Auto Clean & Push")
+            st.info("Upload the 2 Programming Summary files exported from Omega. Paperless will clean, apply PROPER(), and push to master_items automatically.")
+
+            # ── Client setup ───────────────────────────────────────────────
+            st.markdown("##### 1. Select or Create Client")
+            
+            existing_clients = sorted([c for c in df_routing["client_name"].unique() 
+                                        if c and str(c).lower() not in ["nan","all",""]])
+            
+            client_mode = st.radio("Client", ["Select existing", "Create new"], 
+                                    horizontal=True, key="omega_client_mode")
+            
+            col_c1, col_c2, col_c3 = st.columns(3)
+            
+            if client_mode == "Select existing":
+                with col_c1:
+                    sel_client = st.selectbox("🏢 Client", existing_clients, key="omega_client")
+                with col_c2:
+                    outlets = sorted([o for o in df_routing[df_routing["client_name"]==sel_client]["outlet"].unique()
+                                     if o and str(o).lower() not in ["nan","all",""]])
+                    sel_outlet = st.selectbox("🏠 Outlet", outlets if outlets else ["Main"], key="omega_outlet")
+                with col_c3:
+                    locs = set()
+                    for lv in df_routing[(df_routing["client_name"]==sel_client)]["location"].dropna():
+                        for l in str(lv).split(","):
+                            if l.strip() and l.strip().lower() not in ["nan","all",""]:
+                                locs.add(l.strip().title())
+                    loc_list = sorted(list(locs)) if locs else ["Main Store"]
+                    sel_location = st.selectbox("📍 Location", loc_list, key="omega_location")
+                final_client   = sel_client
+                final_outlet   = sel_outlet
+                final_location = sel_location
+            else:
+                with col_c1: final_client   = st.text_input("🏢 New Client Name", key="omega_new_client").strip().title()
+                with col_c2: final_outlet   = st.text_input("🏠 Outlet Name",     key="omega_new_outlet").strip().title()
+                with col_c3: final_location = st.text_input("📍 Location Name",   key="omega_new_location").strip().title()
+
+            if not final_client or not final_outlet or not final_location:
+                st.warning("Please fill in Client, Outlet and Location before uploading files.")
+                st.stop()
+
+            st.markdown("##### 2. Upload Omega Files")
+            col_f1, col_f2 = st.columns(2)
+            with col_f1:
+                inv_file  = st.file_uploader("📦 Programming Summary — Inventory", 
+                                              type=["xlsx"], key="omega_inv")
+            with col_f2:
+                menu_file = st.file_uploader("🍽️ Programming Summary — Menu Items", 
+                                              type=["xlsx"], key="omega_menu")
+
+            # ── Parse Inventory file ───────────────────────────────────────
+            def parse_inventory(f, client, outlet, location):
+                raw = pd.read_excel(f, header=None)
+                records = []
+                current_category    = ""
+                current_sub_category = ""
+                
+                for _, row in raw.iterrows():
+                    vals = [v for v in row.tolist() if str(v) not in ["nan","NaT","None",""]]
+                    
+                    # Skip empty / page break rows
+                    if not vals or is_page_break_row(row.tolist()): continue
+                    
+                    # Skip header rows (contain "Item Id" or "Product Code")
+                    if any(str(v).strip().lower() in ["item id","product code","buying u"] for v in vals): continue
+                    
+                    # Skip title rows (contain "Programming Summary")
+                    if any("programming summary" in str(v).lower() for v in vals): continue
+                    
+                    # Detect category / sub-category rows (single text value, not numeric)
+                    if len(vals) == 1 and not str(vals[0]).isdigit():
+                        val_str = str(vals[0]).strip()
+                        # First occurrence = category, second = sub-category
+                        # Pattern: category appears, then sub-category, then items
+                        # We detect by checking if it looks like a known category
+                        known_cats = ["beverages","food","tobacco","books"]
+                        if val_str.lower() in known_cats:
+                            current_category = proper(val_str)
+                            current_sub_category = ""
+                        else:
+                            current_sub_category = proper(val_str)
+                        continue
+                    
+                    # Item row: first value is numeric ID
+                    try:
+                        item_id = int(float(str(vals[0])))
+                    except (ValueError, TypeError):
+                        continue
+                    
+                    # Extract fields by position
+                    try:
+                        product_code = proper(vals[1]) if len(vals) > 1 else ""
+                        item_name    = proper(vals[2]) if len(vals) > 2 else ""
+                        count_unit   = proper(vals[5]) if len(vals) > 5 else proper(vals[3]) if len(vals) > 3 else ""
+                    except Exception:
+                        continue
+                    
+                    if not item_name: continue
+                    
+                    records.append({
+                        "client_name":   client,
+                        "outlet":        outlet,
+                        "location":      location,
+                        "item_type":     "inventory",
+                        "category":      current_category,
+                        "sub_category":  current_sub_category,
+                        "product_code":  product_code,
+                        "item_name":     item_name,
+                        "count_unit":    count_unit,
+                    })
+                return pd.DataFrame(records)
+
+            # ── Parse Menu Items file ──────────────────────────────────────
+            def parse_menu_items(f, client, outlet, location):
+                raw = pd.read_excel(f, header=None)
+                records = []
+                current_category = ""
+                current_group    = ""
+                header_found     = False
+                
+                for _, row in raw.iterrows():
+                    vals = [v for v in row.tolist() if str(v) not in ["nan","NaT","None",""]]
+                    if not vals: continue
+                    
+                    # Skip title / date rows
+                    if any("programming summary" in str(v).lower() for v in vals): continue
+                    
+                    # Skip numeric-only rows (ID rows)
+                    if len(vals) == 1 and str(vals[0]).strip().lstrip("-").isdigit(): continue
+                    
+                    # Detect header row
+                    if any(str(v).strip().lower() == "description" for v in vals):
+                        header_found = True
+                        continue
+                    
+                    if not header_found: continue
+                    
+                    # Single text value = category or group
+                    if len(vals) == 1 and not str(vals[0]).strip().lstrip("-").isdigit():
+                        val_str = str(vals[0]).strip()
+                        known_cats = ["beverages","food","tobacco","books"]
+                        if val_str.lower() in known_cats:
+                            current_category = proper(val_str)
+                            current_group    = ""
+                        else:
+                            current_group = proper(val_str)
+                        continue
+                    
+                    # Item row: has Description + price levels
+                    try:
+                        item_name    = proper(vals[0])
+                        product_code = proper(vals[0])  # use name as code for menu items
+                    except Exception:
+                        continue
+                    
+                    # Skip "DONE" placeholder items
+                    if item_name.upper() == "DONE": continue
+                    if not item_name: continue
+                    
+                    records.append({
+                        "client_name":   client,
+                        "outlet":        outlet,
+                        "location":      location,
+                        "item_type":     "menu",
+                        "category":      current_category,
+                        "sub_category":  current_group,
+                        "product_code":  product_code,
+                        "item_name":     item_name,
+                        "count_unit":    "Piece",
+                    })
+                return pd.DataFrame(records)
+
+            # ── Preview & Push ─────────────────────────────────────────────
+            if inv_file or menu_file:
+                st.markdown("##### 3. Preview Cleaned Data")
+                
+                df_inv  = pd.DataFrame()
+                df_menu = pd.DataFrame()
+                
+                if inv_file:
+                    try:
+                        df_inv = parse_inventory(inv_file, final_client, final_outlet, final_location)
+                        st.markdown(f"**Inventory Items:** {len(df_inv)} rows cleaned")
+                        st.dataframe(df_inv.head(10), use_container_width=True, hide_index=True)
+                    except Exception as e:
+                        st.error(f"❌ Inventory parse error: {e}")
+                
+                if menu_file:
+                    try:
+                        df_menu = parse_menu_items(menu_file, final_client, final_outlet, final_location)
+                        st.markdown(f"**Menu Items:** {len(df_menu)} rows cleaned")
+                        st.dataframe(df_menu.head(10), use_container_width=True, hide_index=True)
+                    except Exception as e:
+                        st.error(f"❌ Menu Items parse error: {e}")
+                
+                combined = pd.concat([df_inv, df_menu], ignore_index=True)
+                
+                if len(combined) > 0:
+                    st.markdown(f"##### 4. Push to Supabase")
+                    st.markdown(f"**Total records to upsert: {len(combined)}** "
+                                f"({len(df_inv)} inventory + {len(df_menu)} menu items)")
+                    
+                    if st.button("🚀 Push to Supabase", type="primary", 
+                                  use_container_width=True, key="omega_push"):
+                        with st.spinner("Pushing to Supabase..."):
+                            try:
+                                combined = combined.fillna("")
+                                records  = combined.to_dict(orient="records")
+                                pushed   = 0
+                                for i in range(0, len(records), 500):
+                                    supabase.table("master_items").upsert(
+                                        records[i:i+500],
+                                        on_conflict="client_name,outlet,location,item_type,product_code"
+                                    ).execute()
+                                    pushed += len(records[i:i+500])
+                                st.success(f"✅ Done! {pushed} items pushed to Supabase for {final_client}.")
+                                st.balloons()
+                            except Exception as e:
+                                st.error(f"❌ Push failed: {e}")
+
+        # ══════════════════════════════════════════════════════════════════════
+        # MODE 2: SMART DATABASE IMPORTER (existing, unchanged)
+        # ══════════════════════════════════════════════════════════════════════
+        else:
+            st.markdown("#### 📤 Smart Database Importer")
+            uploaded_file = st.file_uploader("Upload Master Items List", type=["csv", "xlsx"])
+            if uploaded_file:
+                try:
+                    df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+                    df.columns = [str(c).strip().lower() for c in df.columns]
+                    st.dataframe(df.head(5), use_container_width=True)
+                    required_cols = ['client_name', 'outlet', 'location', 'item_type', 'product_code', 'item_name']
+                    if all(c in df.columns for c in required_cols):
+                        if st.button("🚀 Run Smart Sync", type="primary", use_container_width=True):
+                            with st.spinner("Syncing..."):
+                                df = df.fillna('')
+                                records = df.to_dict(orient='records')
+                                for i in range(0, len(records), 500):
+                                    supabase.table("master_items").upsert(records[i:i + 500], on_conflict="client_name,outlet,location,item_type,product_code").execute()
+                                st.success(f"✅ Synced {len(records)} items!")
+                    else:
+                        st.error("❌ Missing required columns.")
+                except Exception as e:
+                    st.error(f"❌ Error: {e}")
 
     # ==========================================
     # TAB: CREATE USER
