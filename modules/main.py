@@ -147,7 +147,9 @@ def render_main(conn, sheet_link, user, role):
                     return False
 
                 # Build clean sequence: ("text", value) or ("item", vals)
+                # Skip first text row — it's always the client/outlet name from Omega
                 clean = []
+                first_text_skipped = False
                 for _, row in raw.iterrows():
                     vals = [v for v in row.tolist() if str(v) not in ["nan","NaT","None",""]]
                     if is_sys(vals): continue
@@ -155,6 +157,10 @@ def render_main(conn, sheet_link, user, role):
                         val_str = str(vals[0]).strip()
                         try: float(val_str); continue
                         except ValueError: pass
+                        # Skip the very first text row (client name)
+                        if not first_text_skipped:
+                            first_text_skipped = True
+                            continue
                         clean.append(("text", val_str))
                     else:
                         try: int(float(str(vals[0])))
