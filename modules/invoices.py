@@ -73,20 +73,49 @@ def render_invoices(conn, sheet_link, user, role):
                         for index, row in df.iterrows():
                             inv_id = row['id']
                             c_name = row['client_name']
-                            
+
+                            # --- Format date nicely ---
+                            try:
+                                import zoneinfo as _zi
+                                _dt = datetime.fromisoformat(str(row['created_at']).replace("Z", "+00:00"))
+                                _dt_b = _dt.astimezone(_zi.ZoneInfo("Asia/Beirut"))
+                                card_date = _dt_b.strftime("%d %b %Y · %I:%M %p")
+                            except Exception:
+                                card_date = str(row['created_at'])[:10]
+
+                            # --- Status badge styling ---
+                            status = row.get('status', 'Pending')
+                            if status == 'On Hold':
+                                badge_bg = "#FCEBEB"; badge_color = "#A32D2D"
+                            elif status == 'Posted':
+                                badge_bg = "#EAF3DE"; badge_color = "#3B6D11"
+                            else:
+                                badge_bg = "#FAEEDA"; badge_color = "#854F0B"
+
+                            img_url = row.get('image_url', '')
+                            is_pdf = str(img_url).lower().endswith('.pdf')
+
                             with st.container(border=True):
-                                # Top summary row
-                                col_date, col_sup, col_loc, col_stat = st.columns([1.5, 2.5, 2, 1], vertical_alignment="center")
-                                col_date.write(f"📅 {str(row['created_at'])[:10]}")
-                                col_sup.write(f"🧾 **{row['supplier']}**")
-                                col_loc.write(f"🏢 {c_name} ({row['outlet']})")
-                                
-                                # Status badges
-                                if row['status'] == 'On Hold':
-                                    col_stat.error("⏸️ On Hold")
-                                else:
-                                    col_stat.warning("⏳ Pending")
-                                    
+                                # --- Card header: thumbnail + info + badge ---
+                                col_thumb, col_info = st.columns([1, 4], vertical_alignment="center")
+
+                                with col_thumb:
+                                    if img_url and not is_pdf:
+                                        st.image(img_url, use_container_width=True)
+                                    else:
+                                        st.markdown(
+                                            "<div style='text-align:center; padding:10px; font-size:28px;'>📄</div>",
+                                            unsafe_allow_html=True
+                                        )
+
+                                with col_info:
+                                    st.markdown(
+                                        f"<p style='margin:0 0 2px; font-size:15px; font-weight:500;'>{row['supplier']}</p>"
+                                        f"<p style='margin:0 0 6px; font-size:12px; color:var(--color-text-secondary);'>{card_date} · {c_name} ({row['outlet']})</p>"
+                                        f"<span style='background:{badge_bg}; color:{badge_color}; font-size:11px; font-weight:500; padding:3px 10px; border-radius:20px;'>{status}</span>",
+                                        unsafe_allow_html=True
+                                    )
+
                                 # 🔒 THE INLINE EXPANDER
                                 with st.expander("⚙️ Process Invoice"):
                                     col_img, col_form = st.columns([1.2, 1])
