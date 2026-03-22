@@ -234,9 +234,11 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                         st.markdown(f"⚪ **{item_name}** &nbsp;|&nbsp; 📦 {row.get('count_unit', 'Unit')}")
                         
                     input_key = f"waste_add_{index}_{item_name}"
+                    if input_key not in st.session_state:
+                        st.session_state[input_key] = 0.0
                     col_add, col_btn = st.columns([3, 1], vertical_alignment="center")
                     with col_add:
-                        st.number_input("+ Add Qty", value=0.0, min_value=0.0, step=1.0, format="%g", key=input_key, on_change=add_waste_qty, args=(item_name, row.to_dict(), input_key), label_visibility="collapsed")
+                        st.number_input("+ Add Qty", min_value=0.0, step=1.0, format="%g", key=input_key, on_change=add_waste_qty, args=(item_name, row.to_dict(), input_key), label_visibility="collapsed")
                     with col_btn:
                         if current_total > 0:
                             if st.button("♻️ Undo", key=f"undo_{index}_{item_name}"):
