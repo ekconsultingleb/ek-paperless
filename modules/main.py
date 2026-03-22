@@ -252,7 +252,7 @@ def render_main(conn, sheet_link, user, role):
                         "sub_category":  current_group,
                         "product_code":  product_code,
                         "item_name":     item_name,
-                        "count_unit":    "Piece",
+                        "count_unit":    "Unit",
                     })
                 return pd.DataFrame(records)
 
