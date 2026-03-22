@@ -223,12 +223,20 @@ def render_main(conn, sheet_link, user, role):
                     return False
 
                 # Build clean sequence
+                # Row 0 of Omega Menu Items is always the outlet/client name — skip it
                 clean = []
-                for _, row in raw.iterrows():
-                    vals = [v for v in row.tolist() if str(v) not in ["nan","NaT","None",""]]
+                for row_idx, (_, row) in enumerate(raw.iterrows()):
+                    raw_vals = row.tolist()
+                    vals = [v for v in raw_vals if str(v) not in ["nan","NaT","None",""]]
+                    if row_idx == 0: continue  # skip client/outlet name row
                     if is_sys_menu(vals): continue
                     if len(vals) == 1:
-                        val_str = str(vals[0]).strip()
+                        v = vals[0]
+                        # Skip Timestamp rows (page break markers in Omega)
+                        if isinstance(v, pd.Timestamp): continue
+                        val_str = str(v).strip()
+                        # Skip page number rows like " 10" or "10"
+                        if val_str.strip().isdigit(): continue
                         # Pure integer = ID row
                         try:
                             id_val = int(float(val_str))
@@ -242,9 +250,11 @@ def render_main(conn, sheet_link, user, role):
                         if name and name.upper() != "DONE" and name.lower() != "item id":
                             clean.append(("item", vals))
 
-                # Parse: two consecutive text rows = Category + Division (skip division)
-                #        one text row alone = Sub-category
-                #        item row followed by id row → product_code = id
+                # Menu Items Omega structure:
+                # Category   → single text row (different from next text row)
+                # Sub-cat    → same value repeated twice (sub + division)
+                # Item       → multi-value row
+                # ID         → single integer after item row
                 records = []
                 current_category     = ""
                 current_sub_category = ""
@@ -253,12 +263,19 @@ def render_main(conn, sheet_link, user, role):
                     rtype, rval = clean[i]
 
                     if rtype == "text":
-                        if i+1 < len(clean) and clean[i+1][0] == "text":
-                            current_category     = proper(rval)
-                            current_sub_category = ""
+                        next_is_same_text = (
+                            i+1 < len(clean) and
+                            clean[i+1][0] == "text" and
+                            clean[i+1][1].strip().lower() == rval.strip().lower()
+                        )
+                        if next_is_same_text:
+                            # Same value repeated = Sub-category + Division → keep sub, skip division
+                            current_sub_category = proper(rval)
                             i += 2
                         else:
-                            current_sub_category = proper(rval)
+                            # Different or single text = Category
+                            current_category     = proper(rval)
+                            current_sub_category = ""
                             i += 1
 
                     elif rtype == "item":
