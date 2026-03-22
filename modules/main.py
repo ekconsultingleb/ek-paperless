@@ -134,169 +134,171 @@ def render_main(conn, sheet_link, user, role):
                 menu_file = st.file_uploader("🍽️ Programming Summary — Menu Items", 
                                               type=["xlsx"], key="omega_menu")
 
+            # ── Shared helpers ────────────────────────────────────────────
+            from datetime import datetime as _pydt
+
+            def _is_datetime(val):
+                return isinstance(val, (pd.Timestamp, _pydt))
+
+            SKIP_INV  = ["programming summary","copyright","omega software","www.","omegapos",
+                         "item id","product code","buying u"]
+            SKIP_MENU = ["programming summary","copyright","omega software","www.","omegapos",
+                         "menu description","printout","item id"]
+
+            def _noise_inv(row):
+                col_a = row[0] if len(row) > 0 else None
+                if _is_datetime(col_a): return True
+                vals = [str(v).strip() for v in row.tolist() if not (pd.isna(v) or str(v).strip() in ["nan","NaT","None",""])]
+                if not vals: return True
+                return any(any(sk in v.lower() for sk in SKIP_INV) for v in vals)
+
+            def _noise_menu(row):
+                col_a = row[0] if len(row) > 0 else None
+                if _is_datetime(col_a): return True
+                vals = [str(v).strip() for v in row.tolist() if not (pd.isna(v) or str(v).strip() in ["nan","NaT","None",""])]
+                if not vals: return True
+                if len(vals) >= 3 and "description" in vals[0].lower(): return True
+                return any(any(sk in v.lower() for sk in SKIP_MENU) for v in vals)
+
+            def _mt(val):
+                """Is value empty?"""
+                return pd.isna(val) or str(val).strip() in ["nan","NaT","None",""]
+
+            def _parse_labels(labels):
+                """
+                Given consecutive label strings, return (new_cat, new_sub, reset_cat).
+                - Single label → sub-category only, keep category
+                - Same value x2 → sub-category + division, keep category
+                - Same value x3+ → category = sub-category = that value
+                - Different values → category = first, division = second (skip), sub = third if exists
+                """
+                if len(labels) == 1:
+                    return None, proper(labels[0]), False
+                unique = list(dict.fromkeys([l.strip().lower() for l in labels]))
+                if len(unique) == 1:
+                    if len(labels) >= 3:
+                        return proper(labels[0]), proper(labels[0]), True
+                    else:
+                        return None, proper(labels[0]), False
+                else:
+                    cat = proper(labels[0])
+                    sub = proper(labels[2]) if len(labels) >= 3 else ""
+                    return cat, sub, True
+
+            # ── Shared helpers ────────────────────────────────────────────
+            from datetime import datetime as _dt
+
+            def _is_empty(val):
+                return pd.isna(val) or str(val).strip() in ["","nan","NaT","None"]
+
+            def _clean_file(raw):
+                skip = ["item id","product code","buying u","description","menu description",
+                        "kitchen","printout 1","programming summary","copyright",
+                        "omega software","www.","omegapos","omegasoftware"]
+                rows = []
+                for i, row in raw.iterrows():
+                    if i == 0: continue
+                    a = row[0]
+                    if isinstance(a, (pd.Timestamp, _dt)): continue
+                    vals = [row[c] for c in range(len(row))]
+                    ne = [v for v in vals if not _is_empty(v)]
+                    if not ne: continue
+                    if any(any(s in str(v).lower() for s in skip) for v in ne): continue
+                    if len(ne) == 1 and str(ne[0]).strip().isdigit(): continue
+                    rows.append(row)
+                return pd.DataFrame(rows).reset_index(drop=True)
+
+            def _is_label(row):
+                return (not _is_empty(row[0]) and
+                        not isinstance(row[0], (int, float)) and
+                        _is_empty(row[1]))
+
+            def _next_label_count(data, idx):
+                count = 0; j = idx + 1
+                while j < len(data) and _is_label(data.iloc[j]):
+                    count += 1; j += 1
+                return count
+
             # ── Parse Inventory file ───────────────────────────────────────
             def parse_inventory(f, client, outlet, location):
-                raw = pd.read_excel(f, header=None)
-
-                def is_sys(vals):
-                    if not vals: return True
-                    if len(vals) <= 3 and any("page" in str(v).lower() for v in vals): return True
-                    if any(str(v).strip().lower() in ["item id","product code","buying u"] for v in vals): return True
-                    if any(kw in str(v).lower() for v in vals
-                           for kw in ["programming summary","copyright","omega software","www."]): return True
-                    return False
-
-                # Build clean sequence: ("text", value) or ("item", vals)
-                # Skip first text row — it's always the client/outlet name from Omega
-                clean = []
-                first_text_skipped = False
-                for _, row in raw.iterrows():
-                    vals = [v for v in row.tolist() if str(v) not in ["nan","NaT","None",""]]
-                    if is_sys(vals): continue
-                    if len(vals) == 1:
-                        val_str = str(vals[0]).strip()
-                        try: float(val_str); continue
-                        except ValueError: pass
-                        # Skip the very first text row (client name)
-                        if not first_text_skipped:
-                            first_text_skipped = True
-                            continue
-                        clean.append(("text", val_str))
-                    else:
-                        try: int(float(str(vals[0])))
-                        except (ValueError, TypeError): continue
-                        clean.append(("item", vals))
-
-                # Parse: two consecutive text rows = Category + Division (skip division)
-                #        one text row alone = Sub-category
+                raw  = pd.read_excel(f, header=None)
+                data = _clean_file(raw)
                 records = []
-                current_category     = ""
-                current_sub_category = ""
+                cat = ""; sub = ""
                 i = 0
-                while i < len(clean):
-                    rtype, rval = clean[i]
-                    if rtype == "text":
-                        if i+1 < len(clean) and clean[i+1][0] == "text":
-                            # Category + Division pair
-                            current_category     = proper(rval)
-                            current_sub_category = ""
-                            i += 2  # skip division row
+                while i < len(data):
+                    row = data.iloc[i]
+                    a, b, c = row[0], row[1], row[2]
+                    d = row[3] if len(row) > 3 else None
+
+                    if _is_label(row):
+                        ahead = _next_label_count(data, i)
+                        if ahead >= 2:
+                            cat = proper(str(a)); sub = ""
+                        elif ahead == 1:
+                            pass  # Division — skip
                         else:
-                            # Sub-category
-                            current_sub_category = proper(rval)
-                            i += 1
-                    else:
-                        vals = rval
-                        try:
-                            product_code = proper(vals[1]) if len(vals) > 1 else ""
-                            item_name    = proper(vals[2]) if len(vals) > 2 else ""
-                            count_unit   = proper(vals[5]) if len(vals) > 5 else (
-                                           proper(vals[3]) if len(vals) > 3 else "")
-                        except Exception:
-                            i += 1; continue
+                            sub = proper(str(a))
+                        i += 1
+
+                    elif not _is_empty(a) and isinstance(a, (int, float)) and not _is_empty(b):
+                        try: int(float(str(a)))
+                        except: i += 1; continue
+                        item_name  = proper(str(c)) if not _is_empty(c) else ""
+                        count_unit = (proper(str(row[5])) if len(row) > 5 and not _is_empty(row[5])
+                                      else proper(str(d)) if not _is_empty(d) else "")
                         if item_name:
                             records.append({
-                                "client_name":   client,
-                                "outlet":        outlet,
-                                "location":      location,
-                                "item_type":     "Inventory",
-                                "category":      current_category,
-                                "sub_category":  current_sub_category,
-                                "product_code":  product_code,
-                                "item_name":     item_name,
-                                "count_unit":    count_unit,
+                                "client_name": client, "outlet": outlet, "location": location,
+                                "item_type": "Inventory", "category": cat, "sub_category": sub,
+                                "product_code": proper(str(b)), "item_name": item_name,
+                                "count_unit": count_unit,
                             })
+                        i += 1
+                    else:
                         i += 1
                 return pd.DataFrame(records)
 
             # ── Parse Menu Items file ──────────────────────────────────────
             def parse_menu_items(f, client, outlet, location):
-                raw = pd.read_excel(f, header=None)
-
-                # Step 1: Pre-clean — strip all noise rows first
-                clean_rows = []
-                for row_idx, (_, row) in enumerate(raw.iterrows()):
-                    if row_idx == 0: continue  # always client/outlet name row
-                    vals = [v for v in row.tolist() if str(v) not in ["nan","NaT","None",""]]
-                    if not vals: continue
-                    if len(vals) == 1:
-                        v = vals[0]
-                        if isinstance(v, pd.Timestamp): continue
-                        # Integer/float type = Omega item ID — keep it
-                        if isinstance(v, (int, float)) and not isinstance(v, bool):
-                            clean_rows.append(vals)
-                            continue
-                        val_str = str(v).strip()
-                        if val_str.isdigit(): continue  # page number strings like " 10"
-                        skip = ["description","menu description","kitchen","item id",
-                                "printout 1","programming summary","copyright",
-                                "omega software","www.","omegapos","omegasoftware"]
-                        if any(sk in val_str.lower() for sk in skip): continue
-                    else:
-                        skip = ["description","copyright","omega software","www.","omegapos"]
-                        if any(any(sk in str(v).lower() for sk in skip) for v in vals): continue
-                    clean_rows.append(vals)
-
-                # Step 2: Build typed sequence
-                clean = []
-                for vals in clean_rows:
-                    if len(vals) == 1:
-                        v = vals[0]
-                        if isinstance(v, (int, float)) and not isinstance(v, bool):
-                            try: clean.append(("id", int(v)))
-                            except: pass
-                        else:
-                            clean.append(("text", str(v).strip()))
-                    else:
-                        name = str(vals[0]).strip()
-                        if name and name.upper() != "DONE":
-                            clean.append(("item", vals))
-
-                # Step 3: Parse
-                # Single text = Category
-                # Same value x2 = Sub-category + Division (skip division)
-                # Same value x3+ = Category only (e.g. BOOKS BOOKS BOOKS)
+                raw  = pd.read_excel(f, header=None)
+                data = _clean_file(raw)
                 records = []
-                current_category     = ""
-                current_sub_category = ""
+                cat = ""; sub = ""
                 i = 0
-                while i < len(clean):
-                    rtype, rval = clean[i]
-                    if rtype == "text":
-                        same_count = 1
-                        j = i + 1
-                        while j < len(clean) and clean[j][0] == "text" and                               clean[j][1].strip().lower() == rval.strip().lower():
-                            same_count += 1
-                            j += 1
-                        if same_count >= 3:
-                            # Category + Division + Sub-category all same name
-                            current_category     = proper(rval)
-                            current_sub_category = proper(rval)
-                            i += same_count
-                        elif same_count == 2:
-                            current_sub_category = proper(rval)
-                            i += 2
+                while i < len(data):
+                    row = data.iloc[i]
+                    a, b = row[0], row[1]
+
+                    if _is_label(row):
+                        val_str = str(a).strip()
+                        same = 1; j = i + 1
+                        while (j < len(data) and _is_label(data.iloc[j]) and
+                               str(data.iloc[j][0]).strip().lower() == val_str.lower()):
+                            same += 1; j += 1
+                        if same >= 3:
+                            cat = proper(val_str); sub = proper(val_str); i += same
+                        elif same == 2:
+                            sub = proper(val_str); i += same
                         else:
-                            current_category     = proper(rval)
-                            current_sub_category = ""
-                            i += 1
-                    elif rtype == "item":
-                        item_name    = proper(rval[0])
+                            cat = proper(val_str); sub = ""; i += 1
+
+                    elif not _is_empty(a) and isinstance(a, (int, float)) and _is_empty(b):
+                        i += 1  # orphan ID
+
+                    elif _is_empty(a) and not _is_empty(b) and str(b).upper() != "DONE":
+                        item_name    = proper(str(b))
                         product_code = item_name
-                        if i+1 < len(clean) and clean[i+1][0] == "id":
-                            product_code = str(clean[i+1][1])
-                            i += 1
+                        if i+1 < len(data):
+                            nr = data.iloc[i+1]
+                            if not _is_empty(nr[0]) and isinstance(nr[0], (int,float)) and _is_empty(nr[1]):
+                                product_code = str(int(nr[0])); i += 1
                         if item_name:
                             records.append({
-                                "client_name":   client,
-                                "outlet":        outlet,
-                                "location":      location,
-                                "item_type":     "Menu Items",
-                                "category":      current_category,
-                                "sub_category":  current_sub_category,
-                                "product_code":  product_code,
-                                "item_name":     item_name,
-                                "count_unit":    "Unit",
+                                "client_name": client, "outlet": outlet, "location": location,
+                                "item_type": "Menu Items", "category": cat, "sub_category": sub,
+                                "product_code": product_code, "item_name": item_name,
+                                "count_unit": "Unit",
                             })
                         i += 1
                     else:
