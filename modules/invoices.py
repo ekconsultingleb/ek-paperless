@@ -238,14 +238,22 @@ def render_invoices(conn, sheet_link, user, role):
             final_supplier_name = selected_supplier
         
         uploaded_file = st.file_uploader("Take a Photo or Upload PDF", type=['jpg', 'jpeg', 'png', 'pdf'])
-        
+
+        # Reset submitted state when a new file is chosen
+        current_file_id = uploaded_file.name if uploaded_file else None
+        if st.session_state.get('invoice_submitted_file') != current_file_id:
+            st.session_state['invoice_submitted'] = False
+            st.session_state['invoice_submitted_file'] = current_file_id
+
         if uploaded_file:
             if uploaded_file.type.startswith('image'):
                 st.image(uploaded_file, caption="Invoice Preview", use_container_width=True)
             else:
                 st.success(f"📄 PDF Selected: {uploaded_file.name}")
-        
-        if st.button("🚀 Submit Invoice to Accounting", type="primary", use_container_width=True):
+
+        already_submitted = st.session_state.get('invoice_submitted', False)
+
+        if st.button("🚀 Submit Invoice to Accounting", type="primary", use_container_width=True, disabled=already_submitted):
             if not final_supplier_name:
                 st.error("❌ Please select a Supplier.")
             elif not uploaded_file:
@@ -266,6 +274,8 @@ def render_invoices(conn, sheet_link, user, role):
                         }
                         supabase.table("invoices_log").insert([db_record]).execute()
                         
+                        st.session_state['invoice_submitted'] = True
+                        st.session_state['invoice_submitted_file'] = uploaded_file.name
                         st.success("✅ Invoice successfully uploaded!")
                         st.toast("Invoice sent!", icon="🚀")
                         st.rerun()
