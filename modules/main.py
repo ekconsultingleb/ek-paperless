@@ -222,8 +222,12 @@ def render_main(conn, sheet_link, user, role):
                     if len(vals) == 1:
                         v = vals[0]
                         if isinstance(v, pd.Timestamp): continue
+                        # Integer/float type = Omega item ID — keep it
+                        if isinstance(v, (int, float)) and not isinstance(v, bool):
+                            clean_rows.append(vals)
+                            continue
                         val_str = str(v).strip()
-                        if val_str.isdigit(): continue  # page numbers like "10"
+                        if val_str.isdigit(): continue  # page number strings like " 10"
                         skip = ["description","menu description","kitchen","item id",
                                 "printout 1","programming summary","copyright",
                                 "omega software","www.","omegapos","omegasoftware"]
