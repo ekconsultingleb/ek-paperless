@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
+from modules.clients import render_clients
 
 # --- SAFELY INITIALIZE SUPABASE ---
 @st.cache_resource
@@ -47,18 +48,18 @@ def render_main(conn, sheet_link, user, role):
     # ==========================================
     if is_super_admin:
         st.info("👑 Super Admin Mode: Full access to all database and user controls.")
-        tabs = st.tabs(["📤 Master Sync", "➕ Create User", "👥 Manage Users", "🚚 Manage Suppliers", "📝 Edit Data"])
-        t_sync, t_create, t_view, t_supp, t_edit = tabs
+        tabs = st.tabs(["📤 Master Sync", "➕ Create User", "👥 Manage Users", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients"])
+        t_sync, t_create, t_view, t_supp, t_edit, t_clients = tabs
     elif is_normal_admin:
         st.info("🛡️ Admin Mode: Access to sync and onboard users/suppliers.")
-        tabs = st.tabs(["📤 Master Sync", "➕ Create User", "🚚 Manage Suppliers", "📝 Edit Data"])
-        t_sync, t_create, t_supp, t_edit = tabs[0], tabs[1], tabs[2], tabs[3]
-        t_view = None 
+        tabs = st.tabs(["📤 Master Sync", "➕ Create User", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients"])
+        t_sync, t_create, t_supp, t_edit, t_clients = tabs[0], tabs[1], tabs[2], tabs[3], tabs[4]
+        t_view = None
     else:
         st.info("🏢 HQ Manager Mode: Access to sync the Master Items database.")
         tabs = st.tabs(["📤 Master Sync"])
         t_sync = tabs[0]
-        t_create = t_view = t_supp = t_edit = None
+        t_create = t_view = t_supp = t_edit = t_clients = None
 
     # ==========================================
     # TAB: MASTER ITEMS SYNC
@@ -609,3 +610,9 @@ def render_main(conn, sheet_link, user, role):
                     st.warning("No records found in this table.")
             except Exception as e:
                 st.error(f"❌ Error loading data: {e}")
+    # ==========================================
+    # TAB: CLIENTS
+    # ==========================================
+    if t_clients:
+        with t_clients:
+            render_clients(supabase)
