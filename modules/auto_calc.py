@@ -37,7 +37,7 @@ ERROR_VALUES = {"#div/0!","#n/a","#ref!","#value!","#name?","#null!","#num!"}
 def last_day(year: int, month: int) -> date:
     return date(year, month, calendar.monthrange(year, month)[1])
 
-def detect_month(filename: str) -> str | None:
+def detect_month(filename: str):
     name = Path(filename).stem.lower()
     for mn, num in MONTH_NAMES.items():
         if mn[:3] in name or mn in name:
@@ -61,7 +61,7 @@ def prev_month(m: str) -> str:
     d = datetime.strptime(m[:10], "%Y-%m-%d").date()
     return (d.replace(day=1) - timedelta(days=1)).strftime("%Y-%m-%d")
 
-def excel_serial_to_date(serial) -> str | None:
+def excel_serial_to_date(serial):
     try:
         return (date(1899, 12, 30) + timedelta(days=int(serial))).strftime("%Y-%m-%d")
     except: return None
@@ -98,10 +98,10 @@ def is_empty_row(row: dict) -> bool:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def read_sheet(excel_bytes: bytes, sheet_name: str, sheet_config: dict,
-               client_name: str, fallback_month: str) -> tuple[list[dict], list[str]]:
+               client_name: str, fallback_month: str):
     """Returns (rows, warnings)."""
     col_map: dict       = sheet_config["columns"]
-    month_col: str|None = sheet_config.get("month_column")
+    month_col = sheet_config.get("month_column")
     month_from_file     = sheet_config.get("month_from_file_name", False)
     warnings            = []
 
@@ -145,7 +145,7 @@ def read_sheet(excel_bytes: bytes, sheet_name: str, sheet_config: dict,
 
 
 def push_sheet(supabase, table: str, rows: list[dict],
-               client_name: str, month: str) -> tuple[int, str|None]:
+               client_name: str, month: str):
     """Delete existing (client, month) then insert. Returns (count, error)."""
     if not rows: return 0, None
     try:
@@ -184,7 +184,7 @@ def log_upload(supabase, client_name, month, file_name, uploaded_by, status, not
 # Falls back to fetching from Supabase ac_configs table if file not found.
 CONFIG_DIR = Path(__file__).parent.parent / "configs"
 
-def load_config(client_name: str) -> dict | None:
+def load_config(client_name: str):
     """Load per-client JSON config by client_name."""
     # Try local file first (snake_case filename)
     slug = client_name.lower().replace(" ", "_")
@@ -308,7 +308,7 @@ def render_auto_calc(supabase=None):
     st.markdown("#### 📊 Auto Calc")
     st.caption("Upload a finished Auto Calc Excel file to push data to Supabase, then generate client reports.")
 
-    t1, t2, t3 = st.tabs(["📤 Upload & Push", "📄 Generate Reports", "🗂️ Upload History"])
+    t1, t2, t3, t4 = st.tabs(["📤 Upload & Push", "📄 Generate Reports", "🗂️ Upload History", "⚙️ Config Manager"])
 
     # ══════════════════════════════════════════════════════════════════════════
     # TAB 1 — UPLOAD & PUSH
@@ -707,3 +707,152 @@ def render_auto_calc(supabase=None):
         )
 
         st.caption(f"Showing last {len(df_log)} uploads.")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # TAB 4 — CONFIG MANAGER
+    # ══════════════════════════════════════════════════════════════════════════
+    with t4:
+        st.markdown("##### Config Manager")
+        st.caption("Copy an existing client config to onboard a new client. No SQL required.")
+
+        # ── Load all existing configs ─────────────────────────────────────────
+        try:
+            res = _sb().table("ac_configs").select("client_name, config_json, created_at")\
+                .order("client_name").execute()
+            existing_configs = res.data or []
+        except Exception as e:
+            st.error(f"Could not load configs: {e}")
+            existing_configs = []
+
+        if not existing_configs:
+            st.warning("No configs found in Supabase. Insert the first config manually via SQL.")
+            return
+
+        # ── Current configs overview ──────────────────────────────────────────
+        st.markdown("**Existing Configs**")
+        overview_data = []
+        for cfg in existing_configs:
+            try:
+                cj = cfg["config_json"] if isinstance(cfg["config_json"], dict) \
+                     else json.loads(cfg["config_json"])
+                sheets = list(cj.get("active_sheets", {}).keys())
+                skip   = cj.get("skip_sheets", [])
+                overview_data.append({
+                    "Client":        cfg["client_name"],
+                    "Active Sheets": len(sheets),
+                    "Skipped Sheets":len(skip),
+                    "Sheet Names":   ", ".join(sheets[:6]) + ("..." if len(sheets) > 6 else ""),
+                })
+            except:
+                overview_data.append({
+                    "Client":        cfg["client_name"],
+                    "Active Sheets": "—",
+                    "Skipped Sheets":"—",
+                    "Sheet Names":   "Parse error",
+                })
+
+        st.dataframe(pd.DataFrame(overview_data), use_container_width=True, hide_index=True)
+
+        st.divider()
+
+        # ── Copy config to new client ─────────────────────────────────────────
+        st.markdown("**Copy Config to New Client**")
+        st.caption("Copies the full sheet/column mapping from an existing client. "
+                   "Change the name, save — done. You can adjust columns later if needed.")
+
+        existing_names = [c["client_name"] for c in existing_configs]
+
+        col1, col2 = st.columns(2)
+        with col1:
+            source_client = st.selectbox(
+                "Copy from", existing_names, key="cfg_source")
+        with col2:
+            new_client_name = st.text_input(
+                "New client name *",
+                placeholder="e.g. Mandaloun",
+                key="cfg_new_name")
+
+        # Preview what will be copied
+        if source_client:
+            source_cfg = next(
+                (c for c in existing_configs if c["client_name"] == source_client), None)
+            if source_cfg:
+                try:
+                    cj = source_cfg["config_json"] if isinstance(source_cfg["config_json"], dict) \
+                         else json.loads(source_cfg["config_json"])
+                    sheets = list(cj.get("active_sheets", {}).keys())
+                    st.caption(
+                        f"Will copy {len(sheets)} sheets from **{source_client}**: "
+                        f"{', '.join(sheets)}")
+                except:
+                    st.caption("Could not parse source config.")
+
+        col_save, col_blank = st.columns([1, 3])
+        with col_save:
+            save_btn = st.button(
+                "💾 Create Config", type="primary",
+                use_container_width=True, key="cfg_save")
+
+        if save_btn:
+            if not new_client_name.strip():
+                st.error("New client name is required.")
+            elif new_client_name.strip() in existing_names:
+                st.error(f"'{new_client_name.strip()}' already exists. Choose a different name.")
+            else:
+                source_cfg = next(
+                    (c for c in existing_configs if c["client_name"] == source_client), None)
+                if not source_cfg:
+                    st.error("Source config not found.")
+                else:
+                    try:
+                        # Deep copy and update client_name
+                        cj = source_cfg["config_json"] if isinstance(source_cfg["config_json"], dict) \
+                             else json.loads(source_cfg["config_json"])
+                        new_cfg = dict(cj)
+                        new_cfg["client_name"] = new_client_name.strip()
+
+                        _sb().table("ac_configs").insert({
+                            "client_name": new_client_name.strip(),
+                            "config_json": new_cfg
+                        }).execute()
+
+                        st.success(
+                            f"✅ Config created for **{new_client_name.strip()}** "
+                            f"(copied from {source_client}).")
+                        st.info(
+                            "If Mandaloun has different or missing columns, "
+                            "the reader will skip them automatically and show warnings "
+                            "during the push — no further changes needed.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Failed to create config: {e}")
+
+        st.divider()
+
+        # ── Delete a config ───────────────────────────────────────────────────
+        st.markdown("**Delete Config**")
+        st.caption("Only removes the config — does not delete any pushed data.")
+
+        col_del1, col_del2 = st.columns([2, 1])
+        with col_del1:
+            del_target = st.selectbox(
+                "Select config to delete", existing_names,
+                key="cfg_del_target", index=None,
+                placeholder="Select a client...")
+        with col_del2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            del_btn = st.button(
+                "🗑️ Delete", use_container_width=True,
+                key="cfg_del_btn", type="primary")
+
+        if del_btn:
+            if not del_target:
+                st.error("Select a client to delete.")
+            else:
+                try:
+                    _sb().table("ac_configs").delete()\
+                        .eq("client_name", del_target).execute()
+                    st.success(f"✅ Config for '{del_target}' deleted.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ {e}")
