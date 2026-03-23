@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/auto_calc.py
 EK Consulting — Auto Calc Reader + Report Generator
