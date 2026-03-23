@@ -1,106 +1,8 @@
-import io
-import json
-import re
-import calendar as _cal
 import streamlit as st
 import pandas as pd
-from datetime import date as _date, datetime as _datetime
 from supabase import create_client, Client
 from modules.clients import render_clients
-
-# ── Auto Calc helpers (ported from auto_calc_reader/reader.py) ─────────────────
-_AC_MONTHS = {
-    "january": 1, "february": 2, "march": 3, "april": 4,
-    "may": 5, "june": 6, "july": 7, "august": 8,
-    "september": 9, "october": 10, "november": 11, "december": 12,
-}
-_AC_ERRORS = {"#div/0!", "#n/a", "#ref!", "#value!", "#name?", "#null!", "#num!"}
-
-
-def _ac_last_day(year: int, month: int) -> _date:
-    return _date(year, month, _cal.monthrange(year, month)[1])
-
-
-def _ac_detect_month(filename: str) -> str | None:
-    name = filename.lower().rsplit(".", 1)[0]
-    for mname, mnum in _AC_MONTHS.items():
-        if mname[:3] in name or mname in name:
-            ym = re.search(r"(20\d{2})", name)
-            year = int(ym.group(1)) if ym else _datetime.now().year
-            return _ac_last_day(year, mnum).strftime("%Y-%m-%d")
-    m = re.search(r"(20\d{2})[-_]?(0[1-9]|1[0-2])", name)
-    if m:
-        return _ac_last_day(int(m.group(1)), int(m.group(2))).strftime("%Y-%m-%d")
-    return None
-
-
-def _ac_clean_value(val):
-    if val is None:
-        return None
-    try:
-        if pd.isnull(val):
-            return None
-    except (TypeError, ValueError):
-        pass
-    if isinstance(val, str):
-        s = val.strip()
-        if s.lower() in _AC_ERRORS:
-            return None
-        if s.upper() in {m.upper() for m in _AC_MONTHS}:
-            return "__MONTH_NAME__"
-        return s if s else None
-    if isinstance(val, (_datetime, _date)):
-        try:
-            d = val if isinstance(val, _date) and not isinstance(val, _datetime) else val.date()
-            return d.strftime("%Y-%m-%d")
-        except (ValueError, OSError):
-            return None
-    if isinstance(val, float) and val != val:
-        return None
-    return val
-
-
-def _ac_serial_to_date(serial) -> str | None:
-    try:
-        from datetime import timedelta
-        return (_date(1899, 12, 30) + timedelta(days=int(serial))).strftime("%Y-%m-%d")
-    except Exception:
-        return None
-
-
-def _ac_read_sheet(file_bytes: bytes, sheet_name: str, sheet_config: dict,
-                   client_name: str, fallback_month: str) -> list[dict]:
-    col_map: dict = sheet_config["columns"]
-    month_col: str | None = sheet_config.get("month_column")
-    month_from_file: bool = sheet_config.get("month_from_file_name", False)
-    try:
-        df = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet_name, header=0)
-    except Exception:
-        return []
-    available = {str(c).strip(): c for c in df.columns}
-    mapped = {ec: dc for ec, dc in col_map.items() if ec in available}
-    if not mapped:
-        return []
-    rows = []
-    for _, raw in df.iterrows():
-        record = {dc: _ac_clean_value(raw.get(ec)) for ec, dc in mapped.items()}
-        meaningful = {k: v for k, v in record.items() if k not in ("month", "client_name")}
-        if all(v is None or v == 0 or v == "__MONTH_NAME__" for v in meaningful.values()):
-            continue
-        record["client_name"] = client_name
-        if month_col and month_col in col_map:
-            db_col = col_map[month_col]
-            val = record.get(db_col)
-            if val and val != "__MONTH_NAME__":
-                if isinstance(val, (int, float)) and 30000 < val < 60000:
-                    record[db_col] = _ac_serial_to_date(int(val))
-            else:
-                record[db_col] = fallback_month
-        elif month_from_file or month_col is None:
-            if "month" not in record or record.get("month") in (None, "__MONTH_NAME__"):
-                record["month"] = fallback_month
-        rows.append(record)
-    return rows
+from modules.auto_calc import render_auto_calc
 
 # --- SAFELY INITIALIZE SUPABASE ---
 @st.cache_resource
@@ -123,50 +25,24 @@ def render_main(conn, sheet_link, user, role):
     st.markdown("### ⚙️ Control Panel")
     supabase = get_supabase()
 
-    # --- 🏗️ STRUCTURED ROUTING FROM clients / branches / areas ---
-    def get_clients_list():
-        try:
-            res = supabase.table("clients").select("client_name").order("client_name").execute()
-            return [r["client_name"] for r in (res.data or []) if r.get("client_name")]
-        except:
-            return []
-
-    def get_outlets_for_client(client_name: str):
-        try:
-            q = supabase.table("branches").select("outlet").order("outlet")
-            if client_name and client_name != "All":
-                q = q.eq("client_name", client_name)
-            res = q.execute()
-            return [r["outlet"] for r in (res.data or []) if r.get("outlet")]
-        except:
-            return []
-
-    def get_areas_for_outlet(outlet: str):
-        try:
-            q = supabase.table("areas").select("area_name").order("area_name")
-            if outlet and outlet != "All":
-                q = q.eq("outlet", outlet)
-            res = q.execute()
-            return [r["area_name"] for r in (res.data or []) if r.get("area_name")]
-        except:
-            return []
-
-    # df_routing kept for Omega Sync client/outlet selectors
+    # --- 🧠 INTELLIGENT ROUTING DATA ---
     def get_routing_df():
+        records = []
         try:
-            res = supabase.table("branches").select("client_name, outlet").execute()
-            if res.data:
-                df = pd.DataFrame(res.data)
-                df['client_name'] = df['client_name'].astype(str).str.strip()
-                df['outlet']      = df['outlet'].astype(str).str.strip()
-                df['location']    = ""
-                return df
-        except:
-            pass
+            res1 = supabase.table("master_items").select("client_name, outlet, location").execute()
+            if res1.data: records.extend(res1.data)
+            res2 = supabase.table("users").select("client_name, outlet, location").execute()
+            if res2.data: records.extend(res2.data)
+        except: pass
+        
+        if records:
+            df = pd.DataFrame(records)
+            df['client_name'] = df['client_name'].astype(str).str.strip().str.title()
+            df['outlet'] = df['outlet'].astype(str).str.strip().str.title()
+            return df
         return pd.DataFrame(columns=['client_name', 'outlet', 'location'])
 
-    df_routing   = get_routing_df()
-    clients_list = get_clients_list()
+    df_routing = get_routing_df()
 
     # ==========================================
     # 📑 DYNAMIC TAB DEFINITION
@@ -174,17 +50,18 @@ def render_main(conn, sheet_link, user, role):
     if is_super_admin:
         st.info("👑 Super Admin Mode: Full access to all database and user controls.")
         tabs = st.tabs(["📤 Master Sync", "➕ Create User", "👥 Manage Users", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients", "📊 Auto Calc"])
-        t_sync, t_create, t_view, t_supp, t_edit, t_clients, t_ac = tabs
+        t_sync, t_create, t_view, t_supp, t_edit, t_clients, t_autocalc = tabs
     elif is_normal_admin:
         st.info("🛡️ Admin Mode: Access to sync and onboard users/suppliers.")
-        tabs = st.tabs(["📤 Master Sync", "➕ Create User", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients", "📊 Auto Calc"])
-        t_sync, t_create, t_supp, t_edit, t_clients, t_ac = tabs[0], tabs[1], tabs[2], tabs[3], tabs[4], tabs[5]
+        tabs = st.tabs(["📤 Master Sync", "➕ Create User", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients"])
+        t_sync, t_create, t_supp, t_edit, t_clients = tabs[0], tabs[1], tabs[2], tabs[3], tabs[4]
         t_view = None
+        t_autocalc = None
     else:
         st.info("🏢 HQ Manager Mode: Access to sync the Master Items database.")
         tabs = st.tabs(["📤 Master Sync"])
         t_sync = tabs[0]
-        t_create = t_view = t_supp = t_edit = t_clients = t_ac = None
+        t_create = t_view = t_supp = t_edit = t_clients = t_autocalc = None
 
     # ==========================================
     # TAB: MASTER ITEMS SYNC
@@ -533,15 +410,26 @@ def render_main(conn, sheet_link, user, role):
                 available_modules = ["waste", "cash", "inventory", "transfers", "dashboard", "invoices", "ledger"]
                 new_modules = st.multiselect("📱 App Access", available_modules, default=["waste"], key="c_mod")
 
+            # 🚀 FILTER FIX: Remove "All" from the database pulls so it doesn't duplicate!
+            c_list = ["All"] + sorted([c for c in df_routing['client_name'].unique() if c and str(c).lower() not in ['nan', 'all']])
             col3, col4, col5 = st.columns(3)
-            with col3:
-                new_client = st.selectbox("🏢 Select Client", ["All"] + clients_list, key="c_client")
-            with col4:
-                outlets_for_create = get_outlets_for_client(new_client if new_client != "All" else None)
-                new_outlet = st.selectbox("🏠 Select Outlet", ["All"] + outlets_for_create, key="c_outlet")
-            with col5:
-                areas_for_create = get_areas_for_outlet(new_outlet if new_outlet != "All" else None)
-                new_locations = st.multiselect("📍 Select Area(s)", ["All"] + areas_for_create, default=["All"], key="c_loc")
+            with col3: new_client = st.selectbox("🏢 Select Client", c_list, key="c_client")
+            
+            f_outlets = df_routing['outlet'].unique() if new_client == "All" else df_routing[df_routing['client_name'] == new_client]['outlet'].unique()
+            # 🚀 FILTER FIX
+            o_list = ["All"] + sorted([o for o in f_outlets if o and str(o).lower() not in ['nan', 'all']])
+            with col4: new_outlet = st.selectbox("🏠 Select Outlet", o_list, key="c_outlet")
+            
+            loc_df = df_routing.copy()
+            if new_client != "All": loc_df = loc_df[loc_df['client_name'] == new_client]
+            if new_outlet != "All": loc_df = loc_df[loc_df['outlet'] == new_outlet]
+            loc_set = set()
+            for loc_val in loc_df['location'].dropna():
+                for l in str(loc_val).split(','):
+                    if l.strip() and str(l).lower() not in ['nan', 'all']: loc_set.add(l.strip().title())
+            # 🚀 FILTER FIX
+            l_list = ["All"] + sorted(list(loc_set))
+            with col5: new_locations = st.multiselect("📍 Select Location(s)", l_list, default=["All"], key="c_loc")
 
             if st.button("🚀 CREATE USER", type="primary", use_container_width=True):
                 new_user_data = {
@@ -583,24 +471,36 @@ def render_main(conn, sheet_link, user, role):
                         valid_mods = [m for m in current_mods if m in available_modules]
                         e_modules = st.multiselect("📱 App Access", available_modules, default=valid_mods)
 
-                    # 🏗️ STRUCTURED DROPDOWNS from clients / branches / areas
+                    # 🚀 FILTER FIX: Remove "All" from the database pulls so it doesn't duplicate!
+                    c_list = ["All"] + sorted([c for c in df_routing['client_name'].unique() if c and str(c).lower() not in ['nan', 'all']])
                     col3, col4, col5 = st.columns(3)
-                    with col3:
-                        c_index = (["All"] + clients_list).index(u_data['client_name']) if u_data['client_name'] in (["All"] + clients_list) else 0
-                        e_client = st.selectbox("🏢 Select Client", ["All"] + clients_list, index=c_index, key="e_client_box")
-
-                    outlets_for_edit = get_outlets_for_client(e_client if e_client != "All" else None)
-                    with col4:
-                        o_list   = ["All"] + outlets_for_edit
-                        o_index  = o_list.index(u_data['outlet']) if u_data['outlet'] in o_list else 0
+                    with col3: 
+                        c_index = c_list.index(u_data['client_name']) if u_data['client_name'] in c_list else 0
+                        e_client = st.selectbox("🏢 Select Client", c_list, index=c_index, key="e_client_box")
+                    
+                    f_outlets = df_routing['outlet'].unique() if e_client == "All" else df_routing[df_routing['client_name'] == e_client]['outlet'].unique()
+                    # 🚀 FILTER FIX
+                    o_list = ["All"] + sorted([o for o in f_outlets if o and str(o).lower() not in ['nan', 'all']])
+                    with col4: 
+                        o_index = o_list.index(u_data['outlet']) if u_data['outlet'] in o_list else 0
                         e_outlet = st.selectbox("🏠 Select Outlet", o_list, index=o_index, key="e_outlet_box")
-
-                    areas_for_edit = get_areas_for_outlet(e_outlet if e_outlet != "All" else None)
-                    with col5:
-                        l_list       = ["All"] + areas_for_edit
-                        current_locs = [l.strip() for l in str(u_data.get('location', '')).split(',') if l.strip()]
-                        valid_locs   = [l for l in current_locs if l in l_list] or ["All"]
-                        e_locations  = st.multiselect("📍 Select Area(s)", l_list, default=valid_locs, key="e_loc_box")
+                    
+                    loc_df = df_routing.copy()
+                    if e_client != "All": loc_df = loc_df[loc_df['client_name'] == e_client]
+                    if e_outlet != "All": loc_df = loc_df[loc_df['outlet'] == e_outlet]
+                    loc_set = set()
+                    for loc_val in loc_df['location'].dropna():
+                        for l in str(loc_val).split(','):
+                            if l.strip() and str(l).lower() not in ['nan', 'all']: loc_set.add(l.strip().title())
+                    # 🚀 FILTER FIX
+                    l_list = ["All"] + sorted(list(loc_set))
+                    
+                    current_locs = [l.strip() for l in str(u_data.get('location', '')).split(',')] if str(u_data.get('location', '')) else ["All"]
+                    valid_locs = [l for l in current_locs if l in l_list]
+                    if not valid_locs: valid_locs = ["All"]
+                    
+                    with col5: 
+                        e_locations = st.multiselect("📍 Select Location(s)", l_list, default=valid_locs, key="e_loc_box")
 
                     st.write("") # Quick spacer
                     if st.button("💾 Save User Changes", type="primary", use_container_width=True):
@@ -720,140 +620,8 @@ def render_main(conn, sheet_link, user, role):
             render_clients(supabase)
 
     # ==========================================
-    # TAB: AUTO CALC UPLOAD
+    # TAB: AUTO CALC (admin_all only)
     # ==========================================
-    if t_ac:
-        with t_ac:
-            st.markdown("#### 📊 Auto Calc Upload")
-            st.info(
-                "Upload the client's Auto Calc Excel file and its JSON config to parse "
-                "all sheets and push the monthly data to Supabase. "
-                "Existing data for the same client + month is replaced automatically."
-            )
-
-            col_f1, col_f2 = st.columns(2)
-            with col_f1:
-                ac_excel = st.file_uploader(
-                    "📊 Auto Calc Excel (.xlsx)", type=["xlsx"], key="ac_excel_file")
-            with col_f2:
-                ac_json = st.file_uploader(
-                    "⚙️ Client Config (.json)", type=["json"], key="ac_json_file")
-
-            ac_month_override = st.text_input(
-                "📅 Month override (YYYY-MM-DD) — leave blank to auto-detect from filename",
-                key="ac_month_override"
-            )
-
-            if ac_excel and ac_json:
-                try:
-                    config = json.load(ac_json)
-                except Exception as e:
-                    st.error(f"❌ Could not parse JSON config: {e}")
-                    config = None
-
-                if config:
-                    ac_client   = config.get("client_name", "")
-                    ac_sheets   = config.get("active_sheets", {})
-                    skip_sheets = set(config.get("skip_sheets", []))
-
-                    fallback_month = ac_month_override.strip() or _ac_detect_month(ac_excel.name)
-
-                    if not fallback_month:
-                        st.error(
-                            "Could not detect month from the filename. "
-                            "Please fill in the month override field above (e.g. 2026-02-28)."
-                        )
-                    else:
-                        st.markdown(f"**Client:** {ac_client} &nbsp;|&nbsp; **Month:** {fallback_month}")
-
-                        # Read file bytes once so we can re-use for multiple sheets
-                        file_bytes = ac_excel.read()
-
-                        with st.spinner("Parsing sheets…"):
-                            sheet_results: dict[str, list[dict]] = {}
-                            skipped = []
-                            for sheet_name, sheet_cfg in ac_sheets.items():
-                                if sheet_name in skip_sheets:
-                                    skipped.append(sheet_name)
-                                    continue
-                                rows = _ac_read_sheet(
-                                    file_bytes, sheet_name, sheet_cfg,
-                                    ac_client, fallback_month
-                                )
-                                table = sheet_cfg["supabase_table"]
-                                if rows:
-                                    sheet_results[table] = rows
-                                else:
-                                    skipped.append(sheet_name)
-
-                        total_rows = sum(len(v) for v in sheet_results.values())
-                        st.markdown(
-                            f"**{total_rows} rows** parsed across "
-                            f"**{len(sheet_results)} tables** "
-                            f"({len(skipped)} sheets skipped / empty)"
-                        )
-
-                        if sheet_results:
-                            with st.expander("Preview parsed data"):
-                                for table, rows in sheet_results.items():
-                                    st.markdown(f"**{table}** — {len(rows)} rows")
-                                    st.dataframe(
-                                        pd.DataFrame(rows).head(5),
-                                        use_container_width=True, hide_index=True
-                                    )
-
-                            st.divider()
-                            st.warning(
-                                f"Pushing will **delete** all existing rows for "
-                                f"**{ac_client}** / **{fallback_month}** in each target table, "
-                                f"then insert the new data."
-                            )
-
-                            if st.button(
-                                "🚀 Push to Supabase", type="primary",
-                                use_container_width=True, key="ac_push_btn"
-                            ):
-                                with st.spinner("Pushing to Supabase…"):
-                                    pushed_total = 0
-                                    errors = []
-                                    for table, rows in sheet_results.items():
-                                        try:
-                                            supabase.table(table).delete()\
-                                                .eq("client_name", ac_client)\
-                                                .eq("month", fallback_month)\
-                                                .execute()
-                                        except Exception as e:
-                                            pass  # table may not have existing rows
-                                        try:
-                                            for i in range(0, len(rows), 500):
-                                                supabase.table(table).insert(rows[i:i+500]).execute()
-                                            pushed_total += len(rows)
-                                        except Exception as e:
-                                            errors.append(f"{table}: {e}")
-
-                                    # Log the upload
-                                    try:
-                                        supabase.table("ac_upload_log").insert({
-                                            "client_name": ac_client,
-                                            "month": fallback_month,
-                                            "uploaded_by": user,
-                                            "file_name": ac_excel.name,
-                                            "status": "partial" if errors else "success",
-                                            "notes": (
-                                                "; ".join(errors) if errors
-                                                else f"{pushed_total} rows across {len(sheet_results)} tables"
-                                            )
-                                        }).execute()
-                                    except Exception:
-                                        pass  # log failure is non-fatal
-
-                                    if errors:
-                                        st.error("Some tables failed:\n" + "\n".join(errors))
-                                    else:
-                                        st.success(
-                                            f"✅ Done! {pushed_total} rows pushed for "
-                                            f"{ac_client} / {fallback_month}."
-                                        )
-                                        st.balloons()
-                        else:
-                            st.warning("No data rows found in any sheet. Check the config column names match the Excel headers.")
+    if t_autocalc:
+        with t_autocalc:
+            render_auto_calc(supabase)
