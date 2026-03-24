@@ -26,8 +26,8 @@ for mname, mnum in _AC_MONTHS.items():
 if mname[:3] in name or mname in name:
 ym = re.search(r”(20\d{2})”, name)
 year = int(ym.group(1)) if ym else _datetime.now().year
-return *ac_last_day(year, mnum).strftime(”%Y-%m-%d”)
-m = re.search(r”(20\d{2})[-*]?(0[1-9]|1[0-2])”, name)
+return _ac_last_day(year, mnum).strftime(”%Y-%m-%d”)
+m = re.search(r”(20\d{2})[-_]?(0[1-9]|1[0-2])”, name)
 if m:
 return _ac_last_day(int(m.group(1)), int(m.group(2))).strftime(”%Y-%m-%d”)
 return None
@@ -45,7 +45,7 @@ s = val.strip()
 if s.lower() in _AC_ERRORS:
 return None
 if s.upper() in {m.upper() for m in _AC_MONTHS}:
-return “**MONTH_NAME**”
+return “__MONTH_NAME__”
 return s if s else None
 if isinstance(val, (_datetime, _date)):
 try:
