@@ -848,4 +848,3 @@ if t_ac:
                                     st.balloons()
                     else:
                         st.warning("No data rows found in any sheet. Check the config column names match the Excel headers.")
-```
