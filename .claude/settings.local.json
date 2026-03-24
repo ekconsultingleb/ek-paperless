@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from modules.main import render_main; print\\(''OK''\\)\")",
+      "Bash(python -c \":*)"
+    ]
+  }
+}

@@ -151,21 +151,6 @@ def render_main(conn, sheet_link, user, role):
         except:
             return []
 
-    # df_routing kept for Omega Sync client/outlet selectors
-    def get_routing_df():
-        try:
-            res = supabase.table("branches").select("client_name, outlet").execute()
-            if res.data:
-                df = pd.DataFrame(res.data)
-                df['client_name'] = df['client_name'].astype(str).str.strip()
-                df['outlet']      = df['outlet'].astype(str).str.strip()
-                df['location']    = ""
-                return df
-        except:
-            pass
-        return pd.DataFrame(columns=['client_name', 'outlet', 'location'])
-
-    df_routing   = get_routing_df()
     clients_list = get_clients_list()
 
     # ==========================================
@@ -215,10 +200,7 @@ def render_main(conn, sheet_link, user, role):
 
             # ── Client setup ───────────────────────────────────────────────
             st.markdown("##### 1. Select or Create Client")
-            
-            existing_clients = sorted([c for c in df_routing["client_name"].unique() 
-                                        if c and str(c).lower() not in ["nan","all",""]])
-            
+
             client_mode = st.radio("Client", ["Select existing", "Create new"], 
                                     horizontal=True, key="omega_client_mode")
             
@@ -226,18 +208,14 @@ def render_main(conn, sheet_link, user, role):
             
             if client_mode == "Select existing":
                 with col_c1:
-                    sel_client = st.selectbox("🏢 Client", existing_clients, key="omega_client")
+                    sel_client = st.selectbox("🏢 Client", clients_list, key="omega_client")
                 with col_c2:
-                    outlets = sorted([o for o in df_routing[df_routing["client_name"]==sel_client]["outlet"].unique()
-                                     if o and str(o).lower() not in ["nan","all",""]])
+                    outlets = get_outlets_for_client(sel_client)
                     sel_outlet = st.selectbox("🏠 Outlet", outlets if outlets else ["Main"], key="omega_outlet")
                 with col_c3:
-                    locs = set()
-                    for lv in df_routing[(df_routing["client_name"]==sel_client)]["location"].dropna():
-                        for l in str(lv).split(","):
-                            if l.strip() and l.strip().lower() not in ["nan","all",""]:
-                                locs.add(l.strip().title())
-                    loc_list = sorted(list(locs)) if locs else ["Main Store"]
+                    # ✅ FIXED: now reads from areas table filtered by outlet
+                    areas = get_areas_for_outlet(sel_outlet)
+                    loc_list = areas if areas else ["Main Store"]
                     sel_location = st.selectbox("📍 Location", loc_list, key="omega_location")
                 final_client   = sel_client
                 final_outlet   = sel_outlet
@@ -577,7 +555,6 @@ def render_main(conn, sheet_link, user, role):
                         e_role = st.selectbox("🛡️ Role", role_options, index=e_role_index)
                         
                     with col2:
-                        # 👇 THIS IS WHERE IT WAS MISSING! 👇
                         available_modules = ["waste", "cash", "inventory", "transfers", "dashboard", "invoices", "ledger"]
                         current_mods = [m.strip() for m in str(u_data.get('module', '')).split(',')] if str(u_data.get('module', '')) else ["waste"]
                         valid_mods = [m for m in current_mods if m in available_modules]
@@ -602,7 +579,7 @@ def render_main(conn, sheet_link, user, role):
                         valid_locs   = [l for l in current_locs if l in l_list] or ["All"]
                         e_locations  = st.multiselect("📍 Select Area(s)", l_list, default=valid_locs, key="e_loc_box")
 
-                    st.write("") # Quick spacer
+                    st.write("")
                     if st.button("💾 Save User Changes", type="primary", use_container_width=True):
                         update_payload = {
                             "password": e_pass, 
@@ -660,46 +637,36 @@ def render_main(conn, sheet_link, user, role):
             st.markdown("#### 📝 Live Database Editor")
             st.info("💡 Double-click any cell to edit it. When you are finished, click the Save button at the bottom.")
             
-            # 👇 I added "ledger_logs" here for you too!
             table_to_edit = st.selectbox("🗄️ Select Table to Edit:", ["waste_logs", "invoices_log", "ledger_logs"])
             
             try:
-                # Fetch the last 150 records (we limit it so the app doesn't freeze on huge datasets)
                 res = supabase.table(table_to_edit).select("*").order("id", desc=True).limit(150).execute()
                 
                 if res.data:
                     df_edit = pd.DataFrame(res.data)
                     
-                    # 1. DISPLAY THE SPREADSHEET
                     edited_df = st.data_editor(
                         df_edit,
                         use_container_width=True,
-                        disabled=["id", "created_at"], # Protect the ID so they don't break the database
+                        disabled=["id", "created_at"],
                         hide_index=True,
                         key=f"editor_{table_to_edit}"
                     )
                     
-                    # 2. THE SAVE LOGIC
                     st.write("")
                     if st.button(f"💾 Save Changes to {table_to_edit}", type="primary", use_container_width=True):
                         with st.spinner("Scanning for changes and updating cloud..."):
                             updates_made = 0
                             
-                            # We fill empty cells to make comparing them easier
                             safe_edited_df = edited_df.fillna('')
                             safe_orig_df = df_edit.fillna('')
                             
                             for index, new_row in safe_edited_df.iterrows():
                                 old_row = safe_orig_df.loc[index]
                                 
-                                # If the row was changed by the user:
                                 if new_row.to_dict() != old_row.to_dict():
                                     row_id = new_row['id']
-                                    
-                                    # Prepare the update package (we strip out 'id' and 'created_at' to be safe)
                                     update_payload = edited_df.loc[index].drop(['id', 'created_at']).to_dict()
-                                    
-                                    # Send the update to Supabase
                                     supabase.table(table_to_edit).update(update_payload).eq("id", row_id).execute()
                                     updates_made += 1
                             
@@ -712,6 +679,7 @@ def render_main(conn, sheet_link, user, role):
                     st.warning("No records found in this table.")
             except Exception as e:
                 st.error(f"❌ Error loading data: {e}")
+
     # ==========================================
     # TAB: CLIENTS
     # ==========================================
@@ -766,7 +734,6 @@ def render_main(conn, sheet_link, user, role):
                     else:
                         st.markdown(f"**Client:** {ac_client} &nbsp;|&nbsp; **Month:** {fallback_month}")
 
-                        # Read file bytes once so we can re-use for multiple sheets
                         file_bytes = ac_excel.read()
 
                         with st.spinner("Parsing sheets…"):
@@ -823,7 +790,7 @@ def render_main(conn, sheet_link, user, role):
                                                 .eq("month", fallback_month)\
                                                 .execute()
                                         except Exception as e:
-                                            pass  # table may not have existing rows
+                                            pass
                                         try:
                                             for i in range(0, len(rows), 500):
                                                 supabase.table(table).insert(rows[i:i+500]).execute()
@@ -831,7 +798,6 @@ def render_main(conn, sheet_link, user, role):
                                         except Exception as e:
                                             errors.append(f"{table}: {e}")
 
-                                    # Log the upload
                                     try:
                                         supabase.table("ac_upload_log").insert({
                                             "client_name": ac_client,
@@ -845,7 +811,7 @@ def render_main(conn, sheet_link, user, role):
                                             )
                                         }).execute()
                                     except Exception:
-                                        pass  # log failure is non-fatal
+                                        pass
 
                                     if errors:
                                         st.error("Some tables failed:\n" + "\n".join(errors))
