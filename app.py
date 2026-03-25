@@ -25,7 +25,7 @@ def init_supabase():
 
 supabase: Client = init_supabase()
 
-st.set_page_config(page_title="EK Consulting Portal", layout="wide")
+st.set_page_config(page_title="Paperless", layout="wide")
 
 # --- BULLETPROOF MOBILE BACK BUTTON PROTECTION ---
 def inject_back_button_protection():
@@ -57,7 +57,7 @@ inject_back_button_protection()
 st.sidebar.image("https://hgvubaohmgvesblfvdps.supabase.co/storage/v1/object/public/assets/EK-Logo.png", use_container_width=True)
 st.sidebar.divider()
 st.sidebar.markdown(
-    "<div style='color:#8a9eaa; font-size:11px; text-align:center; padding:4px 0; letter-spacing:0.06em;'>PARTNER PORTAL v1.0</div>",
+    "<div style='color:#8a9eaa; font-size:11px; text-align:center; padding:4px 0; letter-spacing:0.06em;'>PAPERLESS v1.0</div>",
     unsafe_allow_html=True
 )
 

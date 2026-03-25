@@ -49,7 +49,7 @@ for user in recipients:
       <div style="background:#f9f5f1;padding:24px 28px;border-radius:0 0 10px 10px;border:1px solid #e8ddd4;">
         <p>Hi <strong>{to_name}</strong>,</p>
         <p>This is your monthly reminder to complete the <strong>inventory count</strong> for <strong>{month_label}</strong>.</p>
-        <p>Please log in to the EK Partner Portal (Paperless) and submit your count before end of day.</p>
+        <p>Please log in to Paperless and submit your count before end of day.</p>
         <br>
         <p style="color:#888;font-size:13px;">EK Consulting Team<br>elie.k@ekconsulting.co</p>
       </div>
