@@ -414,7 +414,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
             with col_flag:
                 flag_name = st.text_input("Item Name", placeholder="e.g. Redbull 355ml", key="flag_item_name", label_visibility="collapsed")
             with col_qty:
-                flag_qty = st.number_input("Qty", min_value=0.0, step=0.5, key="flag_item_qty", label_visibility="collapsed")
+                flag_qty = st.number_input("Qty", min_value=0.0, step=1.0, format="%g", key="flag_item_qty", label_visibility="collapsed")
             with col_btn:
                 if st.button("Add", use_container_width=True, key="flag_item_btn"):
                     name = flag_name.strip()
