@@ -401,7 +401,7 @@ else:
                     Welcome back, {user.title()} 👋
                 </div>
                 <div style="color:#8a9eaa;font-size:14px;">
-                    {role.title()}{client_label} · Partner Portal
+                    {role.title()}{client_label} · Paperless
                 </div>
             </div>
         """, unsafe_allow_html=True)
