@@ -4,7 +4,7 @@ on:
   # Runs at 05:00 UTC (= 08:00 Beirut time) every day from the 28th to 31st.
   # The Python script checks if today is the actual last day of the month.
   schedule:
-    - cron: '0 5 28-31 * *'
+    - cron: '0 13 28-31 * *'
   # Allow manual trigger from GitHub Actions tab (useful for testing)
   workflow_dispatch:
 
