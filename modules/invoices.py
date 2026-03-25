@@ -121,7 +121,10 @@ def render_invoices(conn, sheet_link, user, role):
                                     col_img, col_form = st.columns([1.2, 1])
                                     
                                     with col_img:
-                                        st.image(row['image_url'], use_container_width=True, output_format="JPEG")
+                                        if is_pdf:
+                                            st.markdown("<div style='text-align:center; padding:20px; font-size:48px;'>📄</div>", unsafe_allow_html=True)
+                                        else:
+                                            st.image(row['image_url'], use_container_width=True)
                                         st.markdown(f"[🔍 Click here to open full size image in a new tab]({row['image_url']})")
                                         
                                     with col_form:
@@ -224,7 +227,11 @@ def render_invoices(conn, sheet_link, user, role):
                                     with st.expander("👁️ View Invoice Details"):
                                         col_img, col_det = st.columns([1.2, 1])
                                         with col_img:
-                                            st.image(row['image_url'], use_container_width=True, output_format="JPEG")
+                                            _arch_is_pdf = str(row.get('image_url', '')).lower().endswith('.pdf')
+                                            if _arch_is_pdf:
+                                                st.markdown("<div style='text-align:center; padding:20px; font-size:48px;'>📄</div>", unsafe_allow_html=True)
+                                            else:
+                                                st.image(row['image_url'], use_container_width=True)
                                             st.markdown(f"[🔍 Click here to open full size image in a new tab]({row['image_url']})")
                                         with col_det:
                                             st.write(f"**👤 Uploaded By:** {row.get('uploaded_by', 'Unknown')}")
@@ -291,7 +298,9 @@ def render_invoices(conn, sheet_link, user, role):
                 with st.spinner("Uploading..."):
                     try:
                         file_ext = uploaded_file.name.split('.')[-1].lower()
-                        unique_filename = f"{client_name.replace(' ', '')}_{uuid.uuid4().hex[:8]}.{file_ext}"
+                        import re as _re
+                        _safe_client = _re.sub(r'[^A-Za-z0-9_-]', '', client_name.replace(' ', '_'))
+                        unique_filename = f"{_safe_client}_{uuid.uuid4().hex[:8]}.{file_ext}"
                         
                         supabase.storage.from_("invoices").upload(path=unique_filename, file=uploaded_file.getvalue(), file_options={"content-type": uploaded_file.type})
                         image_url = supabase.storage.from_("invoices").get_public_url(unique_filename)
