@@ -11,10 +11,9 @@ from supabase import create_client
 # ── Guard: only run on the actual last day of the month ──────────────────────
 today = date.today()
 last_day = calendar.monthrange(today.year, today.month)[1]
-# TESTING MODE — remove the comment below to re-enable the month-end guard
-# if today.day != last_day:
-#     print(f"Today is {today} — not the last day of the month ({last_day}). Skipping.")
-#     exit(0)
+if today.day != last_day:
+    print(f"Today is {today} — not the last day of the month ({last_day}). Skipping.")
+    exit(0)
 
 print(f"Running inventory reminder for {today.strftime('%B %Y')} ...")
 
