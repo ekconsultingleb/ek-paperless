@@ -406,7 +406,7 @@ def render_main(conn, sheet_link, user, role):
                     old_a = cleaned[i][0]   # item ID or category header text
                     old_b = cleaned[i][1]   # item name (populated on item rows)
 
-                    a_is_num   = isinstance(old_a, (int, float))
+                    a_is_num   = isinstance(old_a, (int, float)) and not _is_empty(old_a)
                     a_is_empty = _is_empty(old_a)
                     b_has_text = not _is_empty(old_b)
 
@@ -422,7 +422,7 @@ def render_main(conn, sheet_link, user, role):
                         product_code = ""
                         if i + 1 < n:
                             next_a = cleaned[i + 1][0]
-                            if isinstance(next_a, (int, float)):
+                            if isinstance(next_a, (int, float)) and not _is_empty(next_a):
                                 product_code = str(int(next_a))
 
                     item_name = proper(str(old_b))
