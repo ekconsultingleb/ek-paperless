@@ -38,36 +38,48 @@ def render_invoices(conn, sheet_link, user, role):
     if tab_process:
         with tab_process:
             st.info("💡 **Scroll & Process Mode:** Click '⚙️ Process Invoice' below any record to expand it, view the image, and update its status.")
-            
+
             try:
+                # ── Date filter ──────────────────────────────────────────────
+                _today = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).date()
+                _default_start = _today - timedelta(days=30)
+                col_pd1, col_pd2 = st.columns(2)
+                with col_pd1:
+                    proc_start = st.date_input("📅 From", value=_default_start, max_value=_today, key="proc_start")
+                with col_pd2:
+                    proc_end = st.date_input("📅 To", value=_today, max_value=_today, key="proc_end")
+
                 # Fetch invoices that need attention
-                query = supabase.table("invoices_log").select("*").in_("status", ["Pending", "On Hold"])
-                
+                query = (supabase.table("invoices_log").select("*")
+                         .in_("status", ["Pending", "On Hold"])
+                         .gte("created_at", f"{proc_start}T00:00:00")
+                         .lte("created_at", f"{proc_end}T23:59:59"))
+
                 if client_name != "All":
                     query = query.eq("client_name", client_name)
                 if outlet != "All":
                     query = query.eq("outlet", outlet)
-                    
+
                 res = query.execute()
-                
+
                 if not res.data:
-                    st.success("🎉 All caught up! There are no Pending or On Hold invoices to process.")
+                    st.success("🎉 All caught up! No Pending or On Hold invoices for this period.")
                 else:
                     df = pd.DataFrame(res.data)
                     df = df.sort_values(by="created_at", ascending=True)
-                    
-                    # --- 🧠 SMART CLIENT FILTER FOR BASSEL ---
+
+                    # --- 🧠 SMART CLIENT FILTER FOR EK TEAM ---
                     if client_name == "All":
                         active_clients = ["All Clients"] + sorted(df['client_name'].unique().tolist())
                         st.markdown("#### 🎯 Filter Workspace")
                         chosen_client = st.selectbox("Select a Client to focus on:", active_clients, key="process_filter")
                         if chosen_client != "All Clients":
                             df = df[df['client_name'] == chosen_client]
-                    
+
                     if df.empty:
                         st.info("✅ No pending invoices for this specific client.")
                     else:
-                        st.markdown("#### 📥 Pending Invoices Feed")
+                        st.markdown(f"#### 📥 Pending Invoices Feed ({len(df)})")
                         
                         # Build the scrolling interactive feed
                         for index, row in df.iterrows():
