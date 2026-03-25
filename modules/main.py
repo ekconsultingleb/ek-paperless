@@ -237,6 +237,7 @@ def render_main(conn, sheet_link, user, role):
 
             # ── Shared helpers ────────────────────────────────────────────
             from datetime import datetime as _dt
+            import numpy as np
 
             def _is_empty(val):
                 if val is None: return True
@@ -342,95 +343,135 @@ def render_main(conn, sheet_link, user, role):
             # ── Parse Menu Items file ──────────────────────────────────────
             def parse_menu_items(f, client, outlet, location):
                 """
-                Mirrors the Excel manual cleaning approach:
+                Mirrors the VBA macro (ForClaude) exactly:
 
-                1.  Row index 8 (Excel row 9) is deleted and cells shifted up.
-                2.  Timestamps, blank rows, and noise rows are removed.
-                    → After this, consecutive header rows are truly adjacent.
-                3.  New category column: IF(AND(C[n]="", C[n+1]="", C[n+2]=""), A[n], "")
-                    Three consecutive empty-C rows only occurs on header-only rows,
-                    so the first of the run is always the category label.
-                4.  Fill down the category column.
-                5.  Sub-category: take text values from col A (skip numbers/blanks),
-                    then fill down.
-                6.  Keep only item rows (col B has text AND col A is blank or a number).
+                1.  Remove timestamp rows (col A is a datetime).
+                2.  Remove "Description" column-header rows (col B = "Description").
+                3.  Insert a new empty column A (all existing columns shift right).
+                4.  Delete cell B8 and shift col B up by one from that row.
+                5.  Remove rows where col B (orig col A) = "Item ID".
+                6.  Remove rows where col B (orig col A) is empty.
+                    → 442 rows remain, mix of item rows and category/sub-cat rows.
+                7.  Delete first 2 rows (restaurant name + blank).
+                8.  Category formula on new col A:
+                        IF(AND(orig_B[i]="", orig_B[i+1]="", orig_B[i+2]=""),
+                           orig_A[i], "Null")
+                    orig_B = Description column (always empty on non-item rows after
+                    step 6 because item rows have Description in orig_B, category/sub
+                    rows do not).  Three consecutive empty orig_B rows only occur at
+                    major section breaks (BEVERAGES, FOOD, NYE, OTHERS) where Omega
+                    inserts a timestamp + blank + Description header that step 1/2
+                    removed, leaving a 3-row gap.
+                9.  Fill down col A (category).
+                10. Copy orig_A into a new col B (sub-category source),
+                    clear numeric values (item IDs), fill down.
+                11. Remove rows where orig_B (Description / item name) is empty
+                    → keeps only actual item rows.
                 """
                 raw = pd.read_excel(f, header=None)
-                cleaned = _clean_file(raw)
-                n = len(cleaned)
+                df  = raw.copy().astype(object)
 
-                # ── Step 3: Category formula ──────────────────────────────
-                # IF(AND(C[i]="", C[i+1]="", C[i+2]=""), A[i], "")
+                # ── Step 1: remove timestamp rows ──────────────────────────
+                df = df[~df.iloc[:, 0].apply(
+                    lambda v: isinstance(v, (pd.Timestamp, _dt))
+                )].reset_index(drop=True)
+
+                # ── Step 2: remove column-header rows (col B = "Description") ─
+                df = df[~df.iloc[:, 1].apply(
+                    lambda v: str(v).strip() == "Description"
+                )].reset_index(drop=True)
+
+                # ── Step 3: insert new col A (index 0) ─────────────────────
+                df.insert(0, "_cat", np.nan)
+                # positions: 0=_cat, 1=orig_A(item_id), 2=orig_B(Description),
+                #            3=orig_C(Menu Description), 4=orig_D(Kitchen)…
+
+                # ── Step 4: delete B8 (index 7 of col pos-1), shift up ─────
+                col1 = df.iloc[:, 1].tolist()
+                col1.pop(7)
+                col1.append(np.nan)
+                df.iloc[:, 1] = col1
+
+                # ── Step 5: remove "Item ID" rows in col pos-1 ─────────────
+                df = df[~df.iloc[:, 1].apply(
+                    lambda v: str(v).strip() == "Item ID"
+                )].reset_index(drop=True)
+
+                # ── Step 6: remove rows where col pos-1 (orig_A) is empty ──
+                df = df[~df.iloc[:, 1].apply(_is_empty)].reset_index(drop=True)
+
+                # ── Step 7: drop first 2 rows (title + blank) ──────────────
+                df = df.iloc[2:].reset_index(drop=True)
+
+                n = len(df)
+
+                # ── Step 8: category formula ────────────────────────────────
+                # col pos-2 = orig_B (Description) — always empty on
+                # category/sub-cat rows; item rows have the item name here.
+                # Three consecutive empty orig_B values = major section break.
                 cat_col = []
                 for i in range(n):
-                    c0 = cleaned[i][2]
-                    c1 = cleaned[i + 1][2] if i + 1 < n else None
-                    c2 = cleaned[i + 2][2] if i + 2 < n else None
-                    if _is_empty(c0) and _is_empty(c1) and _is_empty(c2):
-                        val = cleaned[i][0]
-                        cat_col.append(proper(str(val)) if not _is_empty(val) else "")
+                    b0 = df.iloc[i,     2]
+                    b1 = df.iloc[i + 1, 2] if i + 1 < n else None
+                    b2 = df.iloc[i + 2, 2] if i + 2 < n else None
+                    if _is_empty(b0) and _is_empty(b1) and _is_empty(b2):
+                        cat_col.append(df.iloc[i, 1])   # orig_A value = category name
                     else:
-                        cat_col.append("")
+                        cat_col.append(None)
+                df.iloc[:, 0] = cat_col
 
-                # ── Step 4: Fill down category ────────────────────────────
-                last_cat = ""
+                # ── Step 9: fill down category ──────────────────────────────
+                last_cat = None
                 for i in range(n):
-                    if cat_col[i]:
-                        last_cat = cat_col[i]
+                    if not _is_empty(df.iloc[i, 0]):
+                        last_cat = df.iloc[i, 0]
                     else:
-                        cat_col[i] = last_cat
+                        df.iloc[i, 0] = last_cat
 
-                # ── Step 5: Sub-category from col A text, fill down ───────
-                sub_col = []
+                # ── Step 10: sub-category ───────────────────────────────────
+                # Copy orig_A (pos-1) into a new col (pos-1 becomes sub),
+                # clear rows where the value is numeric (those are item IDs),
+                # then fill down.
+                sub_source = df.iloc[:, 1].tolist()
+                df.insert(1, "_sub", sub_source)
+                # positions now: 0=_cat, 1=_sub, 2=orig_A, 3=orig_B(Desc)…
+
                 for i in range(n):
-                    old_a = cleaned[i][0]
-                    if not _is_empty(old_a) and not isinstance(old_a, (int, float)):
-                        try:
-                            float(str(old_a))
-                            sub_col.append("")
-                        except ValueError:
-                            sub_col.append(proper(str(old_a)))
-                    else:
-                        sub_col.append("")
+                    v = df.iloc[i, 1]
+                    try:
+                        if not _is_empty(v) and float(str(v)) > 0:
+                            df.iloc[i, 1] = None
+                    except (ValueError, TypeError):
+                        pass  # text value → keep as sub-category label
 
-                last_sub = ""
+                last_sub = None
                 for i in range(n):
-                    if sub_col[i]:
-                        last_sub = sub_col[i]
+                    if not _is_empty(df.iloc[i, 1]):
+                        last_sub = df.iloc[i, 1]
                     else:
-                        sub_col[i] = last_sub
+                        df.iloc[i, 1] = last_sub
 
-                # ── Step 6: Build records from item rows only ─────────────
+                # ── Step 11: keep only item rows (orig_B / Description filled) ─
+                df = df[~df.iloc[:, 3].apply(_is_empty)].reset_index(drop=True)
+
+                # ── Build output records ────────────────────────────────────
                 records = []
-                for i in range(n):
-                    old_a = cleaned[i][0]   # item ID or category header text
-                    old_b = cleaned[i][1]   # item name (populated on item rows)
-
-                    a_is_num   = isinstance(old_a, (int, float)) and not _is_empty(old_a)
-                    a_is_empty = _is_empty(old_a)
-                    b_has_text = not _is_empty(old_b)
-
-                    # Item rows: B has content AND A is blank or a number
-                    if not b_has_text or not (a_is_empty or a_is_num):
-                        continue
-
-                    # Product code: from col A if it's a number,
-                    # otherwise peek at the next row
-                    if a_is_num:
-                        product_code = str(int(old_a))
-                    else:
-                        product_code = ""
-                        if i + 1 < n:
-                            next_a = cleaned[i + 1][0]
-                            if isinstance(next_a, (int, float)) and not _is_empty(next_a):
-                                product_code = str(int(next_a))
-
-                    item_name = proper(str(old_b))
+                for _, row in df.iterrows():
+                    category    = proper(str(row.iloc[0])) if not _is_empty(row.iloc[0]) else ""
+                    sub_cat     = proper(str(row.iloc[1])) if not _is_empty(row.iloc[1]) else ""
+                    product_code = str(int(float(str(row.iloc[2])))) \
+                                   if not _is_empty(row.iloc[2]) \
+                                   and isinstance(row.iloc[2], (int, float)) \
+                                   else str(row.iloc[2]) if not _is_empty(row.iloc[2]) else ""
+                    item_name   = proper(str(row.iloc[3]))
 
                     # Skip xxx items / categories / sub-categories
                     if (item_name.lower().startswith("xxx") or
-                            cat_col[i].lower().startswith("xxx") or
-                            sub_col[i].lower().startswith("xxx")):
+                            category.lower().startswith("xxx") or
+                            sub_cat.lower().startswith("xxx")):
+                        continue
+
+                    if not item_name:
                         continue
 
                     records.append({
@@ -438,8 +479,8 @@ def render_main(conn, sheet_link, user, role):
                         "outlet":       outlet,
                         "location":     location,
                         "item_type":    "Menu Items",
-                        "category":     cat_col[i],
-                        "sub_category": sub_col[i],
+                        "category":     category,
+                        "sub_category": sub_cat,
                         "product_code": product_code,
                         "item_name":    item_name,
                         "count_unit":   "Unit",
