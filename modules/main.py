@@ -447,13 +447,34 @@ def render_main(conn, sheet_link, user, role):
 
                 return pd.DataFrame(records)
 
+            # ── Modifier detection helpers ──────────────────────────────
+            _MODIFIER_PREFIXES = (
+                "no ", "add ", "add-", "extra ", "without ", "w/o ", "w/ ",
+                "remove ", "less ", "more ", "sub ", "substitute ", "light ",
+                "heavy ", "side of ", "on the side", "well done", "medium ",
+                "upgrade ", "change ", "swap ",
+            )
+            _MODIFIER_SUBCATS = (
+                "modifier", "modifiers", "add-on", "add on", "addon",
+                "option", "options", "extra", "extras", "instruction",
+                "instructions", "special request",
+            )
+
+            def _is_modifier_row(row):
+                name   = str(row.get("item_name", "")).lower().strip()
+                subcat = str(row.get("sub_category", "")).lower().strip()
+                return (
+                    any(name.startswith(p) for p in _MODIFIER_PREFIXES) or
+                    any(m in subcat for m in _MODIFIER_SUBCATS)
+                )
+
             # ── Preview & Push ─────────────────────────────────────────────
             if inv_file or menu_file:
-                st.markdown("##### 3. Preview Cleaned Data")
-                
+                st.markdown("##### 3. Review & Select Items")
+
                 df_inv  = pd.DataFrame()
                 df_menu = pd.DataFrame()
-                
+
                 if inv_file:
                     try:
                         df_inv = parse_inventory(inv_file, final_client, final_outlet, final_location)
@@ -461,12 +482,35 @@ def render_main(conn, sheet_link, user, role):
                         st.dataframe(df_inv.head(10), use_container_width=True, hide_index=True)
                     except Exception as e:
                         st.error(f"❌ Inventory parse error: {e}")
-                
+
                 if menu_file:
                     try:
-                        df_menu = parse_menu_items(menu_file, final_client, final_outlet, final_location)
-                        st.markdown(f"**Menu Items:** {len(df_menu)} rows cleaned")
-                        st.dataframe(df_menu.head(10), use_container_width=True, hide_index=True)
+                        df_menu_raw = parse_menu_items(menu_file, final_client, final_outlet, final_location)
+
+                        # Auto-flag modifiers as unchecked; real items as checked
+                        df_menu_raw.insert(0, "include", ~df_menu_raw.apply(_is_modifier_row, axis=1))
+
+                        auto_excluded = int((~df_menu_raw["include"]).sum())
+                        st.markdown(
+                            f"**Menu Items:** {len(df_menu_raw)} rows parsed — "
+                            f"{auto_excluded} auto-flagged as modifiers (unchecked). "
+                            f"Review below and adjust before pushing."
+                        )
+
+                        edited_menu = st.data_editor(
+                            df_menu_raw[["include", "category", "sub_category", "product_code", "item_name"]],
+                            column_config={
+                                "include": st.column_config.CheckboxColumn("✅ Include", default=True, width="small"),
+                            },
+                            hide_index=True,
+                            use_container_width=True,
+                            key="menu_editor",
+                        )
+
+                        # Rebuild df_menu using the admin's selections
+                        df_menu = df_menu_raw[edited_menu["include"].values].drop(columns=["include"]).reset_index(drop=True)
+                        st.caption(f"**{len(df_menu)}** items selected for push · **{len(df_menu_raw) - len(df_menu)}** excluded")
+
                     except Exception as e:
                         st.error(f"❌ Menu Items parse error: {e}")
                 
