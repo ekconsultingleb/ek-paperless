@@ -13,19 +13,19 @@ def get_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
 # --- PDF GENERATOR HELPER FUNCTION ---
-def generate_inventory_pdf(df, report_date, client, outlet, location, user_name):
+def generate_inventory_pdf(df, report_date, client, outlet, location, user_name, missing_items=None):
     pdf = FPDF()
     pdf.add_page()
-    
+
     pdf.set_font("helvetica", "B", 16)
     pdf.cell(0, 10, "Official Inventory Count Report", ln=True, align="C")
-    
+
     pdf.set_font("helvetica", "", 10)
     pdf.cell(0, 6, f"Date: {report_date}", ln=True)
     pdf.cell(0, 6, f"Branch: {client} | Outlet: {outlet} | Location: {location}", ln=True)
     pdf.cell(0, 6, f"Generated: {datetime.now(zoneinfo.ZoneInfo('Asia/Beirut')).strftime('%Y-%m-%d %H:%M')}", ln=True)
     pdf.ln(5)
-    
+
     pdf.set_font("helvetica", "B", 10)
     pdf.set_fill_color(200, 200, 200)
     pdf.cell(80, 8, "Item Name", border=1, fill=True)
@@ -33,20 +33,31 @@ def generate_inventory_pdf(df, report_date, client, outlet, location, user_name)
     pdf.cell(30, 8, "Quantity", border=1, align="C", fill=True)
     pdf.cell(30, 8, "Unit", border=1, align="C", fill=True)
     pdf.ln()
-    
+
     pdf.set_font("helvetica", "", 9)
     for _, row in df.iterrows():
         item = str(row.get('item_name', ''))[:40]
         cat = str(row.get('category', ''))[:25]
         qty = str(row.get('quantity', '0'))
         unit = str(row.get('count_unit', 'pcs'))[:10]
-        
         pdf.cell(80, 8, item, border=1)
         pdf.cell(50, 8, cat, border=1)
         pdf.cell(30, 8, qty, border=1, align="C")
         pdf.cell(30, 8, unit, border=1, align="C")
         pdf.ln()
-        
+
+    # Missing items section
+    if missing_items:
+        pdf.ln(8)
+        pdf.set_font("helvetica", "B", 11)
+        pdf.set_fill_color(255, 220, 180)
+        pdf.cell(0, 8, "Items Found But NOT in Master List (Action Required)", ln=True, fill=True)
+        pdf.set_font("helvetica", "", 9)
+        for name in missing_items:
+            pdf.cell(0, 7, f"  - {name}", ln=True)
+        pdf.set_font("helvetica", "I", 8)
+        pdf.cell(0, 6, "Please add these items to the master list via the Control Panel.", ln=True)
+
     return bytes(pdf.output())
 
 # --- THE CUMULATIVE COUNTING LOGIC ---
@@ -153,6 +164,8 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
     # --- 🔒 INITIALIZE SESSION STATES FOR LOCKS & CARTS ---
     if 'mobile_counts' not in st.session_state:
         st.session_state['mobile_counts'] = {}
+    if 'missing_items' not in st.session_state:
+        st.session_state['missing_items'] = []
         
     if 'submit_lock' not in st.session_state:
         st.session_state['submit_lock'] = False
@@ -207,7 +220,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                 with tab_raw:
                     st.write("### Individual Staff Counts")
                     pdf_bytes = generate_inventory_pdf(
-                        df_archive, f"{start_date} to {end_date}", 
+                        df_archive, f"{start_date} to {end_date}",
                         final_client, final_outlet, "Multiple Locations", "System Report"
                     )
                     st.download_button(
@@ -218,7 +231,46 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                         type="primary",
                         key="raw_pdf_btn"
                     )
-                    st.dataframe(df_archive, use_container_width=True, hide_index=True)
+
+                    can_edit = role.lower() in ["manager", "admin", "admin_all"]
+
+                    if can_edit:
+                        st.caption("✏️ You can correct quantities below. Only the **Quantity** column is editable.")
+
+                        # Determine which columns to lock (everything except quantity)
+                        lock_cols = [c for c in df_archive.columns if c != "quantity"]
+
+                        edited_raw = st.data_editor(
+                            df_archive,
+                            use_container_width=True,
+                            hide_index=True,
+                            disabled=lock_cols,
+                            column_config={
+                                "quantity": st.column_config.NumberColumn("Quantity", min_value=0.0, step=0.5),
+                            },
+                            key="raw_log_editor"
+                        )
+
+                        if st.button("💾 Save Corrections", type="primary", use_container_width=True, key="save_raw_edits"):
+                            orig = df_archive.copy()
+                            orig["quantity"] = pd.to_numeric(orig["quantity"], errors="coerce")
+                            edited_raw["quantity"] = pd.to_numeric(edited_raw["quantity"], errors="coerce")
+
+                            changed = edited_raw[edited_raw["quantity"] != orig["quantity"]]
+                            if changed.empty:
+                                st.info("No changes detected.")
+                            else:
+                                try:
+                                    for _, row in changed.iterrows():
+                                        supabase.table("inventory_logs").update(
+                                            {"quantity": float(row["quantity"])}
+                                        ).eq("id", row["id"]).execute()
+                                    st.success(f"✅ {len(changed)} record(s) updated.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Failed to save: {e}")
+                    else:
+                        st.dataframe(df_archive, use_container_width=True, hide_index=True)
                     
                 with tab_total:
                     st.write("### Total Inventory by Item")
@@ -354,31 +406,26 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
         count_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")), key="count_date")
         st.divider()
 
-        with st.expander("➕ Missing an item? Add it manually here"):
-            c_name = st.text_input("Item Name (e.g., Redbull)", key="custom_name")
-            col_cat, col_grp = st.columns(2)
-            with col_cat:
-                cat_options = list(df_items['category'].dropna().unique()) if not df_items.empty else ["General"]
-                c_cat = st.selectbox("Category", cat_options, key="custom_cat")
-            with col_grp:
-                if not df_items.empty and c_cat in cat_options:
-                    grp_options = list(df_items[df_items['category'] == c_cat]['sub_category'].dropna().unique())
-                else:
-                    grp_options = ["General"]
-                c_grp = st.selectbox("Sub Category", grp_options, key="custom_grp")
-                
-            col_qty, col_unit = st.columns(2)
-            with col_qty:
-                c_qty = st.number_input("Quantity", min_value=0.0, step=1.0, format="%g", key="custom_qty")
-            with col_unit:
-                c_unit = st.text_input("Unit (e.g., Can, Kg)", key="custom_unit")
-                
-            if st.button("Save Custom Item", use_container_width=True, key="custom_save"):
-                if c_name and c_qty > 0:
-                    fake_row = {"item_name": c_name.upper(), "category": c_cat, "sub_category": c_grp, "count_unit": c_unit.title() if c_unit else "Pcs"}
-                    st.session_state['mobile_counts'][f"CUSTOM_{c_name}"] = {'row_data': fake_row, 'qty': c_qty}
-                    st.success(f"Added {c_name} to cart!")
-                    st.rerun()
+        with st.expander("⚠️ Found an item not in the list? Flag it here"):
+            st.caption("This will NOT add it to the database. It will appear as a note on the PDF report so the admin can add it to the master list later.")
+            col_flag, col_btn = st.columns([4, 1], vertical_alignment="bottom")
+            with col_flag:
+                flag_name = st.text_input("Item Name", placeholder="e.g. Redbull 355ml", key="flag_item_name", label_visibility="collapsed")
+            with col_btn:
+                if st.button("Flag", use_container_width=True, key="flag_item_btn"):
+                    name = flag_name.strip()
+                    if name and name not in st.session_state['missing_items']:
+                        st.session_state['missing_items'].append(name)
+                        st.rerun()
+
+            if st.session_state['missing_items']:
+                st.markdown("**Flagged items (not in master list):**")
+                for i, m in enumerate(st.session_state['missing_items']):
+                    col_m, col_x = st.columns([5, 1])
+                    col_m.markdown(f"• {m}")
+                    if col_x.button("✕", key=f"remove_flag_{i}"):
+                        st.session_state['missing_items'].pop(i)
+                        st.rerun()
 
         st.subheader("🔍 Filter & Count")
         search_query = st.text_input("🔍 Quick Search", placeholder="Find items...", key="search_bar")
@@ -466,6 +513,9 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                 preview_list = [{"Item": v['row_data'].get('item_name', k), "Total Counted": v['qty'], "Unit": v['row_data'].get('count_unit', '')} for k, v in st.session_state['mobile_counts'].items()]
                 st.dataframe(pd.DataFrame(preview_list), use_container_width=True, hide_index=True)
 
+                if st.session_state['missing_items']:
+                    st.warning(f"⚠️ **{len(st.session_state['missing_items'])} flagged item(s) not in master list** — these will appear on the PDF report: {', '.join(st.session_state['missing_items'])}")
+
                 if st.button("🚀 SUBMIT ALL COUNTS TO CLOUD", type="primary", use_container_width=True, key="submit_cloud_btn", on_click=lock_submit, disabled=st.session_state['submit_lock']):
                     with st.spinner("Saving to database... Please wait! Do not refresh."):
                         logs = []
@@ -485,20 +535,24 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                                 "quantity": float(data['qty']),
                                 "count_unit": r_data.get('count_unit', 'pcs')
                             })
-                        
+
                         if logs:
                             try:
                                 supabase.table("inventory_logs").insert(logs).execute()
                                 df_receipt = pd.DataFrame(logs)
-                                pdf_bytes = generate_inventory_pdf(df_receipt, str(count_date), final_client, final_outlet, loc_filter, user)
+                                pdf_bytes = generate_inventory_pdf(
+                                    df_receipt, str(count_date), final_client, final_outlet,
+                                    loc_filter, user, missing_items=st.session_state['missing_items']
+                                )
                                 st.session_state['last_inv_receipt'] = {"bytes": pdf_bytes, "filename": f"Inventory_Receipt_{final_outlet.replace(' ', '_')}_{str(count_date)}.pdf"}
-                                
+
                                 st.session_state['mobile_counts'] = {}
+                                st.session_state['missing_items'] = []
                                 st.session_state['submit_lock'] = False
                                 st.session_state['draft_checked'] = False
                                 delete_draft(supabase, user, final_client, final_outlet)
                                 st.rerun()
-                                
+
                             except Exception as e:
                                 st.session_state['submit_lock'] = False
                                 st.error(f"❌ Database Error: {e}")
