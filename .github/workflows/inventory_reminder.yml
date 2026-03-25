@@ -1,0 +1,32 @@
+name: Monthly Inventory Reminder
+
+on:
+  # Runs at 05:00 UTC (= 08:00 Beirut time) every day from the 28th to 31st.
+  # The Python script checks if today is the actual last day of the month.
+  schedule:
+    - cron: '0 5 28-31 * *'
+  # Allow manual trigger from GitHub Actions tab (useful for testing)
+  workflow_dispatch:
+
+jobs:
+  send-reminders:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install supabase
+
+      - name: Send inventory reminder emails
+        env:
+          SUPABASE_URL:        ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SMTP_PASSWORD:       ${{ secrets.SMTP_PASSWORD }}
+        run: python scripts/send_inventory_reminder.py

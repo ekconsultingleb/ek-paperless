@@ -622,6 +622,15 @@ def render_main(conn, sheet_link, user, role):
                 available_modules = ["waste", "cash", "inventory", "transfers", "dashboard", "invoices", "ledger"]
                 new_modules = st.multiselect("📱 App Access", available_modules, default=["waste"], key="c_mod")
 
+            col_ce1, col_ce2, col_ce3 = st.columns([3, 3, 1])
+            with col_ce1:
+                new_email = st.text_input("📧 Email", placeholder="user@example.com", key="c_email")
+            with col_ce2:
+                new_phone = st.text_input("📞 Phone", placeholder="+961 xx xxx xxx", key="c_phone")
+            with col_ce3:
+                st.write("")
+                new_inv_reminder = st.checkbox("📅 Inv. Reminder", value=False, key="c_inv_reminder")
+
             col3, col4, col5 = st.columns(3)
             with col3:
                 new_client = st.selectbox("🏢 Select Client", ["All"] + clients_list, key="c_client")
@@ -641,7 +650,10 @@ def render_main(conn, sheet_link, user, role):
                         "password": hash_password(new_password.strip()),
                         "full_name": new_fullname.strip(),
                         "role": new_role, "client_name": new_client, "outlet": new_outlet,
-                        "location": ", ".join(new_locations), "module": ", ".join(new_modules)
+                        "location": ", ".join(new_locations), "module": ", ".join(new_modules),
+                        "email": new_email.strip() or None,
+                        "phone": new_phone.strip() or None,
+                        "inv_reminder": new_inv_reminder,
                     }
                     supabase.table("users").insert([new_user_data]).execute()
                     st.success("✅ User created!")
@@ -676,6 +688,15 @@ def render_main(conn, sheet_link, user, role):
                         valid_mods = [m for m in current_mods if m in available_modules]
                         e_modules = st.multiselect("📱 App Access", available_modules, default=valid_mods)
 
+                    col_ee1, col_ee2, col_ee3 = st.columns([3, 3, 1])
+                    with col_ee1:
+                        e_email = st.text_input("📧 Email", value=u_data.get('email', '') or '', key="e_email")
+                    with col_ee2:
+                        e_phone = st.text_input("📞 Phone", value=u_data.get('phone', '') or '', key="e_phone")
+                    with col_ee3:
+                        st.write("")
+                        e_inv_reminder = st.checkbox("📅 Inv. Reminder", value=bool(u_data.get('inv_reminder', False)), key="e_inv_reminder")
+
                     col3, col4, col5 = st.columns(3)
                     with col3:
                         c_index = (["All"] + clients_list).index(u_data['client_name']) if u_data['client_name'] in (["All"] + clients_list) else 0
@@ -703,7 +724,10 @@ def render_main(conn, sheet_link, user, role):
                             "module": ", ".join(e_modules),
                             "client_name": e_client,
                             "outlet": e_outlet,
-                            "location": ", ".join(e_locations)
+                            "location": ", ".join(e_locations),
+                            "email": e_email.strip() or None,
+                            "phone": e_phone.strip() or None,
+                            "inv_reminder": e_inv_reminder,
                         }
                         supabase.table("users").update(update_payload).eq("username", u_sel).execute()
                         st.success(f"✅ User '{u_sel}' updated successfully!")
