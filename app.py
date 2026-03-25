@@ -236,39 +236,11 @@ hr { border-color: rgba(227,197,173,0.15) !important; }
     line-height: 1.5 !important;
 }
 
-/* ── STICKY BACK BUTTON ──────────────────────────────────────────────────── */
-.ek-sticky-back {
-    position: fixed;
-    bottom: 24px;
-    right: 24px;
-    z-index: 9999;
-}
-.ek-sticky-back > [data-testid="stButton"] > button {
-    background: var(--ek-dark) !important;
-    color: var(--ek-sand) !important;
-    border: 1px solid var(--ek-sand) !important;
-    border-radius: 50px !important;
-    padding: 10px 24px !important;
-    font-size: 14px !important;
-    font-weight: 500 !important;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.4) !important;
-    transition: all 0.2s !important;
-    white-space: nowrap !important;
-}
-.ek-sticky-back > [data-testid="stButton"] > button:hover {
-    background: var(--ek-sand) !important;
-    color: var(--ek-dark) !important;
-    box-shadow: 0 6px 20px rgba(227,197,173,0.35) !important;
-    transform: translateY(-2px) !important;
-}
-
 /* ── MOBILE ──────────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
     .block-container { padding-left: 1rem !important; padding-right: 1rem !important; }
     .ek-home-btn > [data-testid="stButton"] > button { height: 115px !important; font-size: 15px !important; }
     [data-testid="stMetric"] [data-testid="stMetricValue"] { font-size: 20px !important; }
-    .ek-sticky-back { bottom: 16px; right: 16px; }
-    .ek-sticky-back > [data-testid="stButton"] > button { padding: 10px 18px !important; font-size: 13px !important; }
 }
 
 /* ── SCROLLBAR ───────────────────────────────────────────────────────────── */
@@ -399,9 +371,17 @@ else:
     else:
         allowed_modules = [m.strip() for m in raw_modules.split(",") if m.strip()]
 
+    # ── Sidebar back button (visible on every module page) ───────────────────
+    if st.session_state.get('current_page', 'home') != 'home':
+        st.sidebar.divider()
+        if st.sidebar.button("⬅️ Back to Menu", use_container_width=True, key="sidebar_back_btn"):
+            st.session_state['current_page'] = 'home'
+            st.rerun()
+
     # Control Panel button (admin only)
     if role in ["admin", "admin_all"] or (role == "manager" and st.session_state['client_name'].lower() == 'all'):
-        st.sidebar.divider()
+        if st.session_state.get('current_page', 'home') == 'home':
+            st.sidebar.divider()
         if st.sidebar.button("⚙️ Control Panel", type="primary"):
             st.session_state['current_page'] = "main"
             st.rerun()
@@ -491,63 +471,6 @@ else:
     # PAGE ROUTING (INSIDE MODULES)
     # ==========================================
     else:
-        # ── TRUE STICKY BACK BUTTON via components.html ───────────────────
-        # position:fixed inside Streamlit's iframe is broken — it scrolls away.
-        # components.html renders in its own iframe at page level, so it stays fixed.
-        components.html("""
-            <style>
-                #back-btn {
-                    position: fixed;
-                    bottom: 24px;
-                    right: 24px;
-                    z-index: 9999;
-                    background: #1B252C;
-                    color: #E3C5AD;
-                    border: 1.5px solid #E3C5AD;
-                    border-radius: 50px;
-                    padding: 12px 24px;
-                    font-size: 14px;
-                    font-weight: 500;
-                    cursor: pointer;
-                    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-                    font-family: sans-serif;
-                    letter-spacing: 0.03em;
-                    transition: all 0.2s;
-                }
-                #back-btn:hover {
-                    background: #E3C5AD;
-                    color: #1B252C;
-                    box-shadow: 0 6px 24px rgba(227,197,173,0.4);
-                    transform: translateY(-2px);
-                }
-                @media (max-width: 768px) {
-                    #back-btn {
-                        bottom: 16px;
-                        right: 16px;
-                        padding: 11px 20px;
-                        font-size: 13px;
-                    }
-                }
-            </style>
-            <button id="back-btn" onclick="window.parent.postMessage('go_home', '*')">
-                ⬅️ &nbsp; Menu
-            </button>
-            <script>
-                // Listen for the click and send message to Streamlit parent
-                document.getElementById('back-btn').addEventListener('click', function() {
-                    window.parent.postMessage({type: 'streamlit:setComponentValue', value: true}, '*');
-                });
-            </script>
-        """, height=0)
-
-        # Streamlit-side listener — st.button hidden, triggered by URL param trick
-        # We use a regular button as fallback at the top for reliability
-        col_back, col_spacer = st.columns([1, 5])
-        with col_back:
-            if st.button("⬅️ Menu", key="back_top_btn", type="primary"):
-                st.session_state['current_page'] = 'home'
-                st.rerun()
-        st.divider()
 
         if st.session_state['current_page'] == 'dashboard':
             render_dashboard(None, None, user, role, client, outlet, location)
