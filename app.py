@@ -282,8 +282,8 @@ if not st.session_state.get('logged_in', False):
                 border-radius:20px; padding:28px 48px;
                 border:1px solid rgba(227,197,173,0.2); margin-bottom:8px;
             ">
-                <div style="color:#E3C5AD;font-size:28px;font-weight:700;letter-spacing:0.04em;">EK CONSULTING</div>
-                <div style="color:#8a9eaa;font-size:13px;margin-top:6px;letter-spacing:0.08em;text-transform:uppercase;">Partner Portal</div>
+                <div style="color:#E3C5AD;font-size:28px;font-weight:700;letter-spacing:0.04em;">Paperless</div>
+                <div style="color:#8a9eaa;font-size:13px;margin-top:6px;letter-spacing:0.08em;">by EK Consulting</div>
             </div>
         </div>
     """, unsafe_allow_html=True)
