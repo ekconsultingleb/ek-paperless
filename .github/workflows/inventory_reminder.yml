@@ -26,11 +26,11 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install supabase
+        run: pip install supabase resend
 
       - name: Send inventory reminder emails
         env:
-          SUPABASE_URL:        ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          SMTP_PASSWORD:       ${{ secrets.SMTP_PASSWORD }}
+          RESEND_API_KEY:       ${{ secrets.RESEND_API_KEY }}
         run: python scripts/send_inventory_reminder.py
