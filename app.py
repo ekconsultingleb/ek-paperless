@@ -408,11 +408,11 @@ else:
 
         col_a, col_b, col_c, col_d = st.columns(4)
 
-        if "dashboard" in allowed_modules:
+        if "cash" in allowed_modules:
             with col_a:
                 st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("📊\nDashboard", use_container_width=True, key="btn_dashboard"):
-                    st.session_state['current_page'] = 'dashboard'; st.rerun()
+                if st.button("🏦\nDaily Cash", use_container_width=True, key="btn_cash"):
+                    st.session_state['current_page'] = 'cash'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
         if "inventory" in allowed_modules:
@@ -429,28 +429,28 @@ else:
                     st.session_state['current_page'] = 'waste'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
-        if "transfers" in allowed_modules or "transfer" in allowed_modules:
+        if "invoices" in allowed_modules:
             with col_d:
                 st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("🔄\nTransfers", use_container_width=True, key="btn_transfers"):
-                    st.session_state['current_page'] = 'transfers'; st.rerun()
+                if st.button("📸\nInvoices", use_container_width=True, key="btn_invoices"):
+                    st.session_state['current_page'] = 'invoices'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
         st.write("")
         col_e, col_f, col_g, col_h = st.columns(4)
 
-        if "cash" in allowed_modules:
+        if "transfers" in allowed_modules or "transfer" in allowed_modules:
             with col_e:
                 st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("🏦\nDaily Cash", use_container_width=True, key="btn_cash"):
-                    st.session_state['current_page'] = 'cash'; st.rerun()
+                if st.button("🔄\nTransfers", use_container_width=True, key="btn_transfers"):
+                    st.session_state['current_page'] = 'transfers'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
-        if "invoices" in allowed_modules:
+        if "dashboard" in allowed_modules:
             with col_f:
                 st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("📸\nInvoices", use_container_width=True, key="btn_invoices"):
-                    st.session_state['current_page'] = 'invoices'; st.rerun()
+                if st.button("📊\nDashboard", use_container_width=True, key="btn_dashboard"):
+                    st.session_state['current_page'] = 'dashboard'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
         if "ledger" in allowed_modules:
