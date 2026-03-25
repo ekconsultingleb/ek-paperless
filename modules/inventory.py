@@ -51,10 +51,13 @@ def generate_inventory_pdf(df, report_date, client, outlet, location, user_name,
         pdf.ln(8)
         pdf.set_font("helvetica", "B", 11)
         pdf.set_fill_color(255, 220, 180)
-        pdf.cell(0, 8, "Items Found But NOT in Master List (Action Required)", ln=True, fill=True)
+        pdf.cell(0, 8, "Additional Items (Action Required)", ln=True, fill=True)
         pdf.set_font("helvetica", "", 9)
-        for name in missing_items:
-            pdf.cell(0, 7, f"  - {name}", ln=True)
+        for item in missing_items:
+            if isinstance(item, dict):
+                pdf.cell(0, 7, f"  - {item['name']}  x  {item['qty']}", ln=True)
+            else:
+                pdf.cell(0, 7, f"  - {item}", ln=True)
         pdf.set_font("helvetica", "I", 8)
         pdf.cell(0, 6, "Please add these items to the master list via the Control Panel.", ln=True)
 
@@ -406,23 +409,24 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
         count_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")), key="count_date")
         st.divider()
 
-        with st.expander("⚠️ Found an item not in the list? Flag it here"):
-            st.caption("This will NOT add it to the database. It will appear as a note on the PDF report so the admin can add it to the master list later.")
-            col_flag, col_btn = st.columns([4, 1], vertical_alignment="bottom")
+        with st.expander("➕ Found an item not on the list?"):
+            col_flag, col_qty, col_btn = st.columns([3, 1, 1], vertical_alignment="bottom")
             with col_flag:
                 flag_name = st.text_input("Item Name", placeholder="e.g. Redbull 355ml", key="flag_item_name", label_visibility="collapsed")
+            with col_qty:
+                flag_qty = st.number_input("Qty", min_value=0.0, step=0.5, key="flag_item_qty", label_visibility="collapsed")
             with col_btn:
-                if st.button("Flag", use_container_width=True, key="flag_item_btn"):
+                if st.button("Add", use_container_width=True, key="flag_item_btn"):
                     name = flag_name.strip()
-                    if name and name not in st.session_state['missing_items']:
-                        st.session_state['missing_items'].append(name)
+                    existing_names = [x['name'] for x in st.session_state['missing_items']]
+                    if name and name not in existing_names:
+                        st.session_state['missing_items'].append({"name": name, "qty": flag_qty})
                         st.rerun()
 
             if st.session_state['missing_items']:
-                st.markdown("**Flagged items (not in master list):**")
                 for i, m in enumerate(st.session_state['missing_items']):
                     col_m, col_x = st.columns([5, 1])
-                    col_m.markdown(f"• {m}")
+                    col_m.markdown(f"• **{m['name']}** — {m['qty']}")
                     if col_x.button("✕", key=f"remove_flag_{i}"):
                         st.session_state['missing_items'].pop(i)
                         st.rerun()
@@ -514,7 +518,8 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                 st.dataframe(pd.DataFrame(preview_list), use_container_width=True, hide_index=True)
 
                 if st.session_state['missing_items']:
-                    st.warning(f"⚠️ **{len(st.session_state['missing_items'])} flagged item(s) not in master list** — these will appear on the PDF report: {', '.join(st.session_state['missing_items'])}")
+                    _mi_summary = ', '.join(f"{x['name']} ({x['qty']})" for x in st.session_state['missing_items'])
+                    st.warning(f"⚠️ **{len(st.session_state['missing_items'])} item(s) added manually** — will appear on the PDF report: {_mi_summary}")
 
                 if st.button("🚀 SUBMIT ALL COUNTS TO CLOUD", type="primary", use_container_width=True, key="submit_cloud_btn", on_click=lock_submit, disabled=st.session_state['submit_lock']):
                     with st.spinner("Saving to database... Please wait! Do not refresh."):
