@@ -7,6 +7,7 @@ import pandas as pd
 from datetime import date as _date, datetime as _datetime
 from supabase import create_client, Client
 from modules.clients import render_clients
+from modules.nav_helper import hash_password
 
 # ── Auto Calc helpers (ported from auto_calc_reader/reader.py) ─────────────────
 
@@ -548,13 +549,18 @@ if t_create:
             new_locations = st.multiselect("📍 Select Area(s)", ["All"] + areas_for_create, default=["All"], key="c_loc")
 
         if st.button("🚀 CREATE USER", type="primary", use_container_width=True):
-            new_user_data = {
-                "username": new_username.strip(), "password": new_password.strip(), "full_name": new_fullname.strip(),
-                "role": new_role, "client_name": new_client, "outlet": new_outlet,
-                "location": ", ".join(new_locations), "module": ", ".join(new_modules)
-            }
-            supabase.table("users").insert([new_user_data]).execute()
-            st.success("✅ User created!")
+            if not new_username.strip() or not new_password.strip():
+                st.error("❌ Username and password are required.")
+            else:
+                new_user_data = {
+                    "username": new_username.strip(),
+                    "password": hash_password(new_password.strip()),
+                    "full_name": new_fullname.strip(),
+                    "role": new_role, "client_name": new_client, "outlet": new_outlet,
+                    "location": ", ".join(new_locations), "module": ", ".join(new_modules)
+                }
+                supabase.table("users").insert([new_user_data]).execute()
+                st.success("✅ User created!")
 
 # ==========================================
 # TAB: MANAGE USERS (Super Admin Only)
@@ -573,7 +579,7 @@ if t_view:
                 
                 col1, col2 = st.columns(2)
                 with col1:
-                    e_pass = st.text_input("🔑 Password", value=u_data.get('password', ''))
+                    e_pass = st.text_input("🔑 New Password (leave blank to keep current)", value="", type="password")
                     e_fullname = st.text_input("📝 Full Name", value=u_data.get('full_name', ''))
                     
                     role_options = ["staff", "chef", "bar manager", "bartender", "storekeeper", "manager", "viewer", "admin", "admin_all"]
@@ -607,7 +613,7 @@ if t_view:
                 st.write("")
                 if st.button("💾 Save User Changes", type="primary", use_container_width=True):
                     update_payload = {
-                        "password": e_pass, 
+                        "password": hash_password(e_pass.strip()) if e_pass.strip() else u_data.get('password'),
                         "full_name": e_fullname,
                         "role": e_role,
                         "module": ", ".join(e_modules),

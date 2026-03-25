@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import time
 from supabase import create_client, Client
 import streamlit.components.v1 as components
 
@@ -13,6 +14,7 @@ from modules.inventory import render_inventory
 from modules.waste import render_waste
 from modules.transfers import render_transfers
 from modules.invoices import render_invoices
+from modules.nav_helper import hash_password, verify_password
 
 # --- INITIALIZE SUPABASE ---
 @st.cache_resource
@@ -286,6 +288,14 @@ if 'logged_in' not in st.session_state:
         'role': None, 'assigned_outlet': 'All', 'assigned_location': 'All',
         'client_name': 'All', 'current_page': 'home'
     })
+# Rate limiting state (persists independently of logged_in)
+if 'login_attempts' not in st.session_state:
+    st.session_state['login_attempts'] = 0
+if 'login_locked_until' not in st.session_state:
+    st.session_state['login_locked_until'] = 0
+
+_MAX_LOGIN_ATTEMPTS = 5
+_LOCKOUT_SECONDS    = 900  # 15 minutes
 
 # ==========================================
 # 🚀 MAIN APP ROUTING (LOGIN & SECURITY)
@@ -310,27 +320,50 @@ if not st.session_state.get('logged_in', False):
         u_input = st.text_input("Username").strip()
         p_input = st.text_input("Password", type="password").strip()
 
+        # Show lockout message above button if active
+        _now = time.time()
+        if st.session_state['login_locked_until'] > _now:
+            _remaining = int(st.session_state['login_locked_until'] - _now)
+            st.error(f"🔒 Too many failed attempts. Try again in {_remaining // 60}m {_remaining % 60}s.")
+
         if st.button("Sign In", use_container_width=True, type="primary"):
-            try:
-                response = supabase.table("users").select("*").eq("username", u_input).eq("password", p_input).execute()
-                if len(response.data) > 0:
-                    match = response.data[0]
-                    st.session_state.update({
-                        'logged_in': True,
-                        'user': match.get('username', u_input),
-                        'role': str(match.get('role', 'staff')).lower().strip(),
-                        'module': match.get('module', 'All'),
-                        'link': None,
-                        'assigned_outlet':   str(match.get('outlet',      'All')).strip(),
-                        'assigned_location': str(match.get('location',    'All')).strip(),
-                        'client_name':       str(match.get('client_name', 'All')).strip(),
-                        'current_page': 'home'
-                    })
-                    st.rerun()
-                else:
-                    st.error("❌ Invalid Username or Password")
-            except Exception as e:
-                st.error(f"Login Error: {e}")
+            _now = time.time()
+            if st.session_state['login_locked_until'] > _now:
+                _remaining = int(st.session_state['login_locked_until'] - _now)
+                st.error(f"🔒 Account locked. Try again in {_remaining // 60}m {_remaining % 60}s.")
+            else:
+                try:
+                    # Fetch by username only — verify password in Python (supports hashing)
+                    response = supabase.table("users").select("*").eq("username", u_input).execute()
+                    match = next((u for u in (response.data or []) if verify_password(p_input, u.get('password', ''))), None)
+                    if match:
+                        # Auto-upgrade legacy plaintext password to hash on first login
+                        if not str(match.get('password', '')).startswith('pbkdf2:'):
+                            supabase.table("users").update({"password": hash_password(p_input)}).eq("username", u_input).execute()
+                        st.session_state['login_attempts'] = 0
+                        st.session_state['login_locked_until'] = 0
+                        st.session_state.update({
+                            'logged_in': True,
+                            'user': match.get('username', u_input),
+                            'role': str(match.get('role', 'staff')).lower().strip(),
+                            'module': match.get('module', 'All'),
+                            'link': None,
+                            'assigned_outlet':   str(match.get('outlet',      'All')).strip(),
+                            'assigned_location': str(match.get('location',    'All')).strip(),
+                            'client_name':       str(match.get('client_name', 'All')).strip(),
+                            'current_page': 'home'
+                        })
+                        st.rerun()
+                    else:
+                        st.session_state['login_attempts'] += 1
+                        if st.session_state['login_attempts'] >= _MAX_LOGIN_ATTEMPTS:
+                            st.session_state['login_locked_until'] = time.time() + _LOCKOUT_SECONDS
+                            st.error("🔒 Too many failed attempts. Account locked for 15 minutes.")
+                        else:
+                            _left = _MAX_LOGIN_ATTEMPTS - st.session_state['login_attempts']
+                            st.error(f"❌ Invalid Username or Password. {_left} attempt(s) remaining.")
+                except Exception as e:
+                    st.error(f"Login Error: {e}")
 
 else:
     # --- SIDEBAR & USER INFO ---

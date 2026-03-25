@@ -34,7 +34,7 @@ def render_daily_cash(conn, sheet_link, user, role, assigned_client, assigned_ou
                 query = supabase.table("daily_cash").select("*").gte("date", str(start_date)).lte("date", str(end_date))
                 
                 if str(assigned_client).lower() != 'all':
-                    query = query.ilike("client_name", f"%{str(assigned_client).strip()}%")
+                    query = query.eq("client_name", str(assigned_client).strip())
                     
                 archive_res = query.order("date", desc=True).limit(2000).execute()
                 df_archive = pd.DataFrame(archive_res.data)
@@ -94,30 +94,53 @@ def render_daily_cash(conn, sheet_link, user, role, assigned_client, assigned_ou
         # ==========================================
         # 4. SUBMIT DATA
         # ==========================================
-        if st.button("🚀 SUBMIT DAILY REPORT", type="primary", use_container_width=True):
-            if final_outlet == "None" or final_client == "Select Branch":
-                st.error("❌ Cannot submit without a valid Branch and Outlet.")
-            else:
-                submission_data = {
-                    "date": str(entry_date), 
-                    "client_name": final_client,
-                    "outlet": final_outlet,
-                    "main_reading": m_reading, 
-                    "cash": cash_val, 
-                    "visa": visa_val, 
-                    "expenses": exp_val, 
-                    "on_account": on_acc_val,
-                    "revenue": revenue,
-                    "over_short": over_short, 
-                    "reported_by": user
-                }
-                
-                try:
-                    supabase.table("daily_cash").insert([submission_data]).execute()
-                    st.success(f"✅ Data saved securely for {final_outlet}! Variance: {over_short:,.2f}")
-                    # Optional: Add st.balloons() here for a fun UI touch when they submit perfectly
-                except Exception as e:
-                    st.error(f"❌ Database Error: {e}. Please check your Supabase table columns.")
+        # Duplicate confirmation state
+        if 'cash_confirm_dup' not in st.session_state:
+            st.session_state['cash_confirm_dup'] = False
+
+        if st.session_state.get('cash_confirm_dup'):
+            st.warning(f"⚠️ A cash report already exists for **{final_outlet}** on **{entry_date}**. Submit anyway?")
+            col_yes, col_no = st.columns(2)
+            with col_yes:
+                if st.button("Yes, Submit Anyway", type="primary", use_container_width=True):
+                    st.session_state['cash_confirm_dup'] = False
+                    submission_data = {
+                        "date": str(entry_date), "client_name": final_client, "outlet": final_outlet,
+                        "main_reading": m_reading, "cash": cash_val, "visa": visa_val,
+                        "expenses": exp_val, "on_account": on_acc_val,
+                        "revenue": revenue, "over_short": over_short, "reported_by": user
+                    }
+                    try:
+                        supabase.table("daily_cash").insert([submission_data]).execute()
+                        st.success(f"✅ Data saved for {final_outlet}! Variance: {over_short:,.2f}")
+                    except Exception as e:
+                        st.error(f"❌ Database Error: {e}")
+            with col_no:
+                if st.button("Cancel", use_container_width=True):
+                    st.session_state['cash_confirm_dup'] = False
+                    st.rerun()
+        else:
+            if st.button("🚀 SUBMIT DAILY REPORT", type="primary", use_container_width=True):
+                if final_outlet == "None" or final_client == "Select Branch":
+                    st.error("❌ Cannot submit without a valid Branch and Outlet.")
+                else:
+                    submission_data = {
+                        "date": str(entry_date), "client_name": final_client, "outlet": final_outlet,
+                        "main_reading": m_reading, "cash": cash_val, "visa": visa_val,
+                        "expenses": exp_val, "on_account": on_acc_val,
+                        "revenue": revenue, "over_short": over_short, "reported_by": user
+                    }
+                    try:
+                        # Check for duplicate before inserting
+                        existing = supabase.table("daily_cash").select("id").eq("date", str(entry_date)).eq("outlet", final_outlet).execute()
+                        if existing.data:
+                            st.session_state['cash_confirm_dup'] = True
+                            st.rerun()
+                        else:
+                            supabase.table("daily_cash").insert([submission_data]).execute()
+                            st.success(f"✅ Data saved for {final_outlet}! Variance: {over_short:,.2f}")
+                    except Exception as e:
+                        st.error(f"❌ Database Error: {e}")
 
     except Exception as e:
         st.error(f"❌ System Error: {e}")

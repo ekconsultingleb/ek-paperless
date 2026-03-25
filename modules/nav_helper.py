@@ -1,10 +1,46 @@
 import streamlit as st
 import pandas as pd
+import hashlib
+import hmac
+import os
 from supabase import create_client, Client
 
 @st.cache_resource
 def get_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PASSWORD HASHING UTILITIES
+# ══════════════════════════════════════════════════════════════════════════════
+
+def hash_password(password: str) -> str:
+    """Hash a password with PBKDF2-SHA256 and a random salt."""
+    salt = os.urandom(16).hex()
+    key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), bytes.fromhex(salt), 260000)
+    return f"pbkdf2:sha256:{salt}:{key.hex()}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    """
+    Verify a password against a stored hash.
+    Supports legacy plaintext passwords for migration — returns True but
+    the caller should re-hash and save the new hash immediately.
+    """
+    if not stored:
+        return False
+    if not stored.startswith("pbkdf2:"):
+        # Legacy plaintext — migration path, compare directly
+        return stored == password
+    try:
+        parts = stored.split(":")
+        if len(parts) != 4:
+            return False
+        _, algo, salt, key_hex = parts
+        key = hashlib.pbkdf2_hmac(algo, password.encode('utf-8'), bytes.fromhex(salt), 260000)
+        return hmac.compare_digest(key.hex(), key_hex)
+    except Exception:
+        return False
 
 
 # ══════════════════════════════════════════════════════════════════════════════

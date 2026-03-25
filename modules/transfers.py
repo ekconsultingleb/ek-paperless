@@ -13,26 +13,29 @@ import json
 def get_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
+# Configure Gemini once per app session, not on every call
+@st.cache_resource
+def _get_gemini_model():
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    return genai.GenerativeModel('gemini-2.5-flash')
+
 # --- AI HELPER FUNCTION ---
 def analyze_chef_request(user_text):
-    # Configure API Key securely from secrets
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    
     system_prompt = """
-    You are an AI assistant for a Lebanese restaurant kitchen. 
+    You are an AI assistant for a Lebanese restaurant kitchen.
     Analyze the user's text (which may be in Lebanese Arabizi, Arabic, or English).
     Extract the requested inventory items and their quantities.
     Translate item names to standard English database names (e.g., 'batata' -> 'Potato', 'malfouf' -> 'Cabbage', 'shrim' -> 'Shrimp').
-    Return ONLY a valid JSON array. Do not return markdown, do not return explanations. 
+    Return ONLY a valid JSON array. Do not return markdown, do not return explanations.
     Format exactly like this: [{"item_name": "Shrimp", "qty": "5kg"}, {"item_name": "Potato", "qty": "2 box"}]
     """
-    
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    model = _get_gemini_model()
     response = model.generate_content(f"{system_prompt}\n\nChef's request: {user_text}")
-    
-    # Clean the response to ensure it's pure JSON
     clean_text = response.text.replace("```json", "").replace("```", "").strip()
-    return json.loads(clean_text)
+    try:
+        return json.loads(clean_text)
+    except (json.JSONDecodeError, ValueError):
+        return []
 
 def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_outlet, assigned_location):
     st.markdown("### 🔄 Transfers & Requisitions")
@@ -52,10 +55,18 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
             
             if len(date_range) == 2:
                 start_date, end_date = date_range
-                
+
                 query = supabase.table("transfers").select("*").gte("date", f"{start_date} 00:00").lte("date", f"{end_date} 23:59")
                 res_archive = query.order("date", desc=True).limit(2000).execute()
                 df_archive = pd.DataFrame(res_archive.data)
+
+                # Filter to the viewer's assigned outlet — they should only see their own transfers
+                _outlet = str(assigned_outlet).strip()
+                if not df_archive.empty and _outlet.lower() not in ['all', '', 'none', 'nan']:
+                    df_archive = df_archive[
+                        (df_archive.get('from_outlet', pd.Series(dtype=str)).astype(str) == _outlet) |
+                        (df_archive.get('to_outlet',   pd.Series(dtype=str)).astype(str) == _outlet)
+                    ]
 
                 if not df_archive.empty:
                     st.dataframe(df_archive, use_container_width=True, hide_index=True)
