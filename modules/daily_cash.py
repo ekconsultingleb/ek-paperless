@@ -71,14 +71,14 @@ def render_daily_cash(conn, sheet_link, user, role, assigned_client, assigned_ou
         col1, col2 = st.columns(2)
         with col1:
             entry_date = st.date_input("📅 Report Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")))
-            m_reading = st.number_input("Main Reading", min_value=0.0, step=100.0)
-            cash_val = st.number_input("Cash in Drawer", min_value=0.0, step=100.0)
-            visa_val = st.number_input("Visa / Card", min_value=0.0, step=100.0)
-            
+            m_reading = st.number_input("Main Reading", min_value=0.0, step=100.0, format="%g")
+            cash_val = st.number_input("Cash in Drawer", min_value=0.0, step=100.0, format="%g")
+            visa_val = st.number_input("Visa / Card", min_value=0.0, step=100.0, format="%g")
+
         with col2:
             st.write("###") # Spacing
-            exp_val = st.number_input("Expenses (Petty Cash)", min_value=0.0, step=100.0)
-            on_acc_val = st.number_input("On Account / Credit", min_value=0.0, step=100.0)
+            exp_val = st.number_input("Expenses (Petty Cash)", min_value=0.0, step=100.0, format="%g")
+            on_acc_val = st.number_input("On Account / Credit", min_value=0.0, step=100.0, format="%g")
 
         # Auto-Calculating the math
         revenue = cash_val + visa_val + exp_val + on_acc_val
