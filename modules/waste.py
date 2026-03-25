@@ -201,11 +201,11 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             # Added a unique key here too
             selected_group = st.selectbox("🏷️ Sub Category", grp_options, index=1 if len(grp_options) > 1 else 0, key="waste_grp_box")
 
-        df_display = df_filtered_type.copy()
         if search_query:
-            # Search overrides category/sub-category — find the item anywhere
-            df_display = df_display[df_display['item_name'].str.contains(search_query, case=False, na=False)]
+            # Search overrides item type radio AND category filters — find the item anywhere
+            df_display = df_items[df_items['item_name'].str.contains(search_query, case=False, na=False)].copy()
         else:
+            df_display = df_filtered_type.copy()
             if selected_category != "All":
                 df_display = df_display[df_display['category'] == selected_category]
             if selected_group != "All":
