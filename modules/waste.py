@@ -203,11 +203,13 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
 
         df_display = df_filtered_type.copy()
         if search_query:
+            # Search overrides category/sub-category — find the item anywhere
             df_display = df_display[df_display['item_name'].str.contains(search_query, case=False, na=False)]
-        if selected_category != "All":
-            df_display = df_display[df_display['category'] == selected_category]
-        if selected_group != "All":
-            df_display = df_display[df_display['sub_category'] == selected_group]
+        else:
+            if selected_category != "All":
+                df_display = df_display[df_display['category'] == selected_category]
+            if selected_group != "All":
+                df_display = df_display[df_display['sub_category'] == selected_group]
 
         total_items = len(df_display)
         wasted_in_view = sum(1 for item in df_display['item_name'] if item in st.session_state['waste_cart'])

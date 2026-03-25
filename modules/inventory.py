@@ -400,12 +400,14 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
 
         if not df_items.empty:
             df_display = df_items.copy()
-            if selected_category != "All":
-                df_display = df_display[df_display['category'] == selected_category]
-            if selected_group != "All":
-                df_display = df_display[df_display['sub_category'] == selected_group]
             if search_query:
+                # Search overrides category/sub-category — find the item anywhere
                 df_display = df_display[df_display['item_name'].str.contains(search_query, case=False, na=False)]
+            else:
+                if selected_category != "All":
+                    df_display = df_display[df_display['category'] == selected_category]
+                if selected_group != "All":
+                    df_display = df_display[df_display['sub_category'] == selected_group]
         else:
             df_display = pd.DataFrame()
 
