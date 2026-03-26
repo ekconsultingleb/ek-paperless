@@ -319,18 +319,18 @@ def render_invoices(conn, sheet_link, user, role):
         except Exception:
             supplier_list = []
 
-        # Hide the live camera preview — keep only the capture button
+        # Hide only the live video feed — keep the capture button visible
         st.markdown("""
             <style>
+                [data-testid="stCameraInputButton"] ~ div video {
+                    display: none !important;
+                }
                 [data-testid="stCameraInput"] video {
-                    display: none !important;
-                }
-                [data-testid="stCameraInput"] canvas {
-                    display: none !important;
-                }
-                [data-testid="stCameraInput"] section {
+                    height: 0 !important;
                     min-height: 0 !important;
                     padding: 0 !important;
+                    margin: 0 !important;
+                    overflow: hidden !important;
                 }
             </style>
         """, unsafe_allow_html=True)
