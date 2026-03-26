@@ -319,25 +319,43 @@ def render_invoices(conn, sheet_link, user, role):
         except Exception:
             supplier_list = []
 
-        uploaded_file = st.file_uploader("📸 Take a Photo or Upload PDF", type=['jpg', 'jpeg', 'png', 'pdf'])
+        input_mode = st.radio("📥 Input Method", ["📷 Take Photo", "🖼️ Browse / PDF"], horizontal=True)
+
+        uploaded_file  = None
+        file_bytes     = None
+        file_mime      = None
+
+        if input_mode == "📷 Take Photo":
+            camera_photo = st.camera_input("Point camera at the invoice")
+            if camera_photo:
+                uploaded_file = camera_photo
+                file_bytes    = camera_photo.getvalue()
+                file_mime     = "image/jpeg"
+        else:
+            browse_file = st.file_uploader("Upload from gallery or PDF", type=['jpg', 'jpeg', 'png', 'pdf'])
+            if browse_file:
+                uploaded_file = browse_file
+                file_bytes    = browse_file.getvalue()
+                file_mime     = browse_file.type
 
         # Reset submitted state when a new file is chosen
-        current_file_id = uploaded_file.name if uploaded_file else None
+        current_file_id = id(uploaded_file) if uploaded_file else None
         if st.session_state.get('invoice_submitted_file') != current_file_id:
             st.session_state['invoice_submitted'] = False
             st.session_state['invoice_submitted_file'] = current_file_id
             st.session_state.pop('ai_invoice_data', None)
 
         if uploaded_file:
-            if uploaded_file.type.startswith('image'):
-                st.image(uploaded_file, caption="Invoice Preview", use_container_width=True)
-            else:
-                st.success(f"📄 PDF Selected: {uploaded_file.name}")
+            if input_mode != "📷 Take Photo":
+                if file_mime and file_mime.startswith('image'):
+                    st.image(uploaded_file, caption="Invoice Preview", use_container_width=True)
+                else:
+                    st.success(f"📄 PDF Selected: {uploaded_file.name}")
 
             # ── AI Extraction ──────────────────────────────────────────────
             if 'ai_invoice_data' not in st.session_state:
                 with st.spinner("🤖 AI is reading your invoice..."):
-                    ai = _extract_invoice_data(uploaded_file.getvalue(), uploaded_file.type)
+                    ai = _extract_invoice_data(file_bytes, file_mime)
                     st.session_state['ai_invoice_data'] = ai
 
             ai = st.session_state.get('ai_invoice_data', {})
@@ -394,11 +412,12 @@ def render_invoices(conn, sheet_link, user, role):
                 with st.spinner("Uploading..."):
                     try:
                         import re as _re
-                        file_ext = uploaded_file.name.split('.')[-1].lower()
+                        _fname = getattr(uploaded_file, 'name', 'photo.jpg')
+                        file_ext = _fname.split('.')[-1].lower() if '.' in _fname else 'jpg'
                         _safe_client = _re.sub(r'[^A-Za-z0-9_-]', '', upload_client.replace(' ', '_'))
                         unique_filename = f"{_safe_client}_{uuid.uuid4().hex[:8]}.{file_ext}"
 
-                        supabase.storage.from_("invoices").upload(path=unique_filename, file=uploaded_file.getvalue(), file_options={"content-type": uploaded_file.type})
+                        supabase.storage.from_("invoices").upload(path=unique_filename, file=file_bytes, file_options={"content-type": file_mime})
                         image_url = supabase.storage.from_("invoices").get_public_url(unique_filename)
 
                         db_record = {
