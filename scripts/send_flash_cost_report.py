@@ -38,7 +38,7 @@ invoices = inv_res.data or []
 
 # ── Daily cash totals ─────────────────────────────────────────────────────────
 cash_res = supabase.table("daily_cash") \
-    .select("client_name, outlet, main_reading, cash_val, visa_val, exp_val, on_acc_val, date") \
+    .select("client_name, outlet, main_reading, cash, visa, expenses, on_account, date") \
     .gte("date", str(start_date)) \
     .lte("date", str(today)) \
     .execute()
