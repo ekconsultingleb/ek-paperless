@@ -81,7 +81,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
     if 'waste_remarks' not in st.session_state:
         st.session_state['waste_remarks'] = {}
 
-    _SYSTEM_REMARKS = ["WF", "WB", "SM", "Expired", "Damaged", "Overproduction", "Spillage"]
+    _SYSTEM_REMARKS = ["WF", "WB", "SM", "Damaged"]
 
     try:
         # --- VIEWER MODE ---
@@ -173,7 +173,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             with st.expander("⚙️ Manage Remark Options"):
                 col_nr, col_nb = st.columns([4, 1])
                 with col_nr:
-                    new_remark = st.text_input("New Remark", placeholder="e.g. Theft, Trial Dish...", label_visibility="collapsed", key="new_remark_input")
+                    new_remark = st.text_input("New Remark", placeholder="e.g. DJ, John...", label_visibility="collapsed", key="new_remark_input")
                 with col_nb:
                     if st.button("➕ Add", use_container_width=True, key="add_remark_btn"):
                         nr = new_remark.strip().upper()
