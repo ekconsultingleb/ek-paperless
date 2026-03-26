@@ -297,12 +297,22 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                         st.number_input("+ Add Qty", min_value=0.0, step=1.0, format="%g", key=input_key, on_change=add_waste_qty, args=(item_name, row.to_dict(), input_key), label_visibility="collapsed")
                     with col_rem:
                         st.caption("Remark")
-                        _sel_remark = st.selectbox("Remark", _REMARK_OPTIONS, index=_rem_index, key=_rem_key, label_visibility="collapsed")
-                        if _sel_remark == "+ Add New...":
-                            st.info("Use ⚙️ Manage Remark Options above to add new remarks.")
-                            st.session_state['waste_remarks'][item_name] = _auto_remark
+                        if ticket_type == "Staff Meal":
+                            st.markdown("**SM**")
+                            st.session_state['waste_remarks'][item_name] = "SM"
+                        elif ticket_type == "Event":
+                            _ev_label = event_name_val.strip() if event_name_val.strip() else "Event"
+                            st.markdown(f"**{_ev_label}**")
+                            st.session_state['waste_remarks'][item_name] = _ev_label
                         else:
-                            st.session_state['waste_remarks'][item_name] = _sel_remark
+                            _daily_options = [r for r in _REMARK_OPTIONS if r not in ["SM"]]
+                            _rem_index = _daily_options.index(_rem_default) if _rem_default in _daily_options else 0
+                            _sel_remark = st.selectbox("Remark", _daily_options, index=_rem_index, key=_rem_key, label_visibility="collapsed")
+                            if _sel_remark == "+ Add New...":
+                                st.info("Use ⚙️ Manage Remark Options above to add new remarks.")
+                                st.session_state['waste_remarks'][item_name] = _auto_remark
+                            else:
+                                st.session_state['waste_remarks'][item_name] = _sel_remark
                     with col_btn:
                         st.caption(" ")
                         if current_total > 0:
