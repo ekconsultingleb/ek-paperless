@@ -38,7 +38,7 @@ invoices = inv_res.data or []
 
 # ── Daily cash totals ─────────────────────────────────────────────────────────
 cash_res = supabase.table("daily_cash") \
-    .select("client_name, outlet, m_reading, cash_val, visa_val, exp_val, on_acc_val, date") \
+    .select("client_name, outlet, main_reading, cash_val, visa_val, exp_val, on_acc_val, date") \
     .gte("date", str(start_date)) \
     .lte("date", str(today)) \
     .execute()
@@ -79,7 +79,7 @@ for user in recipients:
     invoice_count = len(u_invoices)
 
     # Revenue from daily cash (m_reading is total sales)
-    total_revenue = sum(float(c.get("m_reading") or 0) for c in u_cash)
+    total_revenue = sum(float(c.get("main_reading") or 0) for c in u_cash)
     has_cash_data = len(u_cash) > 0
 
     # Build supplier breakdown rows
