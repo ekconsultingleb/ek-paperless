@@ -319,34 +319,28 @@ def render_invoices(conn, sheet_link, user, role):
         except Exception:
             supplier_list = []
 
-        camera_photo = st.camera_input("📷 Take a Photo")
-        browse_file  = st.file_uploader("🖼️ Or upload from gallery / PDF", type=['jpg', 'jpeg', 'png', 'pdf'])
+        browse_file = st.file_uploader("📸 Take a Photo or Upload PDF", type=['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'pdf'])
 
-        # Camera takes priority; fall back to browse
-        if camera_photo:
-            uploaded_file = camera_photo
-            file_bytes    = camera_photo.getvalue()
-            file_mime     = "image/jpeg"
-        elif browse_file:
+        if browse_file:
             uploaded_file = browse_file
             file_bytes    = browse_file.getvalue()
-            file_mime     = browse_file.type
+            file_mime     = browse_file.type if browse_file.type else "image/jpeg"
         else:
             uploaded_file = None
             file_bytes    = None
             file_mime     = None
 
         # Reset submitted state when a new file is chosen
-        current_file_id = id(uploaded_file) if uploaded_file else None
+        current_file_id = uploaded_file.name if uploaded_file else None
         if st.session_state.get('invoice_submitted_file') != current_file_id:
             st.session_state['invoice_submitted'] = False
             st.session_state['invoice_submitted_file'] = current_file_id
             st.session_state.pop('ai_invoice_data', None)
 
-        if uploaded_file and browse_file and not camera_photo:
+        if uploaded_file:
             if file_mime and file_mime.startswith('image'):
                 st.image(uploaded_file, caption="Invoice Preview", use_container_width=True)
-            else:
+            elif file_mime == 'application/pdf':
                 st.success(f"📄 PDF Selected: {uploaded_file.name}")
 
             # ── AI Extraction ──────────────────────────────────────────────
