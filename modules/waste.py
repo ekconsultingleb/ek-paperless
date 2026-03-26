@@ -288,7 +288,6 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                     else:
                         _auto_remark = "WF"
                     _rem_key = f"waste_rem_{item_name}"
-                    _custom_key = f"waste_rem_custom_{item_name}"
                     _rem_default = st.session_state['waste_remarks'].get(item_name, _auto_remark)
                     _rem_index = _REMARK_OPTIONS.index(_rem_default) if _rem_default in _REMARK_OPTIONS else len(_REMARK_OPTIONS) - 1
 
@@ -319,7 +318,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
 
                 # --- 🧠 THE SMART "SPEED BUMP" ---
                 has_massive_waste = False
-                for k, v in st.session_state['waste_cart'].items():
+                for _, v in st.session_state['waste_cart'].items():
                     cart_unit = str(v['row_data'].get('count_unit', '')).strip().lower()
                     if cart_unit in ['kg', 'ltr'] and v['qty'] > 50:
                         has_massive_waste = True
