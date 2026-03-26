@@ -78,6 +78,10 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
 
     if 'waste_cart' not in st.session_state:
         st.session_state['waste_cart'] = {}
+    if 'waste_remarks' not in st.session_state:
+        st.session_state['waste_remarks'] = {}
+
+    _REMARK_OPTIONS = ["WF", "WB", "SM", "Expired", "Damaged", "Overproduction", "Spillage", "Other..."]
 
     try:
         # --- VIEWER MODE ---
@@ -236,9 +240,30 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                     input_key = f"waste_add_{index}_{item_name}"
                     if input_key not in st.session_state:
                         st.session_state[input_key] = 0.0
-                    col_add, col_btn = st.columns([3, 1], vertical_alignment="center")
+
+                    # Auto-determine default remark
+                    _cat_lower = str(row.get('category', '')).lower()
+                    if ticket_type == "Daily Waste":
+                        _auto_remark = "WB" if any(x in _cat_lower for x in ['bev', 'drink', 'alcohol']) else "WF"
+                    elif ticket_type == "Staff Meal":
+                        _auto_remark = "SM"
+                    else:
+                        _auto_remark = "WF"
+                    _rem_key = f"waste_rem_{item_name}"
+                    _custom_key = f"waste_rem_custom_{item_name}"
+                    _rem_default = st.session_state['waste_remarks'].get(item_name, _auto_remark)
+                    _rem_index = _REMARK_OPTIONS.index(_rem_default) if _rem_default in _REMARK_OPTIONS else len(_REMARK_OPTIONS) - 1
+
+                    col_add, col_rem, col_btn = st.columns([2, 2, 1], vertical_alignment="center")
                     with col_add:
                         st.number_input("+ Add Qty", min_value=0.0, step=1.0, format="%g", key=input_key, on_change=add_waste_qty, args=(item_name, row.to_dict(), input_key), label_visibility="collapsed")
+                    with col_rem:
+                        _sel_remark = st.selectbox("Remark", _REMARK_OPTIONS, index=_rem_index, key=_rem_key, label_visibility="collapsed")
+                        if _sel_remark == "Other...":
+                            _custom_val = st.text_input("Custom", key=_custom_key, placeholder="Type remark...", label_visibility="collapsed")
+                            st.session_state['waste_remarks'][item_name] = _custom_val if _custom_val.strip() else _auto_remark
+                        else:
+                            st.session_state['waste_remarks'][item_name] = _sel_remark
                     with col_btn:
                         if current_total > 0:
                             if st.button("♻️ Undo", key=f"undo_{index}_{item_name}"):
@@ -274,12 +299,16 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                         logs = []
                         for i_name, data in st.session_state['waste_cart'].items():
                             r_data = data['row_data']
-                            reason_code = ticket_type
+                            _cat_lower = str(r_data.get('category', '')).lower()
                             if ticket_type == "Daily Waste":
-                                cat_lower = str(r_data.get('category','')).lower()
-                                reason_code = "WB" if any(x in cat_lower for x in ['bev','drink','alcohol']) else "WF"
-                            elif ticket_type == "Staff Meal": reason_code = "SM"
-                            elif ticket_type == "Event": reason_code = f"Event: {event_name_val}"
+                                _auto = "WB" if any(x in _cat_lower for x in ['bev', 'drink', 'alcohol']) else "WF"
+                            elif ticket_type == "Staff Meal":
+                                _auto = "SM"
+                            elif ticket_type == "Event":
+                                _auto = f"Event: {event_name_val}"
+                            else:
+                                _auto = ""
+                            reason_code = st.session_state['waste_remarks'].get(i_name, _auto)
                             
                             logs.append({
                                 "date": str(waste_date), "client_name": final_client, "outlet": final_outlet, 
@@ -292,6 +321,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                             supabase.table("waste_logs").insert(logs).execute()
                             st.session_state['last_waste_receipt'] = {"bytes": generate_waste_pdf(pd.DataFrame(logs), str(waste_date), final_client, final_outlet, str(assigned_location), user, ticket_type, event_name_val), "filename": f"{ticket_type}_{waste_date}.pdf"}
                             st.session_state['waste_cart'] = {}
+                            st.session_state['waste_remarks'] = {}
                             st.rerun()
                         except Exception as e:
                             st.error(f"❌ Database Error: {e}")
