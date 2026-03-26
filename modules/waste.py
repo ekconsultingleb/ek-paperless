@@ -157,13 +157,13 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         waste_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")))
         st.divider()
 
-        st.subheader("📝 Step 1: Ticket Details")
+        st.subheader("📝 Ticket Details")
         ticket_type = st.radio("Select Ticket Context:", ["Daily Waste", "Staff Meal", "Event"], horizontal=True)
         event_name_val = st.text_input("📝 Event Name", placeholder="e.g. Wedding Booking") if ticket_type == "Event" else ""
             
         st.divider()
 
-        st.subheader("🔍 Step 2: Find Items")
+        st.subheader("🔍 Find Items")
         item_type_filter = st.radio("Item Type", ["📦 Inventory Items", "🍔 Menu Items", "All Items"], horizontal=True)
         search_query = st.text_input("🔍 Quick Search")
 
