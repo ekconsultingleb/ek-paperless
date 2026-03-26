@@ -319,30 +319,9 @@ def render_invoices(conn, sheet_link, user, role):
         except Exception:
             supplier_list = []
 
-        # Hide only the live video feed — keep the capture button visible
-        st.markdown("""
-            <style>
-                [data-testid="stCameraInputButton"] ~ div video {
-                    display: none !important;
-                }
-                [data-testid="stCameraInput"] video {
-                    height: 0 !important;
-                    min-height: 0 !important;
-                    padding: 0 !important;
-                    margin: 0 !important;
-                    overflow: hidden !important;
-                }
-            </style>
-        """, unsafe_allow_html=True)
+        browse_file = st.file_uploader("📸 Take a Photo or Upload PDF", type=['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'pdf'])
 
-        camera_photo = st.camera_input("📷 Take a Photo")
-        browse_file  = st.file_uploader("🖼️ Or browse / upload PDF", type=['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'pdf'])
-
-        if camera_photo:
-            uploaded_file = camera_photo
-            file_bytes    = camera_photo.getvalue()
-            file_mime     = "image/jpeg"
-        elif browse_file:
+        if browse_file:
             uploaded_file = browse_file
             file_bytes    = browse_file.getvalue()
             file_mime     = browse_file.type if browse_file.type else "image/jpeg"
@@ -352,7 +331,7 @@ def render_invoices(conn, sheet_link, user, role):
             file_mime     = None
 
         # Reset submitted state when a new file is chosen
-        current_file_id = id(uploaded_file) if uploaded_file else None
+        current_file_id = uploaded_file.name if uploaded_file else None
         if st.session_state.get('invoice_submitted_file') != current_file_id:
             st.session_state['invoice_submitted'] = False
             st.session_state['invoice_submitted_file'] = current_file_id
