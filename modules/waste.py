@@ -81,7 +81,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
     if 'waste_remarks' not in st.session_state:
         st.session_state['waste_remarks'] = {}
 
-    _REMARK_OPTIONS = ["WF", "WB", "SM", "Expired", "Damaged", "Overproduction", "Spillage", "Other..."]
+    _SYSTEM_REMARKS = ["WF", "WB", "SM", "Expired", "Damaged", "Overproduction", "Spillage"]
 
     try:
         # --- VIEWER MODE ---
@@ -159,6 +159,44 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             df_items = df_items.drop_duplicates(subset=['item_name', 'item_type']).copy()
 
         waste_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")))
+
+        # ── Load remarks from Supabase ────────────────────────────────────────
+        try:
+            _rem_res = supabase.table("waste_remark_options").select("remark").eq("client_name", final_client).execute()
+            _custom_remarks = [r["remark"] for r in (_rem_res.data or [])]
+        except Exception:
+            _custom_remarks = []
+        _REMARK_OPTIONS = _SYSTEM_REMARKS + [r for r in _custom_remarks if r not in _SYSTEM_REMARKS] + ["+ Add New..."]
+
+        # ── Manage Remarks (managers+) ────────────────────────────────────────
+        if role.lower() in ["manager", "admin", "admin_all"]:
+            with st.expander("⚙️ Manage Remark Options"):
+                col_nr, col_nb = st.columns([4, 1])
+                with col_nr:
+                    new_remark = st.text_input("New Remark", placeholder="e.g. Theft, Trial Dish...", label_visibility="collapsed", key="new_remark_input")
+                with col_nb:
+                    if st.button("➕ Add", use_container_width=True, key="add_remark_btn"):
+                        nr = new_remark.strip().upper()
+                        if nr and nr not in _SYSTEM_REMARKS and nr not in _custom_remarks:
+                            try:
+                                supabase.table("waste_remark_options").insert({"client_name": final_client, "remark": nr, "created_by": user}).execute()
+                                st.success(f"✅ '{nr}' added.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ {e}")
+                        elif not nr:
+                            st.warning("Please type a remark first.")
+                        else:
+                            st.warning("Already exists.")
+                if _custom_remarks:
+                    st.markdown("**Custom remarks:**")
+                    for _cr in _custom_remarks:
+                        col_cl, col_cd = st.columns([5, 1])
+                        col_cl.markdown(f"• {_cr}")
+                        if col_cd.button("✕", key=f"del_rem_{_cr}"):
+                            supabase.table("waste_remark_options").delete().eq("client_name", final_client).eq("remark", _cr).execute()
+                            st.rerun()
+
         st.divider()
 
         st.markdown("**Select Ticket Context:**")
@@ -256,15 +294,18 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
 
                     col_add, col_rem, col_btn = st.columns([2, 2, 1], vertical_alignment="center")
                     with col_add:
+                        st.caption("Qty")
                         st.number_input("+ Add Qty", min_value=0.0, step=1.0, format="%g", key=input_key, on_change=add_waste_qty, args=(item_name, row.to_dict(), input_key), label_visibility="collapsed")
                     with col_rem:
+                        st.caption("Remark")
                         _sel_remark = st.selectbox("Remark", _REMARK_OPTIONS, index=_rem_index, key=_rem_key, label_visibility="collapsed")
-                        if _sel_remark == "Other...":
-                            _custom_val = st.text_input("Custom", key=_custom_key, placeholder="Type remark...", label_visibility="collapsed")
-                            st.session_state['waste_remarks'][item_name] = _custom_val if _custom_val.strip() else _auto_remark
+                        if _sel_remark == "+ Add New...":
+                            st.info("Use ⚙️ Manage Remark Options above to add new remarks.")
+                            st.session_state['waste_remarks'][item_name] = _auto_remark
                         else:
                             st.session_state['waste_remarks'][item_name] = _sel_remark
                     with col_btn:
+                        st.caption(" ")
                         if current_total > 0:
                             if st.button("♻️ Undo", key=f"undo_{index}_{item_name}"):
                                 undo_waste_count(item_name)
@@ -311,9 +352,12 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                             reason_code = st.session_state['waste_remarks'].get(i_name, _auto)
                             
                             logs.append({
-                                "date": str(waste_date), "client_name": final_client, "outlet": final_outlet, 
+                                "date": str(waste_date), "client_name": final_client, "outlet": final_outlet,
                                 "location": str(assigned_location), "reported_by": user,
-                                "item_name": i_name, "item_type": r_data.get('item_type', 'inventory'), "category": r_data.get('category', ''),
+                                "item_name": i_name, "item_type": r_data.get('item_type', 'inventory'),
+                                "category": r_data.get('category', ''),
+                                "sub_category": r_data.get('sub_category', ''),
+                                "product_code": r_data.get('product_code', ''),
                                 "qty": float(data['qty']), "count_unit": r_data.get('count_unit', 'Unit'), "remarks": reason_code
                             })
                         
