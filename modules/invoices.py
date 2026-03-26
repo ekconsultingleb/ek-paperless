@@ -294,6 +294,24 @@ def render_invoices(conn, sheet_link, user, role):
     with tab_upload:
         st.info("💡 **Mobile Users:** Tap 'Browse files' to open your camera.")
 
+        # ── EK team: select client + outlet before uploading ─────────────────
+        if client_name == "All":
+            try:
+                _cl_res = supabase.table("clients").select("client_name").order("client_name").execute()
+                _cl_list = [r["client_name"] for r in (_cl_res.data or [])]
+            except Exception:
+                _cl_list = []
+            upload_client = st.selectbox("🏢 Select Client", _cl_list, key="upload_client_sel") if _cl_list else st.text_input("🏢 Client Name")
+            try:
+                _out_res = supabase.table("branches").select("outlet").eq("client_name", upload_client).execute()
+                _out_list = [r["outlet"] for r in (_out_res.data or [])]
+            except Exception:
+                _out_list = []
+            upload_outlet = st.selectbox("🏠 Select Outlet", _out_list, key="upload_outlet_sel") if _out_list else outlet
+        else:
+            upload_client = client_name
+            upload_outlet = outlet
+
         # Load supplier list
         try:
             sup_res = supabase.table("suppliers").select("supplier_name").execute()
@@ -377,14 +395,14 @@ def render_invoices(conn, sheet_link, user, role):
                     try:
                         import re as _re
                         file_ext = uploaded_file.name.split('.')[-1].lower()
-                        _safe_client = _re.sub(r'[^A-Za-z0-9_-]', '', client_name.replace(' ', '_'))
+                        _safe_client = _re.sub(r'[^A-Za-z0-9_-]', '', upload_client.replace(' ', '_'))
                         unique_filename = f"{_safe_client}_{uuid.uuid4().hex[:8]}.{file_ext}"
 
                         supabase.storage.from_("invoices").upload(path=unique_filename, file=uploaded_file.getvalue(), file_options={"content-type": uploaded_file.type})
                         image_url = supabase.storage.from_("invoices").get_public_url(unique_filename)
 
                         db_record = {
-                            "client_name": client_name, "outlet": outlet, "location": location,
+                            "client_name": upload_client, "outlet": upload_outlet, "location": location,
                             "uploaded_by": user, "supplier": final_supplier_name.strip().title(),
                             "image_url": image_url, "status": "Pending", "data_entry_notes": "",
                             "total_amount": float(final_total) if final_total > 0 else None,
