@@ -319,24 +319,22 @@ def render_invoices(conn, sheet_link, user, role):
         except Exception:
             supplier_list = []
 
-        input_mode = st.radio("📥 Input Method", ["📷 Take Photo", "🖼️ Browse / PDF"], horizontal=True)
+        camera_photo = st.camera_input("📷 Take a Photo")
+        browse_file  = st.file_uploader("🖼️ Or upload from gallery / PDF", type=['jpg', 'jpeg', 'png', 'pdf'])
 
-        uploaded_file  = None
-        file_bytes     = None
-        file_mime      = None
-
-        if input_mode == "📷 Take Photo":
-            camera_photo = st.camera_input("Point camera at the invoice")
-            if camera_photo:
-                uploaded_file = camera_photo
-                file_bytes    = camera_photo.getvalue()
-                file_mime     = "image/jpeg"
+        # Camera takes priority; fall back to browse
+        if camera_photo:
+            uploaded_file = camera_photo
+            file_bytes    = camera_photo.getvalue()
+            file_mime     = "image/jpeg"
+        elif browse_file:
+            uploaded_file = browse_file
+            file_bytes    = browse_file.getvalue()
+            file_mime     = browse_file.type
         else:
-            browse_file = st.file_uploader("Upload from gallery or PDF", type=['jpg', 'jpeg', 'png', 'pdf'])
-            if browse_file:
-                uploaded_file = browse_file
-                file_bytes    = browse_file.getvalue()
-                file_mime     = browse_file.type
+            uploaded_file = None
+            file_bytes    = None
+            file_mime     = None
 
         # Reset submitted state when a new file is chosen
         current_file_id = id(uploaded_file) if uploaded_file else None
@@ -345,12 +343,11 @@ def render_invoices(conn, sheet_link, user, role):
             st.session_state['invoice_submitted_file'] = current_file_id
             st.session_state.pop('ai_invoice_data', None)
 
-        if uploaded_file:
-            if input_mode != "📷 Take Photo":
-                if file_mime and file_mime.startswith('image'):
-                    st.image(uploaded_file, caption="Invoice Preview", use_container_width=True)
-                else:
-                    st.success(f"📄 PDF Selected: {uploaded_file.name}")
+        if uploaded_file and browse_file and not camera_photo:
+            if file_mime and file_mime.startswith('image'):
+                st.image(uploaded_file, caption="Invoice Preview", use_container_width=True)
+            else:
+                st.success(f"📄 PDF Selected: {uploaded_file.name}")
 
             # ── AI Extraction ──────────────────────────────────────────────
             if 'ai_invoice_data' not in st.session_state:
