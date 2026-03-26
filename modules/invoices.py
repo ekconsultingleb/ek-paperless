@@ -1,14 +1,46 @@
 import streamlit as st
 import pandas as pd
 import uuid
+import base64
+import json
 from datetime import datetime, timedelta
 import zoneinfo
 from supabase import create_client, Client
+import google.generativeai as genai
 
 # --- SAFELY INITIALIZE SUPABASE ---
 @st.cache_resource
 def get_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+
+@st.cache_resource
+def _get_gemini():
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    return genai.GenerativeModel('gemini-2.5-flash')
+
+def _extract_invoice_data(file_bytes: bytes, mime_type: str) -> dict:
+    """Use Gemini to extract supplier, total, and currency from invoice image/PDF."""
+    try:
+        model = _get_gemini()
+        prompt = """Analyze this invoice and extract:
+1. Supplier / vendor name (the company selling, not the buyer)
+2. Total amount to pay (the final total, grand total, or amount due)
+3. Currency (USD, LBP, EUR, etc.)
+
+Return ONLY valid JSON in this exact format, no explanation:
+{"supplier": "name or null", "total": number or null, "currency": "USD" or "LBP" or null}
+
+If currency is unclear but amounts look like Lebanese Pounds (large numbers like 500000+), use "LBP".
+If amounts are small (under 10000), likely USD.
+If supplier name is not found, return null for supplier."""
+        response = model.generate_content([
+            {"mime_type": mime_type, "data": base64.b64encode(file_bytes).decode()},
+            prompt
+        ])
+        clean = response.text.replace("```json", "").replace("```", "").strip()
+        return json.loads(clean)
+    except Exception:
+        return {"supplier": None, "total": None, "currency": None}
 
 def render_invoices(conn, sheet_link, user, role):
     supabase = get_supabase()
@@ -261,37 +293,22 @@ def render_invoices(conn, sheet_link, user, role):
     # ==========================================
     with tab_upload:
         st.info("💡 **Mobile Users:** Tap 'Browse files' to open your camera.")
-        
-        # --- 🧠 BULLETPROOF MOBILE SUPPLIER SEARCH ---
+
+        # Load supplier list
         try:
             sup_res = supabase.table("suppliers").select("supplier_name").execute()
-            supplier_list = sorted([row['supplier_name'] for row in sup_res.data]) if sup_res.data else []
+            supplier_list = sorted([r['supplier_name'] for r in sup_res.data]) if sup_res.data else []
         except Exception:
             supplier_list = []
-            
-        search_term = st.text_input("🔍 Search Supplier", placeholder="Type here to filter the list below...")
-        
-        if search_term:
-            filtered_suppliers = [s for s in supplier_list if search_term.lower() in s.lower()]
-            if "➕ Other (Type manually)" not in filtered_suppliers:
-                filtered_suppliers.append("➕ Other (Type manually)")
-        else:
-            filtered_suppliers = supplier_list + ["➕ Other (Type manually)"]
 
-        selected_supplier = st.selectbox("🏢 Choose from Results", filtered_suppliers)
-        
-        if selected_supplier == "➕ Other (Type manually)":
-            final_supplier_name = st.text_input("📝 Type the new supplier name:")
-        else:
-            final_supplier_name = selected_supplier
-        
-        uploaded_file = st.file_uploader("Take a Photo or Upload PDF", type=['jpg', 'jpeg', 'png', 'pdf'])
+        uploaded_file = st.file_uploader("📸 Take a Photo or Upload PDF", type=['jpg', 'jpeg', 'png', 'pdf'])
 
         # Reset submitted state when a new file is chosen
         current_file_id = uploaded_file.name if uploaded_file else None
         if st.session_state.get('invoice_submitted_file') != current_file_id:
             st.session_state['invoice_submitted'] = False
             st.session_state['invoice_submitted_file'] = current_file_id
+            st.session_state.pop('ai_invoice_data', None)
 
         if uploaded_file:
             if uploaded_file.type.startswith('image'):
@@ -299,33 +316,85 @@ def render_invoices(conn, sheet_link, user, role):
             else:
                 st.success(f"📄 PDF Selected: {uploaded_file.name}")
 
+            # ── AI Extraction ──────────────────────────────────────────────
+            if 'ai_invoice_data' not in st.session_state:
+                with st.spinner("🤖 AI is reading your invoice..."):
+                    ai = _extract_invoice_data(uploaded_file.getvalue(), uploaded_file.type)
+                    st.session_state['ai_invoice_data'] = ai
+
+            ai = st.session_state.get('ai_invoice_data', {})
+            ai_supplier = ai.get("supplier")
+            ai_total    = ai.get("total")
+            ai_currency = ai.get("currency")
+
+            st.divider()
+            st.markdown("**📋 Confirm Invoice Details**")
+
+            # ── Supplier ──────────────────────────────────────────────────
+            # Try to find AI suggestion in supplier list (fuzzy)
+            _sup_options = supplier_list + ["➕ Other (Type manually)"]
+            _sup_default = 0
+            if ai_supplier:
+                _ai_lower = ai_supplier.lower()
+                for i, s in enumerate(supplier_list):
+                    if _ai_lower in s.lower() or s.lower() in _ai_lower:
+                        _sup_default = i
+                        break
+                else:
+                    st.caption(f"🤖 AI detected: **{ai_supplier}** — not found in list, select manually below.")
+
+            selected_supplier = st.selectbox("🏢 Supplier", _sup_options, index=_sup_default)
+            if selected_supplier == "➕ Other (Type manually)":
+                final_supplier_name = st.text_input("📝 Type supplier name:", value=ai_supplier or "")
+            else:
+                final_supplier_name = selected_supplier
+
+            # ── Total Amount ──────────────────────────────────────────────
+            col_amt, col_cur = st.columns([2, 1])
+            with col_amt:
+                final_total = st.number_input(
+                    "💰 Total Amount",
+                    min_value=0.0, step=0.01, format="%.2f",
+                    value=float(ai_total) if ai_total else 0.0
+                )
+            with col_cur:
+                _cur_options = ["USD", "LBP", "EUR"]
+                _cur_default = _cur_options.index(ai_currency) if ai_currency in _cur_options else 0
+                final_currency = st.selectbox("Currency", _cur_options, index=_cur_default)
+
+            if ai_total or ai_currency:
+                st.caption(f"🤖 AI detected: {f'${ai_total:,.2f}' if ai_total else 'no amount'} · {ai_currency or 'unknown currency'}")
+
         already_submitted = st.session_state.get('invoice_submitted', False)
 
         if st.button("🚀 Submit Invoice to Accounting", type="primary", use_container_width=True, disabled=already_submitted):
-            if not final_supplier_name:
-                st.error("❌ Please select a Supplier.")
-            elif not uploaded_file:
+            if not uploaded_file:
                 st.error("❌ Please upload or take a photo.")
+            elif not final_supplier_name:
+                st.error("❌ Please confirm the supplier name.")
             else:
                 with st.spinner("Uploading..."):
                     try:
-                        file_ext = uploaded_file.name.split('.')[-1].lower()
                         import re as _re
+                        file_ext = uploaded_file.name.split('.')[-1].lower()
                         _safe_client = _re.sub(r'[^A-Za-z0-9_-]', '', client_name.replace(' ', '_'))
                         unique_filename = f"{_safe_client}_{uuid.uuid4().hex[:8]}.{file_ext}"
-                        
+
                         supabase.storage.from_("invoices").upload(path=unique_filename, file=uploaded_file.getvalue(), file_options={"content-type": uploaded_file.type})
                         image_url = supabase.storage.from_("invoices").get_public_url(unique_filename)
-                        
+
                         db_record = {
                             "client_name": client_name, "outlet": outlet, "location": location,
                             "uploaded_by": user, "supplier": final_supplier_name.strip().title(),
-                            "image_url": image_url, "status": "Pending", "data_entry_notes": ""
+                            "image_url": image_url, "status": "Pending", "data_entry_notes": "",
+                            "total_amount": float(final_total) if final_total > 0 else None,
+                            "currency": final_currency,
                         }
                         supabase.table("invoices_log").insert([db_record]).execute()
-                        
+
                         st.session_state['invoice_submitted'] = True
                         st.session_state['invoice_submitted_file'] = uploaded_file.name
+                        st.session_state.pop('ai_invoice_data', None)
                         st.success("✅ Invoice successfully uploaded!")
                         st.toast("Invoice sent!", icon="🚀")
                         st.rerun()

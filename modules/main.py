@@ -630,6 +630,7 @@ def render_main(conn, sheet_link, user, role):
             with col_ce3:
                 st.write("")
                 new_inv_reminder = st.checkbox("📅 Inv. Reminder", value=False, key="c_inv_reminder")
+                new_cost_reminder = st.checkbox("💰 Cost Reminder", value=False, key="c_cost_reminder")
 
             col3, col4, col5 = st.columns(3)
             with col3:
@@ -654,6 +655,7 @@ def render_main(conn, sheet_link, user, role):
                         "email": new_email.strip() or None,
                         "phone": new_phone.strip() or None,
                         "inv_reminder": new_inv_reminder,
+                        "cost_reminder": new_cost_reminder,
                     }
                     supabase.table("users").insert([new_user_data]).execute()
                     st.success("✅ User created!")
@@ -696,6 +698,7 @@ def render_main(conn, sheet_link, user, role):
                     with col_ee3:
                         st.write("")
                         e_inv_reminder = st.checkbox("📅 Inv. Reminder", value=bool(u_data.get('inv_reminder', False)), key="e_inv_reminder")
+                        e_cost_reminder = st.checkbox("💰 Cost Reminder", value=bool(u_data.get('cost_reminder', False)), key="e_cost_reminder")
 
                     col3, col4, col5 = st.columns(3)
                     with col3:
@@ -728,6 +731,7 @@ def render_main(conn, sheet_link, user, role):
                             "email": e_email.strip() or None,
                             "phone": e_phone.strip() or None,
                             "inv_reminder": e_inv_reminder,
+                            "cost_reminder": e_cost_reminder,
                         }
                         supabase.table("users").update(update_payload).eq("username", u_sel).execute()
                         st.success(f"✅ User '{u_sel}' updated successfully!")
