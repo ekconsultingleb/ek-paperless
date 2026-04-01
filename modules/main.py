@@ -8,6 +8,7 @@ from datetime import date as _date, datetime as _datetime
 from supabase import create_client, Client
 from modules.clients import render_clients
 from modules.nav_helper import hash_password
+from modules.worldwide_master_items import render_worldwide_admin, bulk_sync_from_autocalc
 
 # ── Auto Calc helpers (ported from auto_calc_reader/reader.py) ─────────────────
 
@@ -156,18 +157,18 @@ def render_main(conn, sheet_link, user, role):
     # ==========================================
     if is_super_admin:
         st.info("👑 Super Admin Mode: Full access to all database and user controls.")
-        tabs = st.tabs(["📤 Master Sync", "➕ Create User", "👥 Manage Users", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients", "📊 Auto Calc"])
-        t_sync, t_create, t_view, t_supp, t_edit, t_clients, t_ac = tabs
+        tabs = st.tabs(["📤 Master Sync", "➕ Create User", "👥 Manage Users", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients", "📊 Auto Calc", "🌍 Global Registry"])
+        t_sync, t_create, t_view, t_supp, t_edit, t_clients, t_ac, t_global = tabs
     elif is_normal_admin:
         st.info("🛡️ Admin Mode: Access to sync and onboard users/suppliers.")
         tabs = st.tabs(["📤 Master Sync", "➕ Create User", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients", "📊 Auto Calc"])
         t_sync, t_create, t_supp, t_edit, t_clients, t_ac = tabs[0], tabs[1], tabs[2], tabs[3], tabs[4], tabs[5]
-        t_view = None
+        t_view = t_global = None
     else:
         st.info("🏢 HQ Manager Mode: Access to sync the Master Items database.")
         tabs = st.tabs(["📤 Master Sync"])
         t_sync = tabs[0]
-        t_create = t_view = t_supp = t_edit = t_clients = t_ac = None
+        t_create = t_view = t_supp = t_edit = t_clients = t_ac = t_global = None
 
     # ==========================================
     # TAB: MASTER ITEMS SYNC
@@ -964,5 +965,30 @@ def render_main(conn, sheet_link, user, role):
                                             f"{ac_client} / {fallback_month}."
                                         )
                                         st.balloons()
+                                        # Sync costs to worldwide_master_items
+                                        cost_rows = [
+                                            r for rows in sheet_results.values()
+                                            for r in rows
+                                            if r.get("product_code") and r.get("cost_per_unit") is not None
+                                        ]
+                                        if cost_rows:
+                                            try:
+                                                client_region_res = supabase.table("clients").select("region").eq("client_name", ac_client).maybe_single().execute()
+                                                client_region = (client_region_res.data or {}).get("region", "Global")
+                                            except Exception:
+                                                client_region = "Global"
+                                            bulk_sync_from_autocalc(
+                                                supabase=supabase,
+                                                cost_rows=cost_rows,
+                                                region=client_region,
+                                                source_client=ac_client,
+                                            )
                         else:
                             st.warning("No data rows found in any sheet. Check the config column names match the Excel headers.")
+
+    # ==========================================
+    # TAB: GLOBAL REGISTRY
+    # ==========================================
+    if t_global:
+        with t_global:
+            render_worldwide_admin(supabase, role)
