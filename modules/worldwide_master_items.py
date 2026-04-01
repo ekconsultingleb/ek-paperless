@@ -135,7 +135,7 @@ def _fetch_global_items(_supabase_url: str, region: str) -> list:
     We pass _supabase_url as a cache key (Client is not hashable).
     """
     from supabase import create_client
-    import streamlit as st as _st
+    import streamlit as _st
     supabase = create_client(_st.secrets["SUPABASE_URL"], _st.secrets["SUPABASE_KEY"])
     try:
         if region == "Global":
