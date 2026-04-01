@@ -14,6 +14,7 @@ from modules.inventory import render_inventory
 from modules.waste import render_waste
 from modules.transfers import render_transfers
 from modules.invoices import render_invoices
+from modules.recipes import render_recipes
 from modules.nav_helper import hash_password, verify_password
 
 # --- INITIALIZE SUPABASE ---
@@ -367,7 +368,7 @@ else:
     # Parse allowed modules
     raw_modules = str(st.session_state.get('module', '')).lower().strip()
     if raw_modules == "all_modules" or role in ["admin", "admin_all"]:
-        allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers", "invoices", "ledger", "overview"]
+        allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers", "invoices", "ledger", "overview", "recipes"]
     else:
         allowed_modules = [m.strip() for m in raw_modules.split(",") if m.strip()]
 
@@ -466,6 +467,17 @@ else:
                 if st.button("📊\nOverview", use_container_width=True, key="btn_overview"):
                     st.session_state['current_page'] = 'overview'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
+        
+        # --- ROW 3 ---
+        st.write("")
+        col_i, col_j, col_k, col_l = st.columns(4)
+
+        if "recipes" in allowed_modules:
+            with col_i:
+                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
+                if st.button("🍳\nRecipes", use_container_width=True, key="btn_recipes"):
+                    st.session_state['current_page'] = 'recipes'; st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
 
     # ==========================================
     # PAGE ROUTING (INSIDE MODULES)
@@ -489,4 +501,6 @@ else:
         elif st.session_state['current_page'] == 'main':
             render_main(None, None, user, role)
         elif st.session_state['current_page'] == 'overview':
-            render_overview(None, None, user, role, client, outlet, location) 
+            render_overview(None, None, user, role, client, outlet, location)
+        elif st.session_state['current_page'] == 'recipes':
+            render_recipes(supabase, user, role) 
