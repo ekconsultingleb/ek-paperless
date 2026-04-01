@@ -489,4 +489,4 @@ else:
         elif st.session_state['current_page'] == 'main':
             render_main(None, None, user, role)
         elif st.session_state['current_page'] == 'overview':
-            render_overview(None, None, user, role, client, outlet, location)
+            render_overview(None, None, user, role, client, outlet, location) 
