@@ -223,17 +223,25 @@ def _sub_recipe_dialog(parent_ing_index: int):
 
     sub_lines = st.session_state[sub_key]
 
-    # Batch size — no labels shown
+    # Batch size — text input for qty (placeholder), kg default for unit
     c1, c2, _ = st.columns([1, 1, 2])
     with c1:
-        batch_qty = st.number_input(
-            "Batch qty", min_value=0.01, value=1.0,
-            step=0.1, key=f"sub_bqty_{parent_ing_index}",
+        bqty_key = f"sub_bqty_{parent_ing_index}"
+        bqty_str = st.text_input(
+            "Batch qty",
+            value=st.session_state.get(f"_bqty_val_{parent_ing_index}", ""),
+            placeholder="Batch qty",
+            key=bqty_key,
             label_visibility="collapsed",
         )
+        try:
+            batch_qty = float(bqty_str) if bqty_str else 0.0
+        except ValueError:
+            batch_qty = 0.0
     with c2:
         batch_unit = st.selectbox(
             "Batch unit", UNITS,
+            index=UNITS.index("kg") if "kg" in UNITS else 0,
             key=f"sub_bunit_{parent_ing_index}",
             label_visibility="collapsed",
         )
@@ -248,19 +256,23 @@ def _sub_recipe_dialog(parent_ing_index: int):
             val = st.text_input(
                 "Ingredient",
                 value=line["chef_input"],
-                placeholder="e.g. dijon mustard",
+                placeholder="Ingredient",
                 key=f"sub_name_{parent_ing_index}_{idx}",
                 label_visibility="collapsed"
             )
             sub_lines[idx]["chef_input"] = val
         with c2:
-            qty = st.number_input(
-                "Qty", min_value=0.0, step=1.0,
-                value=float(line["qty"]),
+            qty_str = st.text_input(
+                "Qty",
+                value="" if line["qty"] == 0.0 else str(line["qty"]),
+                placeholder="Qty",
                 key=f"sub_qty_{parent_ing_index}_{idx}",
-                label_visibility="collapsed"
+                label_visibility="collapsed",
             )
-            sub_lines[idx]["qty"] = qty
+            try:
+                sub_lines[idx]["qty"] = float(qty_str) if qty_str else 0.0
+            except ValueError:
+                sub_lines[idx]["qty"] = line["qty"]
         with c3:
             unit = st.selectbox(
                 "Unit", UNITS,
@@ -329,7 +341,8 @@ def _photo_dialog(supabase: Client, recipe_id: str, recipe_name: str):
     c1, c2 = st.columns(2)
     with c1:
         if st.button("Skip for now", use_container_width=True):
-            st.session_state["recipe_photo_done"] = True
+            st.session_state["form_show_photo"] = False
+            st.session_state["form_photo_done"] = True
             st.rerun()
     with c2:
         if st.button(
@@ -348,7 +361,8 @@ def _photo_dialog(supabase: Client, recipe_id: str, recipe_name: str):
                         ).eq("id", recipe_id).execute()
                     except Exception as e:
                         st.warning(f"Photo update failed: {e}")
-            st.session_state["recipe_photo_done"] = True
+            st.session_state["form_show_photo"] = False
+            st.session_state["form_photo_done"] = True
             st.rerun()
 
 
