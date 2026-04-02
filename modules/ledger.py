@@ -116,29 +116,150 @@ def render_ledger(conn, sheet_link, user, role):
                         st.session_state.ledger_is_saving = False
                         st.error(f"❌ Error: {e}")
 
+    # ==========================================
+    # TAB HISTORY — with delete
+    # ==========================================
     with tab_history:
-        if not df_logs.empty:
-            df_hist = df_logs.sort_values(by="date", ascending=False)
+        if df_logs.empty:
+            st.info("No records found.")
+        else:
+            df_hist = df_logs.sort_values(by="date", ascending=False).reset_index(drop=True)
             cols = ['id', 'date', 'entity_name', 'category', 'description', 'credit', 'debit']
-            edited_data = st.data_editor(df_hist[cols], use_container_width=True, disabled=["id"], hide_index=True, key="ledger_history_editor")
-            
-            if st.button("💾 Save History Edits", type="primary"):
-                with st.spinner("Updating records..."):
-                    updates = 0
-                    safe_edited = edited_data.fillna('')
-                    safe_orig = df_hist[cols].fillna('')
-                    for index, new_row in safe_edited.iterrows():
-                        if new_row.to_dict() != safe_orig.loc[index].to_dict():
-                            update_payload = {
-                                "date": str(new_row['date']), "entity_name": str(new_row['entity_name']),
-                                "category": str(new_row['category']), "description": str(new_row['description']),
-                                "credit": float(new_row['credit']), "debit": float(new_row['debit'])
-                            }
-                            supabase.table("ledger_logs").update(update_payload).eq("id", new_row['id']).execute()
-                            updates += 1
-                    if updates > 0:
-                        st.success(f"✅ Updated {updates} records!")
-                        st.rerun()
+
+            # ── Filters ──────────────────────────────────────────────────
+            fc1, fc2 = st.columns(2)
+            with fc1:
+                all_entities = ["All"] + sorted(df_hist['entity_name'].unique().tolist())
+                filter_entity = st.selectbox(
+                    "Filter by person", all_entities,
+                    key="hist_filter_entity"
+                )
+            with fc2:
+                all_cats = ["All"] + sorted(df_hist['category'].unique().tolist())
+                filter_cat = st.selectbox(
+                    "Filter by category", all_cats,
+                    key="hist_filter_cat"
+                )
+
+            df_view = df_hist.copy()
+            if filter_entity != "All":
+                df_view = df_view[df_view['entity_name'] == filter_entity]
+            if filter_cat != "All":
+                df_view = df_view[df_view['category'] == filter_cat]
+
+            if df_view.empty:
+                st.warning("No records match your filter.")
+            else:
+                # ── Editable table ────────────────────────────────────────
+                edited_data = st.data_editor(
+                    df_view[cols],
+                    use_container_width=True,
+                    disabled=["id"],
+                    hide_index=True,
+                    key="ledger_history_editor"
+                )
+
+                if st.button("💾 Save History Edits", type="primary"):
+                    with st.spinner("Updating records..."):
+                        updates = 0
+                        safe_edited = edited_data.fillna('')
+                        safe_orig   = df_view[cols].fillna('')
+                        for index, new_row in safe_edited.iterrows():
+                            orig_row = safe_orig[safe_orig['id'] == new_row['id']]
+                            if orig_row.empty:
+                                continue
+                            if new_row.to_dict() != orig_row.iloc[0].to_dict():
+                                update_payload = {
+                                    "date":        str(new_row['date']),
+                                    "entity_name": str(new_row['entity_name']),
+                                    "category":    str(new_row['category']),
+                                    "description": str(new_row['description']),
+                                    "credit":      float(new_row['credit']),
+                                    "debit":       float(new_row['debit']),
+                                }
+                                supabase.table("ledger_logs").update(
+                                    update_payload
+                                ).eq("id", new_row['id']).execute()
+                                updates += 1
+                        if updates > 0:
+                            st.success(f"✅ Updated {updates} record(s).")
+                            st.rerun()
+                        else:
+                            st.info("No changes detected.")
+
+                st.markdown("---")
+
+                # ── Delete section ────────────────────────────────────────
+                if user_role not in ["viewer"]:
+                    with st.expander("🗑️ Delete a record"):
+                        st.caption(
+                            "Select the row you want to permanently delete. "
+                            "This cannot be undone."
+                        )
+
+                        # Build a readable label for each row
+                        df_view["_label"] = (
+                            df_view["date"].astype(str).str[:10]
+                            + "  ·  " + df_view["entity_name"]
+                            + "  ·  " + df_view["category"]
+                            + "  ·  CR $" + df_view["credit"].apply(
+                                lambda x: f"{float(x):,.2f}"
+                            )
+                            + "  ·  DB $" + df_view["debit"].apply(
+                                lambda x: f"{float(x):,.2f}"
+                            )
+                        )
+
+                        label_to_id = dict(
+                            zip(df_view["_label"], df_view["id"])
+                        )
+                        selected_label = st.selectbox(
+                            "Select record to delete",
+                            list(label_to_id.keys()),
+                            key="del_select"
+                        )
+                        selected_id = label_to_id[selected_label]
+
+                        # Two-tap confirmation
+                        confirm_key = f"confirm_del_{selected_id}"
+                        if st.session_state.get(confirm_key):
+                            st.warning(
+                                f"Are you sure? This will permanently delete "
+                                f"the selected record."
+                            )
+                            cd1, cd2 = st.columns(2)
+                            with cd1:
+                                if st.button(
+                                    "Cancel", use_container_width=True,
+                                    key="del_cancel"
+                                ):
+                                    st.session_state[confirm_key] = False
+                                    st.rerun()
+                            with cd2:
+                                if st.button(
+                                    "Yes, delete", type="primary",
+                                    use_container_width=True,
+                                    key="del_confirm"
+                                ):
+                                    try:
+                                        supabase.table("ledger_logs").delete().eq(
+                                            "id", selected_id
+                                        ).execute()
+                                        st.session_state[confirm_key] = False
+                                        st.success("✅ Record deleted.")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ Delete failed: {e}")
+                        else:
+                            if st.button(
+                                "🗑️ Delete this record",
+                                use_container_width=True,
+                                key="del_trigger"
+                            ):
+                                st.session_state[confirm_key] = True
+                                st.rerun()
+                else:
+                    st.caption("Viewers cannot delete records.")
 
     with tab_statement:
         st.markdown("#### 📄 Account Statement")
