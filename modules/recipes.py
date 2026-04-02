@@ -663,22 +663,15 @@ def _render_new_recipe(
     # ── Ingredient lines ──────────────────────────────────────────────────
     lines = st.session_state["form_lines"]
 
-    # Column headers
-    h1, h2, h3, h4, h5 = st.columns([4, 1.5, 1.5, 1, 0.5])
-    h1.caption("Ingredient")
-    h2.caption("Qty")
-    h3.caption("Unit")
-    h4.caption("Production?")
-    h5.caption("")
-
     for idx, line in enumerate(lines):
+        lv = "visible" if idx == 0 else "collapsed"
         c1, c2, c3, c4, c5 = st.columns([4, 1.5, 1.5, 1, 0.5])
 
         with c1:
             val = st.text_input(
-                "ing",
+                "Ingredient",
                 value=line["chef_input"],
-                placeholder="e.g. shrim",
+                placeholder="Ingredient",
                 key=f"ing_name_{idx}",
                 label_visibility="collapsed"
             )
@@ -686,31 +679,31 @@ def _render_new_recipe(
 
         with c2:
             qty = st.number_input(
-                "qty",
+                "Qty",
                 min_value=0.0, step=1.0,
                 value=float(line["qty"]),
                 key=f"ing_qty_{idx}",
-                label_visibility="collapsed"
+                label_visibility=lv,
             )
             lines[idx]["qty"] = qty
 
         with c3:
             unit = st.selectbox(
-                "unit",
+                "Unit",
                 UNITS,
                 index=UNITS.index(line["unit"])
                       if line["unit"] in UNITS else 0,
                 key=f"ing_unit_{idx}",
-                label_visibility="collapsed"
+                label_visibility=lv,
             )
             lines[idx]["unit"] = unit
 
         with c4:
             is_prod = st.checkbox(
-                "Prod",
+                "Production?",
                 value=line["is_production"],
                 key=f"ing_prod_{idx}",
-                label_visibility="collapsed"
+                label_visibility=lv,
             )
             lines[idx]["is_production"] = is_prod
 
