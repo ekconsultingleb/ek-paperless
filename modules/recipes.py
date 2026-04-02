@@ -267,9 +267,13 @@ def _sub_recipe_dialog(item: dict, supabase: Client, client_name: str):
 
     col1, col2 = st.columns(2)
     with col1:
-        batch_qty = st.number_input(
-            "Batch qty", min_value=0.01, value=1.0, step=0.1,
-            key="sub_batch_qty"
+        _pre_qty = st.session_state.get(
+         f"prod_qty_{item['product_code']}", 1.0
+        )
+    batch_qty = st.number_input(
+        "Batch qty", min_value=0.01,
+            value=float(_pre_qty) if _pre_qty > 0 else 1.0,
+            step=0.1, key="sub_batch_qty"
         )
     with col2:
         batch_unit = st.selectbox(
@@ -756,9 +760,13 @@ def _render_new_recipe(
                             use_container_width=True, type="primary"
                         ):
                             if choice == "produce":
+                                # Store qty/unit before opening dialog
+                                st.session_state[f"prod_qty_{item['product_code']}"] = qty_val
+                                st.session_state[f"prod_unit_{item['product_code']}"] = unit_val
                                 st.session_state["open_sub_dialog"] = item
                                 st.rerun()
                             else:
+                                # Buy — add directly
                                 st.session_state["recipe_ingredients"].append({
                                     "product_code": item["product_code"],
                                     "item_name":    item["item_name"],
