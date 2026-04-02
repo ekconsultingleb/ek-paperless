@@ -620,7 +620,7 @@ def render_main(conn, sheet_link, user, role):
                 role_options = ["staff", "chef", "bar manager", "bartender", "storekeeper", "manager", "viewer", "admin", "admin_all"]
                 new_role = st.selectbox("🛡️ Role", role_options, key="c_role")
             with col2:
-                available_modules = ["waste", "cash", "inventory", "transfers", "dashboard", "invoices", "ledger"]
+                available_modules = ["waste", "cash", "inventory", "transfers", "dashboard", "invoices", "ledger", "recipes", "overview"]
                 new_modules = st.multiselect("📱 App Access", available_modules, default=["waste"], key="c_mod")
 
             col_ce1, col_ce2, col_ce3 = st.columns([3, 3, 1])
@@ -686,8 +686,11 @@ def render_main(conn, sheet_link, user, role):
                         e_role = st.selectbox("🛡️ Role", role_options, index=e_role_index)
                         
                     with col2:
-                        available_modules = ["waste", "cash", "inventory", "transfers", "dashboard", "invoices", "ledger"]
-                        current_mods = [m.strip() for m in str(u_data.get('module', '')).split(',')] if str(u_data.get('module', '')) else ["waste"]
+                        available_modules = ["waste", "cash", "inventory", "transfers", "dashboard", "invoices", "ledger", "recipes", "overview"]
+                        raw_mods = u_data.get('module', '') or ''
+                        current_mods = [m.strip().lower() for m in str(raw_mods).split(',') if m.strip()]
+                        if not current_mods:
+                            current_mods = ["waste"]
                         valid_mods = [m for m in current_mods if m in available_modules]
                         e_modules = st.multiselect("📱 App Access", available_modules, default=valid_mods)
 
