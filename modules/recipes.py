@@ -218,7 +218,7 @@ def _sub_recipe_dialog(parent_ing_index: int):
     sub_key = f"sub_lines_{parent_ing_index}"
     if sub_key not in st.session_state:
         st.session_state[sub_key] = [
-            {"chef_input": "", "qty": 0.0, "unit": "g", "is_production": False}
+            {"chef_input": "", "qty": 0.0, "unit": "kg", "is_production": False}
         ]
 
     sub_lines = st.session_state[sub_key]
@@ -290,6 +290,7 @@ def _sub_recipe_dialog(parent_ing_index: int):
         if st.button("Cancel", use_container_width=True,
                      key=f"sub_cancel_{parent_ing_index}"):
             st.session_state.pop(sub_key, None)
+            st.session_state.pop("open_sub_idx", None)
             st.rerun()
     with c2:
         if st.button("Save sub-recipe", type="primary",
@@ -302,6 +303,7 @@ def _sub_recipe_dialog(parent_ing_index: int):
                 "lines":        list(sub_lines),
             }
             st.session_state.pop(sub_key, None)
+            st.session_state.pop("open_sub_idx", None)
             st.rerun()
 
 
@@ -613,7 +615,7 @@ def _render_new_recipe(
 
     # ── Open sub-recipe dialog if triggered ──────────────────────────────
     if st.session_state.get("open_sub_idx") is not None:
-        idx = st.session_state.pop("open_sub_idx")
+        idx = st.session_state["open_sub_idx"]   # keep key so rerun inside dialog stays open
         _sub_recipe_dialog(idx)
 
     # ─────────────────────────────────────────────────────────────────────
@@ -664,7 +666,6 @@ def _render_new_recipe(
     lines = st.session_state["form_lines"]
 
     for idx, line in enumerate(lines):
-        lv = "visible" if idx == 0 else "collapsed"
         c1, c2, c3, c4, c5 = st.columns([4, 1.5, 1.5, 1, 0.5])
 
         with c1:
@@ -673,19 +674,22 @@ def _render_new_recipe(
                 value=line["chef_input"],
                 placeholder="Ingredient",
                 key=f"ing_name_{idx}",
-                label_visibility="collapsed"
+                label_visibility="collapsed",
             )
             lines[idx]["chef_input"] = val
 
         with c2:
-            qty = st.number_input(
+            qty_str = st.text_input(
                 "Qty",
-                min_value=0.0, step=1.0,
-                value=float(line["qty"]),
+                value="" if line["qty"] == 0.0 else str(line["qty"]),
+                placeholder="Qty",
                 key=f"ing_qty_{idx}",
-                label_visibility=lv,
+                label_visibility="collapsed",
             )
-            lines[idx]["qty"] = qty
+            try:
+                lines[idx]["qty"] = float(qty_str) if qty_str else 0.0
+            except ValueError:
+                lines[idx]["qty"] = line["qty"]
 
         with c3:
             unit = st.selectbox(
@@ -694,7 +698,7 @@ def _render_new_recipe(
                 index=UNITS.index(line["unit"])
                       if line["unit"] in UNITS else 0,
                 key=f"ing_unit_{idx}",
-                label_visibility=lv,
+                label_visibility="collapsed",
             )
             lines[idx]["unit"] = unit
 
@@ -703,7 +707,7 @@ def _render_new_recipe(
                 "Production?",
                 value=line["is_production"],
                 key=f"ing_prod_{idx}",
-                label_visibility=lv,
+                label_visibility="visible",
             )
             lines[idx]["is_production"] = is_prod
 
