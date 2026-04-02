@@ -656,10 +656,8 @@ def _render_new_recipe(
         label_visibility="collapsed",
     )
 
-    st.markdown("---")
-
     # Yield — compact 2 columns
-    c1, c2 = st.columns(2)
+    c1, c2 = st.columns([1,1,2])
     with c1:
         st.number_input(
             "Portions", min_value=1, value=1,
