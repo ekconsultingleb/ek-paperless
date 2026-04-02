@@ -18,7 +18,12 @@ TYPO_MAP = {
     "garlick": "garlic",
     "mustered": "mustard", "mstard": "mustard",
     "limon": "lemon", "lemmon": "lemon",
-    "tawouk": "taouk",
+    "tawouk": "taouk", "spaketi": "spaghetti",
+    "lazanya": "lasagna", "mozzarila": "mozzarella",
+    "pasterma": "Basterma", "sujuk": "sojok",
+    "awarma": "kawarma", "kibbe": "kebbeh",
+    "kibbi": "kibbeh", "feteh": "fatteh",
+    "hummus": "hommos", "toom": "toum",
 }
 
 def _levenshtein(a: str, b: str) -> int:
@@ -107,6 +112,15 @@ def _save_recipe(supabase: Client, recipe: dict, lines: list) -> "str | None":
         st.error(f"Error saving recipe: {e}")
         return None
 
+def _delete_recipe(supabase: Client, recipe_id: str) -> bool:
+    try:
+        supabase.table("recipe_lines").delete().eq("recipe_id", recipe_id).execute()
+        supabase.table("recipes").delete().eq("id", recipe_id).execute()
+        return True
+    except Exception as e:
+        st.error(f"Error deleting recipe: {e}")
+        return False
+
 def _upsert_master_item(supabase: Client, item: dict):
     try:
         supabase.table("master_items").upsert(
@@ -124,10 +138,121 @@ def _upload_recipe_photo(
         supabase.storage.from_("recipe-photos").upload(
             path=path,
             file=file_bytes,
-            file_options={"content-type": mime}
+            file_options={"content-type": mime, "upsert": "true"}
         )
-        return supabase.storage.from_("recipe-photos").get_public_url(path)
-    except Exception:
+        url = supabase.storage.from_("recipe-photos").get_public_url(path)
+        return url
+    except Exception as e:
+        st.warning(f"Photo upload error: {e}")
+        return None
+
+def _generate_recipe_pdf(recipe: dict, lines: list) -> "bytes | None":
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib import colors
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import cm
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+        from reportlab.lib.enums import TA_LEFT, TA_CENTER
+        import io
+
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, pagesize=A4,
+            leftMargin=2*cm, rightMargin=2*cm,
+            topMargin=2*cm, bottomMargin=2*cm
+        )
+
+        EK_DARK   = colors.HexColor("#1B252C")
+        EK_SAND   = colors.HexColor("#E3C5AD")
+        EK_LIGHT  = colors.HexColor("#F5F0EB")
+
+        styles = getSampleStyleSheet()
+        style_title = ParagraphStyle(
+            "title", fontSize=22, textColor=EK_DARK,
+            fontName="Helvetica-Bold", spaceAfter=4
+        )
+        style_sub = ParagraphStyle(
+            "sub", fontSize=11, textColor=colors.HexColor("#5F5E5A"),
+            fontName="Helvetica", spaceAfter=2
+        )
+        style_section = ParagraphStyle(
+            "section", fontSize=10, textColor=EK_DARK,
+            fontName="Helvetica-Bold", spaceBefore=12, spaceAfter=6,
+            textTransform="uppercase"
+        )
+        style_body = ParagraphStyle(
+            "body", fontSize=10, textColor=EK_DARK,
+            fontName="Helvetica", leading=16
+        )
+
+        story = []
+
+        # Header
+        story.append(Paragraph(recipe.get("name", "Recipe"), style_title))
+        story.append(Paragraph(
+            f"{recipe.get('category', '')}  ·  "
+            f"{recipe.get('portions', 1)} {recipe.get('yield_unit', 'plate')}",
+            style_sub
+        ))
+        story.append(HRFlowable(width="100%", thickness=1, color=EK_SAND, spaceAfter=10))
+
+        # Ingredients table
+        story.append(Paragraph("Ingredients", style_section))
+        if lines:
+            table_data = [["Item", "Qty", "Unit", "Type"]]
+            for line in lines:
+                t = "Production" if line.get("is_production") else "Raw material"
+                table_data.append([
+                    line.get("item_name", ""),
+                    str(line.get("qty", "")),
+                    line.get("unit", ""),
+                    t,
+                ])
+            tbl = Table(table_data, colWidths=[8*cm, 2.5*cm, 2.5*cm, 4*cm])
+            tbl.setStyle(TableStyle([
+                ("BACKGROUND",   (0,0), (-1,0), EK_DARK),
+                ("TEXTCOLOR",    (0,0), (-1,0), colors.white),
+                ("FONTNAME",     (0,0), (-1,0), "Helvetica-Bold"),
+                ("FONTSIZE",     (0,0), (-1,-1), 9),
+                ("ROWBACKGROUNDS",(0,1),(-1,-1), [colors.white, EK_LIGHT]),
+                ("GRID",         (0,0), (-1,-1), 0.3, colors.HexColor("#D3D1C7")),
+                ("LEFTPADDING",  (0,0), (-1,-1), 8),
+                ("RIGHTPADDING", (0,0), (-1,-1), 8),
+                ("TOPPADDING",   (0,0), (-1,-1), 5),
+                ("BOTTOMPADDING",(0,0), (-1,-1), 5),
+            ]))
+            story.append(tbl)
+
+        # Method
+        method = recipe.get("method", "")
+        if method:
+            story.append(Spacer(1, 0.3*cm))
+            story.append(HRFlowable(width="100%", thickness=0.5, color=EK_SAND))
+            story.append(Paragraph("Method of preparation", style_section))
+            for line in method.split("\n"):
+                if line.strip():
+                    story.append(Paragraph(line.strip(), style_body))
+
+        # Footer
+        story.append(Spacer(1, 1*cm))
+        story.append(HRFlowable(width="100%", thickness=1, color=EK_SAND))
+        story.append(Paragraph(
+            f"EK Consulting  ·  ek-consulting.co  ·  "
+            f"Generated {datetime.now().strftime('%d %b %Y')}",
+            ParagraphStyle("footer", fontSize=8, textColor=colors.HexColor("#888780"),
+                           fontName="Helvetica", alignment=TA_CENTER)
+        ))
+
+        doc.build(story)
+        buffer.seek(0)
+        return buffer.read()
+
+    except ImportError:
+        st.error("reportlab is not installed. Add it to requirements.txt.")
+        return None
+    except Exception as e:
+        st.error(f"PDF generation error: {e}")
         return None
 
 
@@ -137,8 +262,8 @@ def _upload_recipe_photo(
 
 @st.dialog("Build sub-recipe", width="large")
 def _sub_recipe_dialog(item: dict, supabase: Client, client_name: str):
-    st.markdown(f"**{item['item_name']}** is a production.")
-    st.caption("Add its raw ingredients and set the batch size it produces.")
+    st.markdown(f"**{item['item_name']}** — production")
+    st.caption("Add raw ingredients and set the batch size this production yields.")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -162,7 +287,7 @@ def _sub_recipe_dialog(item: dict, supabase: Client, client_name: str):
 
     sub_search = st.text_input(
         "Search ingredient",
-        placeholder="salt · olive oil · garlic · ثوم...",
+        placeholder="salt · garlic · olive oil...",
         key=f"sub_srch_{item['product_code']}"
     )
 
@@ -175,9 +300,7 @@ def _sub_recipe_dialog(item: dict, supabase: Client, client_name: str):
             limit=5,
             exclude_codes=already_codes,
         )
-        # Only raw materials inside a sub-recipe
         suggestions = [s for s in suggestions if not s.get("is_production", False)]
-
         if suggestions:
             for sug in suggestions:
                 c1, c2 = st.columns([4, 1])
@@ -192,10 +315,10 @@ def _sub_recipe_dialog(item: dict, supabase: Client, client_name: str):
                     ):
                         st.session_state[sub_key].append({
                             "product_code": sug["product_code"],
-                            "item_name": sug["item_name"],
-                            "unit": sug.get("unit", "kg"),
-                            "cost_per_unit": sug.get("cost_per_unit", 0),
-                            "qty": 0.0,
+                            "item_name":    sug["item_name"],
+                            "unit":         sug.get("unit", "kg"),
+                            "cost_per_unit":sug.get("cost_per_unit", 0),
+                            "qty":          0.0,
                         })
                         st.rerun()
         else:
@@ -221,9 +344,9 @@ def _sub_recipe_dialog(item: dict, supabase: Client, client_name: str):
                 if st.button("×", key=f"subdel_{item['product_code']}_{idx}"):
                     st.session_state[sub_key].pop(idx)
                     st.rerun()
-        st.caption(f"This production yields: {batch_qty} {batch_unit}")
+        st.caption(f"Yields: {batch_qty} {batch_unit}")
     else:
-        st.caption("No ingredients added yet.")
+        st.caption("No ingredients yet.")
 
     st.markdown("---")
     c1, c2 = st.columns(2)
@@ -253,11 +376,9 @@ def _sub_recipe_dialog(item: dict, supabase: Client, client_name: str):
 
 @st.dialog("Add a photo of this dish", width="small")
 def _photo_dialog(supabase: Client, recipe_id: str, recipe_name: str):
-    st.markdown(f"**{recipe_name}** has been saved!")
-    st.caption(
-        "Photo appears as the recipe thumbnail "
-        "and prints on the PDF recipe card."
-    )
+    st.markdown(f"**{recipe_name}** saved!")
+    st.caption("Photo appears as thumbnail in the library and prints on the PDF card.")
+
     uploaded = st.file_uploader(
         "Take a photo or upload",
         type=["jpg", "jpeg", "png", "webp", "heic"],
@@ -269,6 +390,7 @@ def _photo_dialog(supabase: Client, recipe_id: str, recipe_name: str):
     c1, c2 = st.columns(2)
     with c1:
         if st.button("Skip for now", use_container_width=True):
+            st.session_state["recipe_saved_id"]   = None
             st.session_state["recipe_photo_done"] = True
             st.rerun()
     with c2:
@@ -286,8 +408,10 @@ def _photo_dialog(supabase: Client, recipe_id: str, recipe_name: str):
                         supabase.table("recipes").update(
                             {"photo_url": url}
                         ).eq("id", recipe_id).execute()
+                        st.session_state["last_photo_url"] = url
                     except Exception as e:
-                        st.warning(f"Photo upload failed: {e}")
+                        st.warning(f"Photo update failed: {e}")
+            st.session_state["recipe_saved_id"]   = None
             st.session_state["recipe_photo_done"] = True
             st.rerun()
 
@@ -298,21 +422,23 @@ def _photo_dialog(supabase: Client, recipe_id: str, recipe_name: str):
 
 def _render_library(supabase: Client, client_name: str, show_cost: bool):
     recipes = _get_recipes(supabase, client_name)
+
     if not recipes:
         st.info("No recipes yet. Go to New Recipe to create your first one.")
         return
 
+    # Filter bar
     col_search, col_cat = st.columns([2, 1])
     with col_search:
         search = st.text_input(
-            "Search", placeholder="chicken, shrimp...",
-            label_visibility="collapsed"
+            "Search", placeholder="Search recipes...",
+            label_visibility="collapsed", key="lib_search"
         )
     with col_cat:
         cat_filter = st.selectbox(
             "Category",
             ["All", "Starter", "Main", "Dessert", "Beverage", "Sub-recipe"],
-            label_visibility="collapsed"
+            label_visibility="collapsed", key="lib_cat"
         )
 
     filtered = recipes
@@ -325,12 +451,18 @@ def _render_library(supabase: Client, client_name: str, show_cost: bool):
         st.warning("No recipes match your filter.")
         return
 
+    # Confirm delete state
+    if "confirm_delete" not in st.session_state:
+        st.session_state["confirm_delete"] = None
+
     cols = st.columns(3)
     for i, recipe in enumerate(filtered):
         with cols[i % 3]:
             with st.container(border=True):
-                if recipe.get("photo_url"):
-                    st.image(recipe["photo_url"], use_container_width=True)
+                # Photo
+                photo_url = recipe.get("photo_url", "")
+                if photo_url:
+                    st.image(photo_url, use_container_width=True)
                 else:
                     st.markdown(
                         "<div style='height:60px;display:flex;align-items:center;"
@@ -338,6 +470,7 @@ def _render_library(supabase: Client, client_name: str, show_cost: bool):
                         "background:var(--secondary-background-color)'>🍽</div>",
                         unsafe_allow_html=True
                     )
+
                 st.markdown(f"**{recipe['name']}**")
                 st.caption(
                     f"{recipe.get('category','—')} · "
@@ -346,26 +479,59 @@ def _render_library(supabase: Client, client_name: str, show_cost: bool):
                 if show_cost and recipe.get("cost_per_portion") is not None:
                     st.caption(f"${recipe['cost_per_portion']:.2f} / portion")
 
-                c1, c2 = st.columns(2)
+                # Action buttons — View / PDF / Delete
+                c1, c2, c3 = st.columns(3)
                 with c1:
                     if st.button(
                         "View", key=f"view_{recipe['id']}",
                         use_container_width=True
                     ):
                         st.session_state["viewing_recipe"] = recipe["id"]
+                        st.session_state["confirm_delete"] = None
                         st.rerun()
                 with c2:
-                    if st.button(
-                        "PDF", key=f"pdf_{recipe['id']}",
-                        use_container_width=True
-                    ):
-                        st.info("PDF export coming soon.")
+                    # PDF download
+                    lines = _get_recipe_lines(supabase, recipe["id"])
+                    pdf_bytes = _generate_recipe_pdf(recipe, lines)
+                    if pdf_bytes:
+                        st.download_button(
+                            "PDF",
+                            data=pdf_bytes,
+                            file_name=f"{recipe['name'].replace(' ','_')}.pdf",
+                            mime="application/pdf",
+                            key=f"pdf_{recipe['id']}",
+                            use_container_width=True
+                        )
+                    else:
+                        st.button("PDF", key=f"pdf_na_{recipe['id']}",
+                                  use_container_width=True, disabled=True)
+                with c3:
+                    if st.session_state["confirm_delete"] == recipe["id"]:
+                        if st.button(
+                            "Confirm", key=f"conf_{recipe['id']}",
+                            use_container_width=True, type="primary"
+                        ):
+                            if _delete_recipe(supabase, recipe["id"]):
+                                st.session_state["confirm_delete"] = None
+                                st.success("Deleted.")
+                                st.rerun()
+                    else:
+                        if st.button(
+                            "Delete", key=f"del_{recipe['id']}",
+                            use_container_width=True
+                        ):
+                            st.session_state["confirm_delete"] = recipe["id"]
+                            st.rerun()
 
+    # Recipe detail view
     if st.session_state.get("viewing_recipe"):
         rid = st.session_state["viewing_recipe"]
         recipe = next((r for r in recipes if r["id"] == rid), None)
         if recipe:
             st.divider()
+            photo_url = recipe.get("photo_url", "")
+            if photo_url:
+                st.image(photo_url, width=300)
             st.markdown(f"### {recipe['name']}")
             caption = (
                 f"{recipe.get('category')} · "
@@ -374,8 +540,7 @@ def _render_library(supabase: Client, client_name: str, show_cost: bool):
             if show_cost and recipe.get("cost_per_portion") is not None:
                 caption += f" · ${recipe['cost_per_portion']:.2f}/portion"
             st.caption(caption)
-            if recipe.get("photo_url"):
-                st.image(recipe["photo_url"], width=280)
+
             lines = _get_recipe_lines(supabase, rid)
             if lines:
                 st.markdown("**Ingredients**")
@@ -391,63 +556,42 @@ def _render_library(supabase: Client, client_name: str, show_cost: bool):
             if recipe.get("method"):
                 st.markdown("**Method of preparation**")
                 st.write(recipe["method"])
-            if st.button("← Close"):
+
+            if st.button("← Close", key="close_view"):
                 del st.session_state["viewing_recipe"]
                 st.rerun()
 
 
 # ─────────────────────────────────────────────
-# WIZARD STATE
+# NEW RECIPE — SINGLE PAGE FORM
 # ─────────────────────────────────────────────
 
-def _init_wizard():
+def _init_form():
     defaults = {
-        "recipe_step":       1,
-        "recipe_category":   "Main",
-        "recipe_portions":   1,
-        "recipe_yield_unit": "Plate",
-        "recipe_ingredients":[],
-        "recipe_method":     "",
-        "bp_memory":         {},
-        "pending_subs":      {},
-        "recipe_saved_id":   None,
-        "recipe_photo_done": False,
+        "recipe_ingredients": [],
+        "bp_memory":          {},
+        "pending_subs":       {},
+        "show_photo_dialog":  False,
+        "saved_recipe_id":    None,
+        "saved_recipe_name":  "",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
-def _reset_wizard():
+def _reset_form():
     for k in [
-        "recipe_step", "recipe_name", "recipe_category",
-        "recipe_portions", "recipe_yield_unit", "recipe_ingredients",
-        "recipe_method", "pending_subs", "recipe_saved_id",
-        "recipe_photo_done", "open_sub_dialog",
+        "recipe_ingredients", "bp_memory", "pending_subs",
+        "show_photo_dialog", "saved_recipe_id", "saved_recipe_name",
+        "open_sub_dialog", "recipe_photo_done",
+        # clear widget keys so form resets visually
+        "new_recipe_name", "new_recipe_category",
+        "new_recipe_portions", "new_recipe_yield_unit",
+        "new_recipe_method", "ing_search_q",
     ]:
         st.session_state.pop(k, None)
-    _init_wizard()
+    _init_form()
 
-
-# ─────────────────────────────────────────────
-# STEP INDICATOR
-# ─────────────────────────────────────────────
-
-def _step_indicator(step: int):
-    labels = ["1 · Name", "2 · Ingredients", "3 · Review"]
-    c1, c2, c3 = st.columns(3)
-    for col, i, label in zip([c1, c2, c3], [1, 2, 3], labels):
-        with col:
-            if i < step:
-                st.success(label)
-            elif i == step:
-                st.info(label)
-            else:
-                st.caption(label)
-
-
-# ─────────────────────────────────────────────
-# NEW RECIPE WIZARD
-# ─────────────────────────────────────────────
 
 def _render_new_recipe(
     supabase: Client,
@@ -456,296 +600,303 @@ def _render_new_recipe(
     user: str,
     show_cost: bool,
 ):
-    _init_wizard()
+    _init_form()
 
-    # Photo dialog after save
-    if (
-        st.session_state.get("recipe_saved_id")
-        and not st.session_state.get("recipe_photo_done")
-    ):
+    # ── Photo dialog ─────────────────────────────────────────────────────
+    if st.session_state.get("show_photo_dialog"):
         _photo_dialog(
             supabase,
-            st.session_state["recipe_saved_id"],
-            st.session_state.get("recipe_name", "Recipe"),
+            st.session_state["saved_recipe_id"],
+            st.session_state["saved_recipe_name"],
         )
-        return
 
-    # Success screen
-    if (
-        st.session_state.get("recipe_saved_id")
-        and st.session_state.get("recipe_photo_done")
-    ):
-        st.success(f"**{st.session_state.get('recipe_name','')}** saved!")
+    # ── Success message after photo dialog closes ────────────────────────
+    if st.session_state.get("recipe_photo_done"):
+        st.success(f"**{st.session_state.get('saved_recipe_name','')}** saved!")
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("Create another", use_container_width=True):
-                _reset_wizard()
+            if st.button("Create another recipe", use_container_width=True):
+                _reset_form()
                 st.rerun()
         with c2:
-            if st.button("Go to library", type="primary", use_container_width=True):
-                _reset_wizard()
+            if st.button(
+                "Go to library", type="primary", use_container_width=True,
+                key="goto_lib_btn"
+            ):
+                _reset_form()
+                # Switch to library tab by setting a flag main.py reads
+                st.session_state["recipe_tab"] = "library"
                 st.rerun()
         return
 
-    step = st.session_state["recipe_step"]
-    _step_indicator(step)
+    # ── SINGLE PAGE FORM ─────────────────────────────────────────────────
+    master_items   = _get_master_items(supabase, client_name)
+    client_region  = st.session_state.get("client_region", "Global")
+    added_codes    = [i["product_code"] for i in st.session_state["recipe_ingredients"]]
+
+    # Recipe name — no label clutter, just the input prominent
+    st.text_input(
+        "Recipe name",
+        placeholder="e.g. Hamburger",
+        key="new_recipe_name",
+        label_visibility="collapsed",
+    )
+    st.markdown(
+        "<p style='font-size:11px;color:var(--text-color);opacity:0.5;"
+        "margin-top:-12px;margin-bottom:8px;'>Recipe name</p>",
+        unsafe_allow_html=True
+    )
+
+    # Category
+    st.radio(
+        "Category",
+        ["Starter", "Main", "Dessert", "Beverage", "Sub-recipe"],
+        horizontal=True,
+        key="new_recipe_category",
+        label_visibility="collapsed",
+    )
+
     st.markdown("---")
 
-    # ── STEP 1 ───────────────────────────────────────────────────────────
-    if step == 1:
-        # Use key= only — NO st.session_state write on every keystroke
-        # Value is read only when Next is clicked
-        st.text_input(
-            "Recipe name",
-            placeholder="e.g. Grilled chicken taouk",
-            key="recipe_name",
+    # Yield — compact 2 columns
+    c1, c2 = st.columns(2)
+    with c1:
+        st.number_input(
+            "Portions", min_value=1, value=1,
+            key="new_recipe_portions"
+        )
+    with c2:
+        st.selectbox(
+            "Unit",
+            ["Plate", "Portion", "Kg", "Litre", "Batch"],
+            key="new_recipe_yield_unit"
         )
 
-        st.radio(
-            "Category",
-            ["Starter", "Main", "Dessert", "Beverage", "Sub-recipe"],
-            horizontal=True,
-            key="recipe_category",
+    st.markdown("---")
+
+    # ── Ingredient search ────────────────────────────────────────────────
+    search_query = st.text_input(
+        "Add ingredient",
+        placeholder="Type here e.g. Chicken breast",
+        key="ing_search_q",
+        label_visibility="collapsed",
+    )
+    st.markdown(
+        "<p style='font-size:11px;color:var(--text-color);opacity:0.5;"
+        "margin-top:-12px;margin-bottom:8px;'>Search ingredient</p>",
+        unsafe_allow_html=True
+    )
+
+    if search_query:
+        results = search_global_items(
+            query=search_query,
+            supabase=supabase,
+            region=client_region,
+            limit=5,
+            exclude_codes=added_codes,
         )
-
-        st.markdown("")
-        if st.button(
-            "Next →", type="primary", use_container_width=True,
-            disabled=not st.session_state.get("recipe_name", "").strip()
-        ):
-            st.session_state["recipe_step"] = 2
-            st.rerun()
-
-    # ── STEP 2 ───────────────────────────────────────────────────────────
-    elif step == 2:
-
-        # Yield — compact, 2 columns, no heading
-        c1, c2 = st.columns(2)
-        with c1:
-            st.number_input(
-                "Portions", min_value=1,
-                key="recipe_portions"
-            )
-        with c2:
-            st.selectbox(
-                "Unit",
-                ["Plate", "Portion", "Kg", "Litre", "Batch"],
-                key="recipe_yield_unit"
-            )
-
-        st.markdown("---")
-
-        # Search — full width, dominant, no section heading
-        master_items = _get_master_items(supabase, client_name)
-        client_region = st.session_state.get("client_region", "Global")
-        added_codes = [
-            i["product_code"]
-            for i in st.session_state["recipe_ingredients"]
-        ]
-
-        search_query = st.text_input(
-            "Search ingredient",
-            placeholder="shrimp · taouk · chicken tender · جمبري · chrimp...",
-            key="ing_search_q",
-            label_visibility="collapsed",
-        )
-
-        if search_query:
-            results = search_global_items(
-                query=search_query,
-                supabase=supabase,
-                region=client_region,
+        if not results and master_items:
+            results = fuzzy_search_items(
+                search_query,
+                [i for i in master_items if i["product_code"] not in added_codes],
                 limit=5,
-                exclude_codes=added_codes,
             )
-            if not results and master_items:
-                results = fuzzy_search_items(
-                    search_query,
-                    [i for i in master_items if i["product_code"] not in added_codes],
-                    limit=5,
-                )
 
-            if results:
-                for item in results:
-                    mem = st.session_state["bp_memory"].get(item["product_code"])
-                    pre_prod = item.get("is_production", False)
+        if results:
+            for item in results:
+                mem      = st.session_state["bp_memory"].get(item["product_code"])
+                pre_prod = item.get("is_production", False)
 
-                    with st.container(border=True):
-                        c_name, c_toggle, c_add = st.columns([3, 2, 1])
-                        with c_name:
-                            known = " ✓" if mem is not None else ""
-                            st.markdown(f"**{item['item_name']}**{known}")
-                            if item.get("item_name_ar"):
-                                st.caption(item["item_name_ar"])
-                            if show_cost and item.get("cost_per_unit"):
-                                st.caption(
-                                    f"${item['cost_per_unit']:.2f}"
-                                    f" / {item.get('unit','kg')}"
-                                )
-                        with c_toggle:
-                            if pre_prod and master_items:
-                                st.caption("🏭 Production")
-                                choice = "produce"
+                with st.container(border=True):
+                    # Row 1: name + buy/produce toggle
+                    r1c1, r1c2 = st.columns([3, 2])
+                    with r1c1:
+                        known = " ✓" if mem is not None else ""
+                        st.markdown(f"**{item['item_name']}**{known}")
+                        if item.get("item_name_ar"):
+                            st.caption(item["item_name_ar"])
+                    with r1c2:
+                        if pre_prod and master_items:
+                            st.caption("🏭 Production")
+                            choice = "produce"
+                        else:
+                            default_idx = 1 if (mem == "produce" or pre_prod) else 0
+                            choice = st.radio(
+                                "type",
+                                ["Buy", "Produce"],
+                                index=default_idx,
+                                horizontal=True,
+                                key=f"tog_{item['product_code']}",
+                                label_visibility="collapsed",
+                            ).lower()
+                            st.session_state["bp_memory"][item["product_code"]] = choice
+
+                    # Row 2: qty + unit + Add button — inline
+                    r2c1, r2c2, r2c3 = st.columns([2, 2, 1])
+                    with r2c1:
+                        qty_val = st.number_input(
+                            "Qty",
+                            min_value=0.0, step=0.1, value=0.0,
+                            key=f"srch_qty_{item['product_code']}",
+                            label_visibility="collapsed",
+                        )
+                    with r2c2:
+                        unit_options = ["kg", "g", "l", "ml", "pcs", "portion"]
+                        default_unit = item.get("unit", "kg")
+                        if default_unit not in unit_options:
+                            unit_options.insert(0, default_unit)
+                        unit_val = st.selectbox(
+                            "Unit",
+                            unit_options,
+                            index=unit_options.index(default_unit),
+                            key=f"srch_unit_{item['product_code']}",
+                            label_visibility="collapsed",
+                        )
+                    with r2c3:
+                        if st.button(
+                            "Add", key=f"add_{item['product_code']}",
+                            use_container_width=True, type="primary"
+                        ):
+                            if choice == "produce":
+                                st.session_state["open_sub_dialog"] = item
+                                st.rerun()
                             else:
-                                default_idx = 1 if (
-                                    mem == "produce" or pre_prod
-                                ) else 0
-                                choice = st.radio(
-                                    "type",
-                                    ["Buy", "Produce"],
-                                    index=default_idx,
-                                    horizontal=True,
-                                    key=f"tog_{item['product_code']}",
-                                    label_visibility="collapsed",
-                                ).lower()
-                                st.session_state["bp_memory"][
-                                    item["product_code"]
-                                ] = choice
-                        with c_add:
-                            if st.button(
-                                "Add",
-                                key=f"add_{item['product_code']}",
-                                use_container_width=True
-                            ):
-                                if choice == "produce":
-                                    st.session_state["open_sub_dialog"] = item
-                                    st.rerun()
-                                else:
-                                    st.session_state["recipe_ingredients"].append({
+                                st.session_state["recipe_ingredients"].append({
+                                    "product_code": item["product_code"],
+                                    "item_name":    item["item_name"],
+                                    "unit":         unit_val,
+                                    "cost_per_unit":item.get("cost_per_unit", 0),
+                                    "qty":          qty_val,
+                                    "is_production":False,
+                                    "sub_data":     None,
+                                })
+                                if not master_items:
+                                    _upsert_master_item(supabase, {
+                                        "client_name":  client_name,
                                         "product_code": item["product_code"],
                                         "item_name":    item["item_name"],
-                                        "unit":         item.get("unit", "kg"),
-                                        "cost_per_unit":item.get("cost_per_unit", 0),
-                                        "qty":          0.0,
+                                        "item_name_ar": item.get("item_name_ar",""),
+                                        "unit":         unit_val,
                                         "is_production":False,
-                                        "sub_data":     None,
+                                        "cost_per_unit":item.get("cost_per_unit",0),
+                                        "region":       client_region,
+                                        "source":       "worldwide",
                                     })
-                                    if not master_items:
-                                        _upsert_master_item(supabase, {
-                                            "client_name":  client_name,
-                                            "product_code": item["product_code"],
-                                            "item_name":    item["item_name"],
-                                            "item_name_ar": item.get("item_name_ar",""),
-                                            "unit":         item.get("unit","kg"),
-                                            "is_production":False,
-                                            "cost_per_unit":item.get("cost_per_unit",0),
-                                            "region":       client_region,
-                                            "source":       "worldwide",
-                                        })
-                                    st.rerun()
-            else:
-                st.caption("No match — will be flagged for EK to add.")
+                                st.rerun()
+        else:
+            st.caption("No match — will be flagged for EK to add.")
 
-        # Sub-recipe dialog trigger
-        if st.session_state.get("open_sub_dialog"):
-            item = st.session_state.pop("open_sub_dialog")
-            _sub_recipe_dialog(item, supabase, client_name)
+    # Sub-recipe dialog trigger
+    if st.session_state.get("open_sub_dialog"):
+        item = st.session_state.pop("open_sub_dialog")
+        _sub_recipe_dialog(item, supabase, client_name)
 
-        # Absorb confirmed sub-recipes
-        for code, sub_data in list(
-            st.session_state.get("pending_subs", {}).items()
-        ):
-            already = any(
-                i["product_code"] == code
-                for i in st.session_state["recipe_ingredients"]
+    # Absorb confirmed sub-recipes
+    for code, sub_data in list(st.session_state.get("pending_subs", {}).items()):
+        already = any(
+            i["product_code"] == code
+            for i in st.session_state["recipe_ingredients"]
+        )
+        if not already:
+            item_info = next(
+                (i for i in master_items if i["product_code"] == code), {}
             )
-            if not already:
-                item_info = next(
-                    (i for i in master_items if i["product_code"] == code), {}
-                )
-                st.session_state["recipe_ingredients"].append({
+            st.session_state["recipe_ingredients"].append({
+                "product_code": code,
+                "item_name":    item_info.get("item_name", code),
+                "unit":         sub_data["batch_unit"],
+                "cost_per_unit":0,
+                "qty":          float(sub_data["batch_qty"]),
+                "is_production":True,
+                "sub_data":     sub_data,
+            })
+            if not master_items and item_info:
+                _upsert_master_item(supabase, {
+                    "client_name":  client_name,
                     "product_code": code,
                     "item_name":    item_info.get("item_name", code),
+                    "item_name_ar": item_info.get("item_name_ar",""),
                     "unit":         sub_data["batch_unit"],
-                    "cost_per_unit":0,
-                    "qty":          float(sub_data["batch_qty"]),
                     "is_production":True,
-                    "sub_data":     sub_data,
+                    "cost_per_unit":0,
+                    "region":       client_region,
+                    "source":       "worldwide",
                 })
-                if not master_items and item_info:
-                    _upsert_master_item(supabase, {
-                        "client_name":  client_name,
-                        "product_code": code,
-                        "item_name":    item_info.get("item_name", code),
-                        "item_name_ar": item_info.get("item_name_ar",""),
-                        "unit":         sub_data["batch_unit"],
-                        "is_production":True,
-                        "cost_per_unit":0,
-                        "region":       client_region,
-                        "source":       "worldwide",
-                    })
-                del st.session_state["pending_subs"][code]
-                st.rerun()
+            del st.session_state["pending_subs"][code]
+            st.rerun()
 
-        # Added ingredients — compact list
-        if st.session_state["recipe_ingredients"]:
-            st.markdown("---")
-            for idx, ing in enumerate(st.session_state["recipe_ingredients"]):
-                c1, c2, c3, c4 = st.columns([3, 1, 1, 0.4])
-                with c1:
-                    badge = "🏭" if ing["is_production"] else "🛒"
-                    st.write(f"{badge} {ing['item_name']}")
-                    if ing["is_production"] and ing.get("sub_data"):
-                        sub = ing["sub_data"]
-                        st.caption(
-                            f"{sub['batch_qty']} {sub['batch_unit']} · "
-                            f"{len(sub['lines'])} ingredient(s)"
-                        )
-                with c2:
-                    qty = st.number_input(
-                        "qty", min_value=0.0, step=0.1,
-                        value=float(ing["qty"]),
-                        key=f"qty_{idx}",
-                        label_visibility="collapsed",
+    # ── Added ingredients list ────────────────────────────────────────────
+    if st.session_state["recipe_ingredients"]:
+        st.markdown("---")
+        for idx, ing in enumerate(st.session_state["recipe_ingredients"]):
+            c1, c2, c3, c4 = st.columns([3, 1, 1, 0.4])
+            with c1:
+                badge = "🏭" if ing["is_production"] else "🛒"
+                st.write(f"{badge} {ing['item_name']}")
+                if ing["is_production"] and ing.get("sub_data"):
+                    sub = ing["sub_data"]
+                    st.caption(
+                        f"{sub['batch_qty']} {sub['batch_unit']} · "
+                        f"{len(sub['lines'])} ingredient(s)"
                     )
-                    st.session_state["recipe_ingredients"][idx]["qty"] = qty
-                with c3:
-                    st.caption(ing["unit"])
-                with c4:
-                    if st.button("×", key=f"del_{idx}"):
-                        st.session_state["recipe_ingredients"].pop(idx)
-                        st.rerun()
+                if show_cost and ing.get("cost_per_unit") and not ing["is_production"]:
+                    st.caption(
+                        f"${ing['cost_per_unit'] * ing['qty']:.2f}"
+                    )
+            with c2:
+                qty = st.number_input(
+                    "qty", min_value=0.0, step=0.1,
+                    value=float(ing["qty"]),
+                    key=f"qty_{idx}",
+                    label_visibility="collapsed",
+                )
+                st.session_state["recipe_ingredients"][idx]["qty"] = qty
+            with c3:
+                st.caption(ing["unit"])
+            with c4:
+                if st.button("×", key=f"del_{idx}"):
+                    st.session_state["recipe_ingredients"].pop(idx)
+                    st.rerun()
 
-        # Method — collapsed by default, totally out of the way
-        with st.expander("Method of preparation (optional)"):
-            st.text_area(
-                "Method",
-                placeholder=(
-                    "1. Marinate chicken for 2hrs\n"
-                    "2. Grill 4 mins each side\n"
-                    "3. Rest 2 mins before plating"
-                ),
-                max_chars=500,
-                height=130,
-                key="recipe_method",
-                label_visibility="collapsed",
-            )
-            st.caption(
-                f"{len(st.session_state.get('recipe_method',''))} / 500"
-            )
+    # Method — collapsed, out of the way
+    st.markdown("---")
+    with st.expander("Method of preparation (optional)"):
+        st.text_area(
+            "Method",
+            placeholder=(
+                "1. Marinate chicken for 2hrs\n"
+                "2. Grill 4 mins each side\n"
+                "3. Rest 2 mins before plating"
+            ),
+            max_chars=500,
+            height=130,
+            key="new_recipe_method",
+            label_visibility="collapsed",
+        )
+        char_count = len(st.session_state.get("new_recipe_method", ""))
+        st.caption(f"{char_count} / 500")
 
-        # Back / Next — always side by side
-        st.markdown("")
-        c_back, c_next = st.columns(2)
-        with c_back:
-            if st.button("← Back", use_container_width=True):
-                st.session_state["recipe_step"] = 1
-                st.rerun()
-        with c_next:
-            if st.button(
-                "Next →", type="primary", use_container_width=True,
-                disabled=len(st.session_state["recipe_ingredients"]) == 0,
-            ):
-                st.session_state["recipe_step"] = 3
-                st.rerun()
+    # ── Save button ───────────────────────────────────────────────────────
+    st.markdown("")
+    name = st.session_state.get("new_recipe_name", "").strip()
+    can_save = bool(name) and len(st.session_state["recipe_ingredients"]) > 0
 
-    # ── STEP 3 ───────────────────────────────────────────────────────────
-    elif step == 3:
-        ings     = st.session_state["recipe_ingredients"]
-        portions = st.session_state.get("recipe_portions", 1)
-        name     = st.session_state.get("recipe_name", "")
-        category = st.session_state.get("recipe_category", "")
-        method   = st.session_state.get("recipe_method", "")
+    if not name:
+        st.caption("Enter a recipe name to save.")
+    elif not st.session_state["recipe_ingredients"]:
+        st.caption("Add at least one ingredient to save.")
+
+    if st.button(
+        "Save recipe",
+        type="primary",
+        use_container_width=True,
+        disabled=not can_save,
+    ):
+        portions   = st.session_state.get("new_recipe_portions", 1)
+        yield_unit = st.session_state.get("new_recipe_yield_unit", "Plate")
+        category   = st.session_state.get("new_recipe_category", "Main")
+        method     = st.session_state.get("new_recipe_method", "") or None
+        ings       = st.session_state["recipe_ingredients"]
 
         total_cost = sum(
             i["cost_per_unit"] * i["qty"]
@@ -753,83 +904,47 @@ def _render_new_recipe(
         )
         cpp = round(total_cost / portions, 2) if portions > 0 else 0.0
 
-        # Summary row
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Recipe", name)
-        c2.metric("Yield", f"{portions} {st.session_state.get('recipe_yield_unit','plate')}")
-        if show_cost:
-            c3.metric("Cost / portion", f"${cpp:.2f}")
-        else:
-            c3.metric("Ingredients", len(ings))
+        recipe_id = str(uuid.uuid4())
+        now = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).isoformat()
 
-        st.markdown("---")
-        st.caption(category)
+        recipe_record = {
+            "id":               recipe_id,
+            "client_name":      client_name,
+            "outlet":           outlet,
+            "name":             name,
+            "category":         category,
+            "portions":         portions,
+            "yield_unit":       yield_unit,
+            "method":           method,
+            "cost_per_portion": cpp,
+            "created_by":       user,
+            "created_at":       now,
+            "photo_url":        None,
+        }
 
-        for ing in ings:
-            badge = "🏭" if ing["is_production"] else "🛒"
-            line  = f"{badge} {ing['item_name']} · {ing['qty']} {ing['unit']}"
-            if show_cost and ing.get("cost_per_unit") and not ing["is_production"]:
-                line += f"  —  ${ing['cost_per_unit'] * ing['qty']:.2f}"
-            st.write(line)
+        lines = [
+            {
+                "id":              str(uuid.uuid4()),
+                "recipe_id":       recipe_id,
+                "product_code":    ing["product_code"],
+                "item_name":       ing["item_name"],
+                "qty":             ing["qty"],
+                "unit":            ing["unit"],
+                "cost_per_unit":   ing["cost_per_unit"],
+                "is_production":   ing["is_production"],
+                "sub_recipe_data": (
+                    str(ing["sub_data"]) if ing.get("sub_data") else None
+                ),
+            }
+            for ing in ings
+        ]
 
-        if method:
-            st.markdown("---")
-            st.markdown("**Method of preparation**")
-            st.write(method)
-
-        # Back / Save — side by side
-        st.markdown("")
-        c_back, c_save = st.columns(2)
-        with c_back:
-            if st.button("← Back", use_container_width=True):
-                st.session_state["recipe_step"] = 2
-                st.rerun()
-        with c_save:
-            if st.button(
-                "Save recipe", type="primary", use_container_width=True
-            ):
-                recipe_id = str(uuid.uuid4())
-                now = datetime.now(
-                    zoneinfo.ZoneInfo("Asia/Beirut")
-                ).isoformat()
-
-                recipe_record = {
-                    "id":               recipe_id,
-                    "client_name":      client_name,
-                    "outlet":           outlet,
-                    "name":             name,
-                    "category":         category,
-                    "portions":         portions,
-                    "yield_unit":       st.session_state.get("recipe_yield_unit","Plate"),
-                    "method":           method or None,
-                    "cost_per_portion": cpp,
-                    "created_by":       user,
-                    "created_at":       now,
-                    "photo_url":        None,
-                }
-
-                lines = [
-                    {
-                        "id":              str(uuid.uuid4()),
-                        "recipe_id":       recipe_id,
-                        "product_code":    ing["product_code"],
-                        "item_name":       ing["item_name"],
-                        "qty":             ing["qty"],
-                        "unit":            ing["unit"],
-                        "cost_per_unit":   ing["cost_per_unit"],
-                        "is_production":   ing["is_production"],
-                        "sub_recipe_data": (
-                            str(ing["sub_data"])
-                            if ing.get("sub_data") else None
-                        ),
-                    }
-                    for ing in ings
-                ]
-
-                saved_id = _save_recipe(supabase, recipe_record, lines)
-                if saved_id:
-                    st.session_state["recipe_saved_id"] = saved_id
-                    st.rerun()
+        saved_id = _save_recipe(supabase, recipe_record, lines)
+        if saved_id:
+            st.session_state["saved_recipe_id"]   = saved_id
+            st.session_state["saved_recipe_name"] = name
+            st.session_state["show_photo_dialog"] = True
+            st.rerun()
 
 
 # ─────────────────────────────────────────────
@@ -844,6 +959,13 @@ def render_recipes(supabase: Client, user: str, role: str):
     ]
 
     st.markdown("### Recipes")
+
+    # Tab selection — respect redirect from new recipe form
+    default_tab = 0
+    if st.session_state.get("recipe_tab") == "library":
+        default_tab = 0
+        st.session_state.pop("recipe_tab", None)
+
     tab_lib, tab_new = st.tabs(["Recipe library", "New recipe"])
 
     with tab_lib:

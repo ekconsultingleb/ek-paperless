@@ -58,7 +58,7 @@ inject_back_button_protection()
 st.sidebar.image("https://hgvubaohmgvesblfvdps.supabase.co/storage/v1/object/public/assets/EK-Logo.png", use_container_width=True)
 st.sidebar.divider()
 st.sidebar.markdown(
-    "<div style='color:#8a9eaa; font-size:11px; text-align:center; padding:4px 0; letter-spacing:0.06em;'>PAPERLESS v1.0</div>",
+    "<div style='color:#8a9eaa; font-size:11px; text-align:center; padding:4px 0; letter-spacing:0.06em;'>PAPERLESS v2.0</div>",
     unsafe_allow_html=True
 )
 
