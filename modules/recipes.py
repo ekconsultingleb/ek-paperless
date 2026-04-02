@@ -223,17 +223,19 @@ def _sub_recipe_dialog(parent_ing_index: int):
 
     sub_lines = st.session_state[sub_key]
 
-    # Batch size
-    c1, c2 = st.columns(2)
+    # Batch size — no labels shown
+    c1, c2, _ = st.columns([1, 1, 2])
     with c1:
         batch_qty = st.number_input(
             "Batch qty", min_value=0.01, value=1.0,
-            step=0.1, key=f"sub_bqty_{parent_ing_index}"
+            step=0.1, key=f"sub_bqty_{parent_ing_index}",
+            label_visibility="collapsed",
         )
     with c2:
         batch_unit = st.selectbox(
             "Batch unit", UNITS,
-            key=f"sub_bunit_{parent_ing_index}"
+            key=f"sub_bunit_{parent_ing_index}",
+            label_visibility="collapsed",
         )
 
     st.markdown("---")
@@ -618,20 +620,7 @@ def _render_new_recipe(
     # FORM
     # ─────────────────────────────────────────────────────────────────────
 
-    # Recipe name — prominent, no label
-    st.text_input(
-        "Recipe name",
-        placeholder="e.g. Hamburger",
-        key="form_recipe_name",
-        label_visibility="collapsed",
-    )
-    st.markdown(
-        "<p style='font-size:11px;opacity:0.45;margin-top:-12px;"
-        "margin-bottom:10px;'>Recipe name</p>",
-        unsafe_allow_html=True
-    )
-
-    # Category
+    # Category — first
     st.radio(
         "Category",
         ["Starter", "Main", "Dessert", "Beverage", "Sub-recipe"],
@@ -640,19 +629,34 @@ def _render_new_recipe(
         label_visibility="collapsed",
     )
 
-    # Yield — tight left columns
+    # Yield — tight left columns, no labels shown
     c1, c2, _ = st.columns([1, 1, 2])
     with c1:
         st.number_input(
             "Portions", min_value=1, value=1,
-            key="form_portions"
+            key="form_portions",
+            label_visibility="collapsed",
         )
     with c2:
         st.selectbox(
             "Unit",
             ["Plate", "Portion", "Kg", "Litre", "Batch"],
-            key="form_yield_unit"
+            key="form_yield_unit",
+            label_visibility="collapsed",
         )
+
+    # Recipe name — below category/yield
+    st.text_input(
+        "Recipe name",
+        placeholder="Type here the Recipe Name",
+        key="form_recipe_name",
+        label_visibility="collapsed",
+    )
+    st.markdown(
+        "<p style='font-size:11px;opacity:0.45;margin-top:-12px;"
+        "margin-bottom:10px;'>Recipe name</p>",
+        unsafe_allow_html=True
+    )
 
     st.markdown("---")
 
