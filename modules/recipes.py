@@ -159,7 +159,7 @@ return None
 
 # ─────────────────────────────────────────────
 
-def _generate_recipe_pdf(recipe: dict, lines: list) -> “bytes | None”:
+def _generate_recipe_pdf(recipe: dict, lines: list) -> "bytes | None":
 try:
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
