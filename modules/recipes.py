@@ -556,7 +556,6 @@ if st.session_state.get("viewing_recipe"):
         if st.button("← Close", key="close_view"):
             del st.session_state["viewing_recipe"]
             st.rerun()
-```
 
 # ─────────────────────────────────────────────
 
