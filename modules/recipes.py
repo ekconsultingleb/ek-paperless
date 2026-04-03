@@ -15,7 +15,7 @@ from supabase import Client
 UNITS = ["g", "cl", "kg", "ml", "l", "pcs", "portion", "tbsp", "tsp", "bunch", "slice", "pack"]
 
 
-EMPTY_ING = {"name": "", "qty": 0.0, “unit": "g"}
+EMPTY_ING = {"name": "", "qty": 0.0, "unit": "g"}
 
 # ─────────────────────────────────────────────
 
