@@ -881,15 +881,12 @@ def render_recipes(supabase: Client, user: str, role: str):
     if st.session_state.get("recipe_tab") == "library":
         st.session_state.pop("recipe_tab", None)
 
-    tab_lib, tab_new, tab_cards = st.tabs([
-        "Recipe library", "New recipe", "Recipe cards"
-    ])
+    tab_lib, tab_new = st.tabs([
+    "Recipe library", "New recipe"
+])
 
-    with tab_lib:
-        _render_library(supabase, client_name, show_cost)
+with tab_lib:
+    _render_library(supabase, client_name, show_cost)
 
-    with tab_new:
-        _render_new_recipe(supabase, client_name, outlet, user, show_cost)
-
-    with tab_cards:
-        _render_recipe_cards(supabase, client_name, show_cost)
+with tab_new:
+    _render_new_recipe(supabase, client_name, outlet, user, show_cost)
