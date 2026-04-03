@@ -104,8 +104,8 @@ except Exception as e:
 
 def _delete_recipe(supabase: Client, recipe_id: str) -> bool:
 try:
-supabase.table("recipe_lines").delete().eq(“recipe_id”, recipe_id).execute()
-supabase.table(recipes").delete().eq(“id”, recipe_id).execute()
+supabase.table("recipe_lines").delete().eq("recipe_id", recipe_id).execute()
+supabase.table("recipes").delete().eq("id", recipe_id).execute()
 return True
 except Exception as e:
 st.error(f”Error deleting recipe: {e}”)
@@ -113,10 +113,10 @@ return False
 
 def *upload_recipe_photo(
 supabase: Client, recipe_id: str, file_bytes: bytes, mime: str
-) -> “str | None”:
+) -> "str | None":
 try:
 ext  = mime.split("/")[-1].replace("jpeg", "jpg")
-path = f"recipes/{recipe_id}.{ext}”
+path = f"recipes/{recipe_id}.{ext}"
 supabase.storage.from*("recipe-photos").upload(
 path=path,
 file=file_bytes,
