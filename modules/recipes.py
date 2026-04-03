@@ -431,6 +431,7 @@ def _reset_form():
 
 def _render_sub_builder(default_unit: str):
     ing_name = st.session_state["sub_ing_name"]
+    st.caption("DEBUG: " + ing_name + " / " + str(st.session_state.get("sub_ing_qty")) + " / " + st.session_state.get("sub_ing_unit", "?"))
 
     with st.container(border=True):
         st.markdown("**Sub-recipe: " + ing_name + "**")
@@ -720,9 +721,9 @@ def _render_new_recipe(
 
                 match = _fuzzy_match(ing_name.strip(), existing_subs)
 
-                st.session_state["sub_ing_name"] = ing_name.strip()
-                st.session_state["sub_ing_qty"]  = ing_qty
-                st.session_state["sub_ing_unit"] = ing_unit
+                st.session_state["sub_ing_name"] = str(ing_name).strip()
+                st.session_state["sub_ing_qty"]  = float(ing_qty)
+                st.session_state["sub_ing_unit"] = str(ing_unit)
                 st.session_state["sub_building"] = True
                 st.session_state["sub_lines"]    = []
 
