@@ -241,6 +241,7 @@ def _photo_dialog(supabase: Client, recipe_id: str, recipe_name: str):
     with c1:
         if st.button("Skip for now", use_container_width=True):
             st.session_state["form_photo_done"] = True
+            st.session_state["form_show_photo"] = False
             st.rerun()
     with c2:
         if st.button("Save with photo", type="primary", use_container_width=True, disabled=not uploaded):
@@ -252,6 +253,7 @@ def _photo_dialog(supabase: Client, recipe_id: str, recipe_name: str):
                     except Exception as e:
                         st.warning(f"Photo update failed: {e}")
             st.session_state["form_photo_done"] = True
+            st.session_state["form_show_photo"] = False
             st.rerun()
 
 
