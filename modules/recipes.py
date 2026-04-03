@@ -633,7 +633,15 @@ def _render_new_recipe(
         label_visibility="collapsed",
     )
 
-    # Portions + Unit side by side
+    # Portions + Unit — forced side by side via HTML
+    st.markdown(
+        """
+        <style>
+        div[data-testid="column"] { min-width: 0 !important; }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
     c1, c2 = st.columns(2)
     with c1:
         st.number_input(
@@ -731,52 +739,36 @@ def _render_new_recipe(
             st.caption("Enter an ingredient name first.")
 
     # Added ingredients list
-    lines = st.session_state["form_lines"]
-    if lines:
-        st.markdown("---")
-        for idx, line in enumerate(lines):
-            c1, c2, c3, c4 = st.columns([4, 1, 1, 0.4])
-            with c1:
+        lines = st.session_state["form_lines"]
+        if lines:
+            st.markdown("---")
+            for idx, line in enumerate(lines):
                 badge = "P" if line["is_production"] else "-"
-                st.write(f"[{badge}] {line['chef_input']}")
-                if line["is_production"] and line.get("sub_data"):
-                    sub = line["sub_data"]
-                    st.caption(
-                        f"{sub['batch_qty']} {sub['batch_unit']} - "
-                        f"{len(sub['lines'])} ingredient(s)"
+                col_text, col_del = st.columns([5, 0.8])
+                with col_text:
+                    st.write(
+                        f"[{badge}] {line['chef_input']} "
+                        f"— {int(line['qty'])} {line['unit']}"
                     )
-                    if st.button(
-                        "Edit sub-recipe",
-                        key=f"edit_sub_{idx}",
-                    ):
-                        st.session_state["open_sub_idx"] = idx
+                    if line["is_production"] and line.get("sub_data"):
+                        sub = line["sub_data"]
+                        st.caption(
+                            f"{sub['batch_qty']} {sub['batch_unit']} · "
+                            f"{len(sub['lines'])} ingredient(s)"
+                        )
+                        if st.button("Edit sub-recipe", key=f"edit_sub_{idx}"):
+                            st.session_state["open_sub_idx"] = idx
+                            st.rerun()
+                    elif line["is_production"] and line.get("sub_data") is None:
+                        if st.button("Build sub-recipe", key=f"build_sub_{idx}"):
+                            st.session_state["open_sub_idx"] = idx
+                            st.rerun()
+                with col_del:
+                    if st.button("x", key=f"del_{idx}"):
+                        lines.pop(idx)
+                        st.session_state["form_lines"] = lines
                         st.rerun()
-                elif line["is_production"] and line.get("sub_data") is None:
-                    if st.button(
-                        "Build sub-recipe",
-                        key=f"build_sub_{idx}",
-                    ):
-                        st.session_state["open_sub_idx"] = idx
-                        st.rerun()
-            with c2:
-                qty = st.number_input(
-                    "qty",
-                    min_value=0.0, step=1.0,
-                    value=float(line["qty"]),
-                    key=f"listed_qty_{idx}",
-                    label_visibility="collapsed",
-                    format="%.0f",
-                )
-                lines[idx]["qty"] = qty
-            with c3:
-                st.caption(line["unit"])
-            with c4:
-                if st.button("x", key=f"del_{idx}"):
-                    lines.pop(idx)
-                    st.session_state["form_lines"] = lines
-                    st.rerun()
-
-        st.session_state["form_lines"] = lines
+            st.session_state["form_lines"] = lines
 
     # Method
     st.markdown("---")
