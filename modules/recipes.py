@@ -108,7 +108,7 @@ supabase.table("recipe_lines").delete().eq("recipe_id", recipe_id).execute()
 supabase.table("recipes").delete().eq("id", recipe_id).execute()
 return True
 except Exception as e:
-st.error(f”Error deleting recipe: {e}”)
+st.error(f"Error deleting recipe: {e}")
 return False
 
 def *upload_recipe_photo(
