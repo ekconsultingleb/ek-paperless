@@ -44,7 +44,7 @@ def _get_sub_recipes(supabase: Client, client_name: str) -> list:
 """Fetch all sub-recipes for this client."""
 try:
 res = supabase.table("recipes").select("*").eq(
-“client_name”, client_name
+"client_name", client_name
 ).eq("category", "Sub-recipe").execute()
 return res.data or []
 except Exception:
@@ -56,12 +56,12 @@ recipe_record: dict,
 lines: list,
 pending_sub_recipes: dict,
 ) -> "str | None":
-“””
+"""
 Single transaction:
 1. Insert any pending sub-recipes (not yet in DB)
 2. Insert main recipe
 3. Insert all lines with correct sub_recipe_id
-“””
+"""
 try:
 # Step 1 — insert pending sub-recipes, collect real IDs
 resolved_ids = {}  # temp_id -> real supabase id
@@ -104,8 +104,8 @@ except Exception as e:
 
 def _delete_recipe(supabase: Client, recipe_id: str) -> bool:
 try:
-supabase.table(“recipe_lines”).delete().eq(“recipe_id”, recipe_id).execute()
-supabase.table(“recipes”).delete().eq(“id”, recipe_id).execute()
+supabase.table("recipe_lines").delete().eq(“recipe_id”, recipe_id).execute()
+supabase.table(recipes").delete().eq(“id”, recipe_id).execute()
 return True
 except Exception as e:
 st.error(f”Error deleting recipe: {e}”)
@@ -115,9 +115,9 @@ def *upload_recipe_photo(
 supabase: Client, recipe_id: str, file_bytes: bytes, mime: str
 ) -> “str | None”:
 try:
-ext  = mime.split(”/”)[-1].replace(“jpeg”, “jpg”)
-path = f”recipes/{recipe_id}.{ext}”
-supabase.storage.from*(“recipe-photos”).upload(
+ext  = mime.split("/")[-1].replace("jpeg", "jpg")
+path = f"recipes/{recipe_id}.{ext}”
+supabase.storage.from*("recipe-photos").upload(
 path=path,
 file=file_bytes,
 file_options={“content-type”: mime, “upsert”: “true”}
