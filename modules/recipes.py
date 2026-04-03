@@ -633,23 +633,28 @@ def _render_new_recipe(
         label_visibility="collapsed",
     )
 
-    # Portions + Unit — forced side by side on mobile
+    # Portions + Unit
     st.markdown(
         """
         <style>
-        [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; }
-        [data-testid="column"] { min-width: 0 !important; flex: 1 1 0 !important; }
+        div[data-testid="column"] { min-width: 0 !important; }
+        div[data-testid="stNumberInput"] input,
+        div[data-testid="stSelectbox"] div[data-baseweb="select"] {
+            font-size: 0.8rem !important;
+            padding: 4px 8px !important;
+            min-height: 32px !important;
+        }
         </style>
         """,
         unsafe_allow_html=True
     )
-    col_p, col_u = st.columns([1, 1], gap="small")
-    with col_p:
+    c1, c2 = st.columns(2)
+    with c1:
         st.number_input(
             "Portions", min_value=1, value=1,
             key="form_portions",
         )
-    with col_u:
+    with c2:
         st.selectbox(
             "Unit",
             ["Plate", "Portion", "Kg", "Litre", "Batch"],
