@@ -555,7 +555,7 @@ def _render_sub_builder(default_unit: str):
                 }
 
                 st.session_state["form_lines"].append({
-                    "chef_input":    ing_name,
+                    "chef_input":    st.session_state.get("sub_ing_name", ing_name),
                     "qty":           st.session_state["sub_ing_qty"],
                     "unit":          st.session_state["sub_ing_unit"],
                     "is_production": True,
@@ -744,7 +744,8 @@ def _render_new_recipe(
                 c_info, c_del = st.columns([6, 0.5])
                 with c_info:
                     type_tag = "Produce" if line["is_production"] else "Buy"
-                    label    = "**" + line["chef_input"] + "** - " + str(int(line["qty"])) + " " + line["unit"] + " - " + type_tag
+                    name_display = line["chef_input"] if line["chef_input"] else "(unnamed)"
+                    label = name_display + " - " + str(int(line["qty"])) + " " + line["unit"] + " - " + type_tag
                     if line["is_production"] and line.get("batch_qty"):
                         label += " - prepare " + str(line["batch_qty"]) + " " + str(line["batch_unit"])
                     st.markdown(label)
