@@ -739,36 +739,36 @@ def _render_new_recipe(
             st.caption("Enter an ingredient name first.")
 
     # Added ingredients list
-        lines = st.session_state["form_lines"]
-        if lines:
-            st.markdown("---")
-            for idx, line in enumerate(lines):
-                badge = "P" if line["is_production"] else "-"
-                col_text, col_del = st.columns([5, 0.8])
-                with col_text:
-                    st.write(
-                        f"[{badge}] {line['chef_input']} "
-                        f"— {int(line['qty'])} {line['unit']}"
+    lines = st.session_state["form_lines"]
+    if lines:
+        st.markdown("---")
+        for idx, line in enumerate(lines):
+            badge = "P" if line["is_production"] else "-"
+            col_text, col_del = st.columns([5, 0.8])
+            with col_text:
+                st.write(
+                    f"[{badge}] {line['chef_input']} "
+                    f"— {int(line['qty'])} {line['unit']}"
+                )
+                if line["is_production"] and line.get("sub_data"):
+                    sub = line["sub_data"]
+                    st.caption(
+                        f"{sub['batch_qty']} {sub['batch_unit']} · "
+                        f"{len(sub['lines'])} ingredient(s)"
                     )
-                    if line["is_production"] and line.get("sub_data"):
-                        sub = line["sub_data"]
-                        st.caption(
-                            f"{sub['batch_qty']} {sub['batch_unit']} · "
-                            f"{len(sub['lines'])} ingredient(s)"
-                        )
-                        if st.button("Edit sub-recipe", key=f"edit_sub_{idx}"):
-                            st.session_state["open_sub_idx"] = idx
-                            st.rerun()
-                    elif line["is_production"] and line.get("sub_data") is None:
-                        if st.button("Build sub-recipe", key=f"build_sub_{idx}"):
-                            st.session_state["open_sub_idx"] = idx
-                            st.rerun()
-                with col_del:
-                    if st.button("x", key=f"del_{idx}"):
-                        lines.pop(idx)
-                        st.session_state["form_lines"] = lines
+                    if st.button("Edit sub-recipe", key=f"edit_sub_{idx}"):
+                        st.session_state["open_sub_idx"] = idx
                         st.rerun()
-            st.session_state["form_lines"] = lines
+                elif line["is_production"] and line.get("sub_data") is None:
+                    if st.button("Build sub-recipe", key=f"build_sub_{idx}"):
+                        st.session_state["open_sub_idx"] = idx
+                        st.rerun()
+            with col_del:
+                if st.button("x", key=f"del_{idx}"):
+                    lines.pop(idx)
+                    st.session_state["form_lines"] = lines
+                    st.rerun()
+        st.session_state["form_lines"] = lines
 
     # Method
     st.markdown("---")
@@ -874,11 +874,11 @@ def render_recipes(supabase: Client, user: str, role: str):
         st.session_state.pop("recipe_tab", None)
 
     tab_lib, tab_new = st.tabs([
-    "Recipe library", "New recipe"
-])
+        "Recipe library", "New recipe"
+    ])
 
-with tab_lib:
-    _render_library(supabase, client_name, show_cost)
+    with tab_lib:
+        _render_library(supabase, client_name, show_cost)
 
-with tab_new:
-    _render_new_recipe(supabase, client_name, outlet, user, show_cost)
+    with tab_new:
+        _render_new_recipe(supabase, client_name, outlet, user, show_cost)
