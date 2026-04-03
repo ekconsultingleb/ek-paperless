@@ -128,7 +128,6 @@ def _generate_recipe_pdf(recipe: dict, lines: list) -> "bytes | None":
         if lines:
             table_data = [["#", "Ingredient", "Qty", "Unit", "Type"]]
             for i, line in enumerate(lines, 1):
-                # Show AI resolved name if available, else chef input
                 display_name = (
                     line.get("ai_resolved") or
                     line.get("chef_input", "")
@@ -194,115 +193,10 @@ def _generate_recipe_pdf(recipe: dict, lines: list) -> "bytes | None":
 
 
 # ─────────────────────────────────────────────
-# UNIT OPTIONS — g default first
+# UNIT OPTIONS
 # ─────────────────────────────────────────────
 
-UNITS = ["g", "kg", "ml", "l", "pcs", "portion", "tbsp", "tsp", "bunch", "slice", "pack"]
-
-
-# ─────────────────────────────────────────────
-# SUB-RECIPE FORM (production overlay)
-# ─────────────────────────────────────────────
-
-@st.dialog("Build sub-recipe", width="large")
-def _sub_recipe_dialog(parent_ing_index: int):
-    """
-    Identical ingredient form for building a production sub-recipe.
-    Saves result into st.session_state['sub_recipe_result'].
-    """
-    st.caption(
-        "This is a production — build it here. "
-        "When done click Save and you'll return to the main recipe."
-    )
-
-    sub_key = f"sub_lines_{parent_ing_index}"
-    if sub_key not in st.session_state:
-        st.session_state[sub_key] = [
-            {"chef_input": "", "qty": 0.0, "unit": "g", "is_production": False}
-        ]
-
-    sub_lines = st.session_state[sub_key]
-
-    # Batch size — no labels shown
-    c1, c2, _ = st.columns([1, 1, 2])
-    with c1:
-        batch_qty = st.number_input(
-            "Batch qty", min_value=0.01, value=1.0,
-            step=0.1, key=f"sub_bqty_{parent_ing_index}",
-            label_visibility="collapsed",
-        )
-    with c2:
-        batch_unit = st.selectbox(
-            "Batch unit", UNITS,
-            key=f"sub_bunit_{parent_ing_index}",
-            label_visibility="collapsed",
-        )
-
-    st.markdown("---")
-    st.caption("Ingredients of this production:")
-
-    # Ingredient lines
-    for idx, line in enumerate(sub_lines):
-        c1, c2, c3, c4 = st.columns([4, 1.5, 1.5, 0.5])
-        with c1:
-            val = st.text_input(
-                "Ingredient",
-                value=line["chef_input"],
-                placeholder="e.g. dijon mustard",
-                key=f"sub_name_{parent_ing_index}_{idx}",
-                label_visibility="collapsed"
-            )
-            sub_lines[idx]["chef_input"] = val
-        with c2:
-            qty = st.number_input(
-                "Qty", min_value=0.0, step=1.0,
-                value=float(line["qty"]),
-                key=f"sub_qty_{parent_ing_index}_{idx}",
-                label_visibility="collapsed"
-            )
-            sub_lines[idx]["qty"] = qty
-        with c3:
-            unit = st.selectbox(
-                "Unit", UNITS,
-                index=UNITS.index(line["unit"])
-                      if line["unit"] in UNITS else 0,
-                key=f"sub_unit_{parent_ing_index}_{idx}",
-                label_visibility="collapsed"
-            )
-            sub_lines[idx]["unit"] = unit
-        with c4:
-            if len(sub_lines) > 1:
-                if st.button("×", key=f"sub_del_{parent_ing_index}_{idx}"):
-                    sub_lines.pop(idx)
-                    st.session_state[sub_key] = sub_lines
-                    st.rerun()
-
-    if st.button("+ Add ingredient line", key=f"sub_add_{parent_ing_index}"):
-        sub_lines.append(
-            {"chef_input": "", "qty": 0.0, "unit": "g", "is_production": False}
-        )
-        st.session_state[sub_key] = sub_lines
-        st.rerun()
-
-    st.markdown("---")
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("Cancel", use_container_width=True,
-                     key=f"sub_cancel_{parent_ing_index}"):
-            st.session_state.pop(sub_key, None)
-            st.rerun()
-    with c2:
-        if st.button("Save sub-recipe", type="primary",
-                     use_container_width=True,
-                     key=f"sub_save_{parent_ing_index}"):
-            st.session_state["sub_recipe_result"] = {
-                "parent_index": parent_ing_index,
-                "batch_qty":    batch_qty,
-                "batch_unit":   batch_unit,
-                "lines":        list(sub_lines),
-            }
-            st.session_state.pop(sub_key, None)
-            st.rerun()
+UNITS = ["g", "cl", "kg", "ml", "l", "pcs", "portion", "tbsp", "tsp", "bunch", "slice", "pack"]
 
 
 # ─────────────────────────────────────────────
@@ -327,7 +221,7 @@ def _photo_dialog(supabase: Client, recipe_id: str, recipe_name: str):
     c1, c2 = st.columns(2)
     with c1:
         if st.button("Skip for now", use_container_width=True):
-            st.session_state["recipe_photo_done"] = True
+            st.session_state["form_photo_done"] = True
             st.rerun()
     with c2:
         if st.button(
@@ -346,7 +240,7 @@ def _photo_dialog(supabase: Client, recipe_id: str, recipe_name: str):
                         ).eq("id", recipe_id).execute()
                     except Exception as e:
                         st.warning(f"Photo update failed: {e}")
-            st.session_state["recipe_photo_done"] = True
+            st.session_state["form_photo_done"] = True
             st.rerun()
 
 
@@ -369,7 +263,7 @@ def _render_library(supabase: Client, client_name: str, show_cost: bool):
     with col_cat:
         cat_filter = st.selectbox(
             "Category",
-            ["All", "Starter", "Main", "Dessert", "Beverage", "Sub-recipe"],
+            ["All", "Food", "Beverage", "Sub-recipe"],
             label_visibility="collapsed", key="lib_cat"
         )
 
@@ -412,7 +306,7 @@ def _render_library(supabase: Client, client_name: str, show_cost: bool):
                 st.caption(
                     f"{recipe.get('category','—')} · "
                     f"{recipe.get('portions',1)} "
-                    f"{recipe.get('yield_unit','plate')}"
+                    f"{recipe.get('yield_unit','')}"
                 )
                 if show_cost and recipe.get("cost_per_portion") is not None:
                     st.caption(
@@ -477,10 +371,9 @@ def _render_library(supabase: Client, client_name: str, show_cost: bool):
             if photo_url:
                 st.image(photo_url, width=280)
             st.markdown(f"### {recipe['name']}")
-            caption = (
-                f"{recipe.get('category')} · "
-                f"{recipe.get('portions')} {recipe.get('yield_unit')}"
-            )
+            caption = f"{recipe.get('category','—')}"
+            if recipe.get("yield_unit"):
+                caption += f" · {recipe.get('portions')} {recipe.get('yield_unit')}"
             if show_cost and recipe.get("cost_per_portion") is not None:
                 caption += f" · ${recipe['cost_per_portion']:.2f}/portion"
             st.caption(caption)
@@ -489,26 +382,19 @@ def _render_library(supabase: Client, client_name: str, show_cost: bool):
             if lines:
                 st.markdown("**Ingredients**")
                 for line in lines:
-                    badge      = "🏭" if line.get("is_production") else "🛒"
-                    raw        = line.get("chef_input", "")
-                    resolved   = line.get("ai_resolved", "")
-                    qty        = line.get("qty", "")
-                    unit       = line.get("unit", "")
-                    display    = resolved if resolved else raw
-                    ai_tag     = (
-                        f" *(AI: {resolved})*" if resolved and resolved != raw
-                        else ""
+                    badge    = "🏭" if line.get("is_production") else "🛒"
+                    raw      = line.get("chef_input", "")
+                    resolved = line.get("ai_resolved", "")
+                    qty      = line.get("qty", "")
+                    unit     = line.get("unit", "")
+                    ai_tag   = (
+                        f" *(AI: {resolved})*"
+                        if resolved and resolved != raw else ""
                     )
-                    st.write(
-                        f"{badge} {raw} — {qty} {unit}{ai_tag}"
-                    )
-                    if line.get("sub_lines"):
-                        with st.expander("Sub-recipe ingredients"):
-                            for sl in line["sub_lines"]:
-                                st.caption(
-                                    f"  {sl.get('chef_input','')} — "
-                                    f"{sl.get('qty','')} {sl.get('unit','')}"
-                                )
+                    detail = f"{badge} {raw} — {qty} {unit}{ai_tag}"
+                    if line.get("is_production") and line.get("batch_qty"):
+                        detail += f" · prepare {line['batch_qty']} {line['batch_unit']}"
+                    st.write(detail)
 
             if recipe.get("method"):
                 st.markdown("**Method of preparation**")
@@ -525,22 +411,12 @@ def _render_library(supabase: Client, client_name: str, show_cost: bool):
 
 def _init_form():
     if "form_lines" not in st.session_state:
-        st.session_state["form_lines"] = [
-            {
-                "chef_input":    "",
-                "qty":           0.0,
-                "unit":          "g",
-                "is_production": False,
-                "sub_data":      None,
-            }
-        ]
+        st.session_state["form_lines"] = []
     for k, v in {
-        "form_photo_done":   False,
-        "form_saved_id":     None,
-        "form_saved_name":   "",
-        "form_show_photo":   False,
-        "open_sub_idx":      None,
-        "sub_recipe_result": None,
+        "form_photo_done":  False,
+        "form_saved_id":    None,
+        "form_saved_name":  "",
+        "form_show_photo":  False,
     }.items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -548,18 +424,18 @@ def _init_form():
 def _reset_form():
     for k in [
         "form_lines", "form_photo_done", "form_saved_id",
-        "form_saved_name", "form_show_photo", "open_sub_idx",
-        "sub_recipe_result",
-        # widget keys
+        "form_saved_name", "form_show_photo",
         "form_recipe_name", "form_category",
-        "form_portions", "form_yield_unit", "form_method",
+        "form_batch_qty", "form_batch_unit", "form_method",
+        "ing_name", "ing_qty", "ing_unit", "ing_type",
+        "ing_batch_qty", "ing_batch_unit",
     ]:
         st.session_state.pop(k, None)
     _init_form()
 
 
 # ─────────────────────────────────────────────
-# NEW RECIPE — FREE FORM
+# NEW RECIPE
 # ─────────────────────────────────────────────
 
 def _render_new_recipe(
@@ -570,18 +446,6 @@ def _render_new_recipe(
     show_cost: bool,
 ):
     _init_form()
-
-    # Absorb sub-recipe result from dialog
-    result = st.session_state.get("sub_recipe_result")
-    if result is not None:
-        idx = result["parent_index"]
-        if 0 <= idx < len(st.session_state["form_lines"]):
-            st.session_state["form_lines"][idx]["sub_data"] = {
-                "batch_qty":  result["batch_qty"],
-                "batch_unit": result["batch_unit"],
-                "lines":      result["lines"],
-            }
-        st.session_state["sub_recipe_result"] = None
 
     # Photo dialog
     if st.session_state.get("form_show_photo"):
@@ -611,12 +475,7 @@ def _render_new_recipe(
                 st.rerun()
         return
 
-    # Open sub-recipe dialog if triggered
-    if st.session_state.get("open_sub_idx") is not None:
-        idx = st.session_state.pop("open_sub_idx")
-        _sub_recipe_dialog(idx)
-
-    # Recipe name
+    # ── Recipe name ──────────────────────────────────────
     st.text_input(
         "Recipe name",
         placeholder="Type here the recipe name",
@@ -624,92 +483,86 @@ def _render_new_recipe(
         label_visibility="collapsed",
     )
 
-    # Category
-    st.radio(
+    # ── Category ─────────────────────────────────────────
+    category = st.radio(
         "Category",
-        ["Starter", "Main", "Dessert", "Beverage", "Sub-recipe"],
+        ["Food", "Beverage", "Sub-recipe"],
         horizontal=True,
         key="form_category",
         label_visibility="collapsed",
     )
 
-    # Portions + Unit
-    st.markdown(
-        """
-        <style>
-        div[data-testid="column"] { min-width: 0 !important; }
-        div[data-testid="stNumberInput"] input,
-        div[data-testid="stSelectbox"] div[data-baseweb="select"] {
-            font-size: 0.8rem !important;
-            padding: 4px 8px !important;
-            min-height: 32px !important;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-    c1, c2 = st.columns(2)
-    with c1:
-        st.number_input(
-            "Portions", min_value=1, value=1,
-            key="form_portions",
-        )
-    with c2:
-        st.selectbox(
-            "Unit",
-            ["Plate", "Portion", "Kg", "Litre", "Batch"],
-            key="form_yield_unit",
-        )
+    default_unit = "cl" if category == "Beverage" else "g"
+
+    # ── Sub-recipe: batch qty + unit ─────────────────────
+    if category == "Sub-recipe":
+        c1, c2 = st.columns(2)
+        with c1:
+            st.number_input(
+                "Batch qty",
+                min_value=0.01,
+                value=1.0,
+                step=0.1,
+                key="form_batch_qty",
+            )
+        with c2:
+            st.selectbox(
+                "Batch unit",
+                UNITS,
+                key="form_batch_unit",
+            )
 
     st.markdown("---")
 
-    # Single ingredient entry row
-    if "ing_input_name" not in st.session_state:
-        st.session_state["ing_input_name"] = ""
-    if "ing_input_qty" not in st.session_state:
-        st.session_state["ing_input_qty"]  = 0.0
-    if "ing_input_unit" not in st.session_state:
-        st.session_state["ing_input_unit"] = "g"
-    if "ing_input_prod" not in st.session_state:
-        st.session_state["ing_input_prod"] = False
+    # ── Ingredient entry ──────────────────────────────────
+    for k, v in {
+        "ing_name":      "",
+        "ing_qty":       0.0,
+        "ing_unit":      default_unit,
+        "ing_type":      "Buy",
+        "ing_batch_qty": 1.0,
+        "ing_batch_unit": default_unit,
+    }.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
 
-    c1, c2, c3, c4, c5 = st.columns([3, 1.2, 1.2, 1.2, 1])
-    with c1:
+    col_n, col_q, col_u, col_t, col_btn = st.columns([3, 1.2, 1.2, 1.5, 0.8])
+    with col_n:
         ing_name = st.text_input(
             "Ingredient",
-            value=st.session_state["ing_input_name"],
+            value=st.session_state["ing_name"],
             placeholder="Ingredient",
             key="ing_name_input",
             label_visibility="collapsed",
         )
-    with c2:
+    with col_q:
         ing_qty = st.number_input(
             "Qty",
-            min_value=0.0, step=1.0,
-            value=st.session_state["ing_input_qty"],
+            min_value=0.0,
+            step=1.0,
+            value=st.session_state["ing_qty"],
             key="ing_qty_input",
             label_visibility="collapsed",
             format="%.0f",
         )
-    with c3:
+    with col_u:
         ing_unit = st.selectbox(
             "Unit",
             UNITS,
-            index=UNITS.index(st.session_state["ing_input_unit"])
-                  if st.session_state["ing_input_unit"] in UNITS else 0,
+            index=UNITS.index(st.session_state["ing_unit"])
+                  if st.session_state["ing_unit"] in UNITS else 0,
             key="ing_unit_input",
             label_visibility="collapsed",
         )
-    with c4:
-        ing_prod = st.radio(
+    with col_t:
+        ing_type = st.radio(
             "Type",
-            ["Buy", "Prod"],
+            ["Buy", "Produce"],
             horizontal=True,
-            key="ing_prod_input",
+            key="ing_type_input",
             label_visibility="collapsed",
         )
-        is_production = ing_prod == "Prod"
-    with c5:
+    with col_btn:
         add_clicked = st.button(
             "Add",
             use_container_width=True,
@@ -717,66 +570,82 @@ def _render_new_recipe(
             key="ing_add_btn",
         )
 
+    is_production = ing_type == "Produce"
+    if is_production:
+        cb1, cb2 = st.columns(2)
+        with cb1:
+            ing_batch_qty = st.number_input(
+                "Qty to prepare",
+                min_value=0.01,
+                value=st.session_state["ing_batch_qty"],
+                step=0.1,
+                key="ing_batch_qty_input",
+            )
+        with cb2:
+            ing_batch_unit = st.selectbox(
+                "Prepare unit",
+                UNITS,
+                index=UNITS.index(st.session_state["ing_batch_unit"])
+                      if st.session_state["ing_batch_unit"] in UNITS else 0,
+                key="ing_batch_unit_input",
+            )
+    else:
+        ing_batch_qty  = None
+        ing_batch_unit = None
+
     if add_clicked:
         if ing_name.strip():
-            new_idx = len(st.session_state["form_lines"])
             st.session_state["form_lines"].append({
                 "chef_input":    ing_name.strip(),
                 "qty":           ing_qty,
                 "unit":          ing_unit,
                 "is_production": is_production,
-                "sub_data":      None,
+                "batch_qty":     ing_batch_qty,
+                "batch_unit":    ing_batch_unit,
             })
-            # Clear input row
-            st.session_state.pop("ing_name_input",  None)
-            st.session_state.pop("ing_qty_input",   None)
-            st.session_state.pop("ing_unit_input",  None)
-            st.session_state.pop("ing_prod_input",  None)
-            st.session_state["ing_input_name"] = ""
-            st.session_state["ing_input_qty"]  = 0.0
-            st.session_state["ing_input_unit"] = "g"
-            st.session_state["ing_input_prod"] = False
-
-            if is_production:
-                st.session_state["open_sub_idx"] = new_idx
-
+            for k in [
+                "ing_name_input", "ing_qty_input", "ing_unit_input",
+                "ing_type_input", "ing_batch_qty_input", "ing_batch_unit_input",
+            ]:
+                st.session_state.pop(k, None)
+            st.session_state["ing_name"]       = ""
+            st.session_state["ing_qty"]        = 0.0
+            st.session_state["ing_unit"]       = default_unit
+            st.session_state["ing_type"]       = "Buy"
+            st.session_state["ing_batch_qty"]  = 1.0
+            st.session_state["ing_batch_unit"] = default_unit
             st.rerun()
         else:
             st.caption("Enter an ingredient name first.")
 
-    # Added ingredients list
+    # ── Added ingredients (compact frames) ───────────────
     lines = st.session_state["form_lines"]
     if lines:
         st.markdown("---")
+        to_delete = None
         for idx, line in enumerate(lines):
-            badge = "P" if line["is_production"] else "-"
-            col_text, col_del = st.columns([5, 0.8])
-            with col_text:
-                st.write(
-                    f"[{badge}] {line['chef_input']} "
-                    f"— {int(line['qty'])} {line['unit']}"
-                )
-                if line["is_production"] and line.get("sub_data"):
-                    sub = line["sub_data"]
-                    st.caption(
-                        f"{sub['batch_qty']} {sub['batch_unit']} · "
-                        f"{len(sub['lines'])} ingredient(s)"
+            with st.container(border=True):
+                c_info, c_del = st.columns([6, 0.5])
+                with c_info:
+                    badge = "🏭" if line["is_production"] else "🛒"
+                    label = (
+                        f"{badge} **{line['chef_input']}** "
+                        f"· {int(line['qty'])} {line['unit']}"
                     )
-                    if st.button("Edit sub-recipe", key=f"edit_sub_{idx}"):
-                        st.session_state["open_sub_idx"] = idx
-                        st.rerun()
-                elif line["is_production"] and line.get("sub_data") is None:
-                    if st.button("Build sub-recipe", key=f"build_sub_{idx}"):
-                        st.session_state["open_sub_idx"] = idx
-                        st.rerun()
-            with col_del:
-                if st.button("x", key=f"del_{idx}"):
-                    lines.pop(idx)
-                    st.session_state["form_lines"] = lines
-                    st.rerun()
-        st.session_state["form_lines"] = lines
+                    if line["is_production"] and line.get("batch_qty"):
+                        label += (
+                            f" · prepare {line['batch_qty']} "
+                            f"{line['batch_unit']}"
+                        )
+                    st.markdown(label)
+                with c_del:
+                    if st.button("✕", key=f"del_line_{idx}"):
+                        to_delete = idx
+        if to_delete is not None:
+            st.session_state["form_lines"].pop(to_delete)
+            st.rerun()
 
-    # Method
+    # ── Method ───────────────────────────────────────────
     st.markdown("---")
     with st.expander("Method of preparation (optional)"):
         st.text_area(
@@ -792,14 +661,12 @@ def _render_new_recipe(
             label_visibility="collapsed",
         )
         st.caption(
-            f"{len(st.session_state.get('form_method',''))} / 500"
+            f"{len(st.session_state.get('form_method', ''))} / 500"
         )
 
-    # Save
+    # ── Save ─────────────────────────────────────────────
     st.markdown("")
-    name     = st.session_state.get("form_recipe_name", "").strip()
-    can_save = bool(name)
-
+    name = st.session_state.get("form_recipe_name", "").strip()
     if not name:
         st.caption("Enter a recipe name to save.")
 
@@ -807,16 +674,21 @@ def _render_new_recipe(
         "Save recipe",
         type="primary",
         use_container_width=True,
-        disabled=not can_save,
+        disabled=not name,
     ):
-        portions   = st.session_state.get("form_portions", 1)
-        yield_unit = st.session_state.get("form_yield_unit", "Plate")
-        category   = st.session_state.get("form_category", "Main")
-        method     = st.session_state.get("form_method", "") or None
-        ings       = [
+        cat    = st.session_state.get("form_category", "Food")
+        method = st.session_state.get("form_method", "") or None
+        ings   = [
             l for l in st.session_state["form_lines"]
             if l["chef_input"].strip()
         ]
+
+        if cat == "Sub-recipe":
+            portions   = st.session_state.get("form_batch_qty", 1.0)
+            yield_unit = st.session_state.get("form_batch_unit", "g")
+        else:
+            portions   = 1
+            yield_unit = None
 
         recipe_id = str(uuid.uuid4())
         now = datetime.now(
@@ -828,7 +700,7 @@ def _render_new_recipe(
             "client_name":      client_name,
             "outlet":           outlet,
             "name":             name,
-            "category":         category,
+            "category":         cat,
             "portions":         portions,
             "yield_unit":       yield_unit,
             "method":           method,
@@ -847,13 +719,11 @@ def _render_new_recipe(
                 "qty":             ing["qty"],
                 "unit":            ing["unit"],
                 "is_production":   ing["is_production"],
+                "batch_qty":       ing.get("batch_qty"),
+                "batch_unit":      ing.get("batch_unit"),
                 "ai_resolved":     None,
                 "ai_product_code": None,
                 "ai_confidence":   None,
-                "sub_lines":       (
-                    ing["sub_data"]["lines"]
-                    if ing.get("sub_data") else None
-                ),
             })
 
         saved_id = _save_recipe(supabase, recipe_record, lines_to_save)
@@ -862,6 +732,7 @@ def _render_new_recipe(
             st.session_state["form_saved_name"] = name
             st.session_state["form_show_photo"] = True
             st.rerun()
+
 
 # ─────────────────────────────────────────────
 # ENTRY POINT
