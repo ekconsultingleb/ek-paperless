@@ -14,7 +14,6 @@ from supabase import Client
 
 UNITS = ["g", "cl", "kg", "ml", "l", "pcs", "portion", "tbsp", "tsp", "bunch", "slice", "pack"]
 
-
 EMPTY_ING = {"name": "", "qty": 0.0, "unit": "g"}
 
 # ─────────────────────────────────────────────
@@ -25,28 +24,28 @@ EMPTY_ING = {"name": "", "qty": 0.0, "unit": "g"}
 
 def _get_recipes(supabase: Client, client_name: str) -> list:
 try:
-res = supabase.table(“recipes”).select(”*”).eq(
-“client_name”, client_name
-).order(“created_at”, desc=True).execute()
+res = supabase.table("recipes").select("*").eq(
+"client_name", client_name
+).order("created_at", desc=True).execute()
 return res.data or []
 except Exception:
 return []
 
 def _get_recipe_lines(supabase: Client, recipe_id: str) -> list:
 try:
-res = supabase.table(“recipe_lines”).select(”*”).eq(
-“recipe_id”, recipe_id
+res = supabase.table("recipe_lines").select("*").eq(
+"recipe_id", recipe_id
 ).execute()
 return res.data or []
 except Exception:
 return []
 
 def _get_sub_recipes(supabase: Client, client_name: str) -> list:
-“”“Fetch all sub-recipes for this client.”””
+"""Fetch all sub-recipes for this client."""
 try:
-res = supabase.table(“recipes”).select(”*”).eq(
+res = supabase.table("recipes").select("*").eq(
 “client_name”, client_name
-).eq(“category”, “Sub-recipe”).execute()
+).eq("category", "Sub-recipe").execute()
 return res.data or []
 except Exception:
 return []
@@ -56,7 +55,7 @@ supabase: Client,
 recipe_record: dict,
 lines: list,
 pending_sub_recipes: dict,
-) -> “str | None”:
+) -> "str | None":
 “””
 Single transaction:
 1. Insert any pending sub-recipes (not yet in DB)
@@ -67,15 +66,16 @@ try:
 # Step 1 — insert pending sub-recipes, collect real IDs
 resolved_ids = {}  # temp_id -> real supabase id
 for temp_id, sub in pending_sub_recipes.items():
-sub_record = sub[“record”]
-sub_lines  = sub[“lines”]
-res = supabase.table(“recipes”).insert(sub_record).execute()
-real_id = res.data[0][“id”]
+sub_record = sub["record"]
+sub_lines  = sub["lines"]
+res = supabase.table("recipes").insert(sub_record).execute()
+real_id = res.data[0]["id"]
 resolved_ids[temp_id] = real_id
 if sub_lines:
 for sl in sub_lines:
-sl[“recipe_id”] = real_id
-supabase.table(“recipe_lines”).insert(sub_lines).execute()
+sl["recipe_id"] = real_id
+supabase.table("recipe_lines").insert(sub_lines).execute()
+
 
     # Step 2 — insert main recipe
     res = supabase.table("recipes").insert(recipe_record).execute()
@@ -100,6 +100,7 @@ supabase.table(“recipe_lines”).insert(sub_lines).execute()
 except Exception as e:
     st.error(f"Error saving recipe: {e}")
     return None
+
 
 def _delete_recipe(supabase: Client, recipe_id: str) -> bool:
 try:
@@ -132,11 +133,11 @@ return None
 
 # ─────────────────────────────────────────────
 
-def _fuzzy_match(query: str, candidates: list) -> “dict | None”:
-“””
+def _fuzzy_match(query: str, candidates: list) -> "dict | None":
+"""
 Word-overlap fuzzy match.
 Returns the best candidate if word overlap >= 0.6, else None.
-“””
+"""
 q_words = set(query.lower().split())
 best       = None
 best_score = 0.0
@@ -170,6 +171,7 @@ Table, TableStyle, HRFlowable
 )
 from reportlab.lib.enums import TA_CENTER
 import io
+
 
     buffer = io.BytesIO()
     doc    = SimpleDocTemplate(
@@ -245,6 +247,7 @@ except Exception as e:
     st.error(f"PDF error: {e}")
     return None
 
+
 # ─────────────────────────────────────────────
 
 # PHOTO DIALOG
@@ -263,6 +266,7 @@ key=“recipe_photo_upload”
 if uploaded:
 st.image(uploaded, use_container_width=True)
 
+
 c1, c2 = st.columns(2)
 with c1:
     if st.button("Skip for now", use_container_width=True):
@@ -280,21 +284,23 @@ with c2:
         st.session_state["form_photo_done"] = True
         st.rerun()
 
+
 # ─────────────────────────────────────────────
 
 # SUB-RECIPE DIALOG
 
 # ─────────────────────────────────────────────
 
-@st.dialog(“Build sub-recipe”, width=“large”)
+@st.dialog("Build sub-recipe", width="large")
 def _sub_recipe_dialog(ing_name: str, default_unit: str):
-“””
+"""
 Opens when user clicks Add on a Produce ingredient.
 Builds a sub-recipe entirely in session_state.
 Nothing is pushed to Supabase here.
-“””
-st.markdown(f”### {ing_name}”)
-st.caption(“Define how this is prepared and what raw materials it needs.”)
+"""
+st.markdown(f"### {ing_name}")
+st.caption("Define how this is prepared and what raw materials it needs.")
+
 
 # ── Prepare qty + unit ──
 c1, c2 = st.columns(2)
@@ -387,35 +393,36 @@ with c_save:
         st.session_state.pop("sub_dialog_lines", None)
         st.rerun()
 
+
 # ─────────────────────────────────────────────
 
 # EXISTING SUB-RECIPE MATCH DIALOG
 
 # ─────────────────────────────────────────────
 
-@st.dialog(“Sub-recipe found”, width=“small”)
+@st.dialog("Sub-recipe found", width="small")
 def _match_dialog(ing_name: str, match: dict):
-st.markdown(f”A sub-recipe similar to **{ing_name}** already exists:”)
+st.markdown(f"A sub-recipe similar to **{ing_name}** already exists:")
 st.markdown(
-f”> **{match[‘name’]}** · “
-f”{match.get(‘portions’, 1)} {match.get(‘yield_unit’, ‘’)}”
+f"> **{match[‘name’]}** · "
+f"{match.get(‘portions’, 1)} {match.get(‘yield_unit’, ‘’)}"
 )
-st.caption(“Use the existing one or create a new version?”)
+st.caption("Use the existing one or create a new version?")
 c1, c2 = st.columns(2)
 with c1:
-if st.button(“Use existing”, use_container_width=True, type=“primary”):
+if st.button("Use existing", use_container_width=True, type="primary"):
 st.session_state[“sub_dialog_result”] = {
-“temp_id”:   match[“id”],   # real existing ID
-“name”:      match[“name”],
-“prep_qty”:  None,
-“prep_unit”: None,
-“lines”:     [],
-“existing”:  True,
+"temp_id":   match["id"],   # real existing ID
+"name":      match[“name”],
+"prep_qty":  None,
+"prep_unit": None,
+"lines":     [],
+"existing":  True,
 }
 st.rerun()
 with c2:
-if st.button(“Create new”, use_container_width=True):
-st.session_state[“sub_dialog_result”] = {“action”: “create_new”}
+if st.button("Create new", use_container_width=True):
+st.session_state["sub_dialog_result"] = {"action": "create_new"}
 st.rerun()
 
 # ─────────────────────────────────────────────
@@ -427,9 +434,10 @@ st.rerun()
 def _render_library(supabase: Client, client_name: str, show_cost: bool):
 recipes = _get_recipes(supabase, client_name)
 if not recipes:
-st.info(“No recipes yet. Go to New Recipe to create your first one.”)
+st.info("No recipes yet. Go to New Recipe to create your first one.")
 return
 
+```
 col_search, col_cat = st.columns([2, 1])
 with col_search:
     search = st.text_input(
@@ -549,6 +557,7 @@ if st.session_state.get("viewing_recipe"):
             del st.session_state["viewing_recipe"]
             st.rerun()
 
+
 # ─────────────────────────────────────────────
 
 # FORM STATE
@@ -557,14 +566,14 @@ if st.session_state.get("viewing_recipe"):
 
 def _init_form():
 defaults = {
-“form_lines”:          [],
-“form_photo_done”:     False,
-“form_saved_id”:       None,
-“form_saved_name”:     “”,
-“form_show_photo”:     False,
-“pending_sub_recipes”: {},   # temp_id -> {record, lines}
-“sub_dialog_result”:   None,
-“sub_dialog_pending”:  None, # ing being processed
+"form_lines":          [],
+"form_photo_done":     False,
+"form_saved_id":       None,
+"form_saved_name":     "",
+"form_show_photo":     False,
+"pending_sub_recipes": {},   # temp_id -> {record, lines}
+"sub_dialog_result":   None,
+"sub_dialog_pending":  None, # ing being processed
 }
 for k, v in defaults.items():
 if k not in st.session_state:
@@ -572,12 +581,12 @@ st.session_state[k] = v
 
 def _reset_form():
 keys = [
-“form_lines”, “form_photo_done”, “form_saved_id”,
-“form_saved_name”, “form_show_photo”,
-“form_recipe_name”, “form_category”,
-“form_batch_qty”, “form_batch_unit”, “form_method”,
-“pending_sub_recipes”, “sub_dialog_result”, “sub_dialog_pending”,
-“ing_name_input”, “ing_qty_input”, “ing_unit_input”, “ing_type_input”,
+"form_lines", "form_photo_done", "form_saved_id",
+"form_saved_name", "form_show_photo",
+"form_recipe_name", "form_category",
+"form_batch_qty", "form_batch_unit", "form_method",
+"pending_sub_recipes", "sub_dialog_result", "sub_dialog_pending",
+"ing_name_input", "ing_qty_input", "ing_unit_input", "ing_type_input",
 ]
 for k in keys:
 st.session_state.pop(k, None)
@@ -597,6 +606,7 @@ user: str,
 show_cost: bool,
 ):
 _init_form()
+
 
 # ── Photo dialog trigger ──
 if st.session_state.get("form_show_photo"):
@@ -914,6 +924,7 @@ if st.button(
         st.session_state["form_show_photo"] = True
         st.rerun()
 
+
 # ─────────────────────────────────────────────
 
 # ENTRY POINT
@@ -924,6 +935,7 @@ def render_recipes(supabase: Client, user: str, role: str):
 client_name = st.session_state.get(“client_name”, “Unknown”)
 outlet      = st.session_state.get(“assigned_outlet”, “Unknown”)
 show_cost   = str(role).lower() in [“admin”, “admin_all”, “manager”, “viewer”]
+
 
 st.markdown("### Recipes")
 
@@ -937,3 +949,4 @@ with tab_lib:
 
 with tab_new:
     _render_new_recipe(supabase, client_name, outlet, user, show_cost)
+```
