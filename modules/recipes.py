@@ -165,8 +165,9 @@ def _generate_recipe_pdf(recipe: dict, lines: list) -> "bytes | None":
         story = []
         story.append(Paragraph(recipe.get("name", "Recipe"), s_title))
         story.append(Paragraph(
-            recipe.get("category", "") + "   " +
-            str(recipe.get("portions", 1)) + " " + recipe.get("yield_unit", "plate"),
+            str(recipe.get("category") or "") + "   " +
+            str(recipe.get("portions") or 1) + " " +
+            str(recipe.get("yield_unit") or ""),
             s_sub
         ))
         story.append(HRFlowable(width="100%", thickness=1, color=EK_SAND, spaceAfter=10))
@@ -205,7 +206,7 @@ def _generate_recipe_pdf(recipe: dict, lines: list) -> "bytes | None":
         story.append(Spacer(1, 1*cm))
         story.append(HRFlowable(width="100%", thickness=1, color=EK_SAND))
         story.append(Paragraph(
-            "EK Consulting   ek-consulting.co   Generated " +
+            "EK Consulting - ek-consulting.co - Generated " +
             datetime.now().strftime("%d %b %Y"),
             s_foot
         ))
