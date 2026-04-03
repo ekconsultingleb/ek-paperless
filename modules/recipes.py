@@ -309,10 +309,10 @@ def _render_library(supabase: Client, client_name: str, show_cost: bool):
                         unsafe_allow_html=True
                     )
                 st.markdown(f"**{recipe['name']}**")
+                yield_display = str(recipe.get("yield_unit")) if recipe.get("yield_unit") else ""
                 st.caption(
-                    str(recipe.get("category", "?")) + " - " +
-                    str(recipe.get("portions", 1)) + " " +
-                    str(recipe.get("yield_unit", ""))
+                    str(recipe.get("category", "?")) +
+                    (" - " + str(recipe.get("portions", 1)) + " " + yield_display if yield_display else "")
                 )
                 if show_cost and recipe.get("cost_per_portion") is not None:
                     st.caption("$" + f"{recipe['cost_per_portion']:.2f}" + " / portion")
