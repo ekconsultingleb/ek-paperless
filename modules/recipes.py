@@ -120,11 +120,11 @@ path = f"recipes/{recipe_id}.{ext}”
 supabase.storage.from*("recipe-photos").upload(
 path=path,
 file=file_bytes,
-file_options={“content-type”: mime, “upsert”: “true”}
+file_options={"content-type": mime, "upsert": "true"}
 )
-return supabase.storage.from_(“recipe-photos”).get_public_url(path)
+return supabase.storage.from_("recipe-photos").get_public_url(path)
 except Exception as e:
-st.warning(f”Photo upload error: {e}”)
+st.warning(f"Photo upload error: {e}")
 return None
 
 # ─────────────────────────────────────────────
@@ -142,7 +142,7 @@ q_words = set(query.lower().split())
 best       = None
 best_score = 0.0
 for c in candidates:
-c_words = set(c[“name”].lower().split())
+c_words = set(c["name"].lower().split())
 if not c_words:
 continue
 overlap = len(q_words & c_words) / max(len(q_words), len(c_words))
