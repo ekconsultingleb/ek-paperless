@@ -76,7 +76,6 @@ for sl in sub_lines:
 sl[“recipe_id”] = real_id
 supabase.table(“recipe_lines”).insert(sub_lines).execute()
 
-```
     # Step 2 — insert main recipe
     res = supabase.table("recipes").insert(recipe_record).execute()
     recipe_id = res.data[0]["id"]
@@ -100,7 +99,6 @@ supabase.table(“recipe_lines”).insert(sub_lines).execute()
 except Exception as e:
     st.error(f"Error saving recipe: {e}")
     return None
-```
 
 def _delete_recipe(supabase: Client, recipe_id: str) -> bool:
 try:
@@ -172,7 +170,6 @@ Table, TableStyle, HRFlowable
 from reportlab.lib.enums import TA_CENTER
 import io
 
-```
     buffer = io.BytesIO()
     doc    = SimpleDocTemplate(
         buffer, pagesize=A4,
@@ -246,7 +243,6 @@ except ImportError:
 except Exception as e:
     st.error(f"PDF error: {e}")
     return None
-```
 
 # ─────────────────────────────────────────────
 
@@ -266,7 +262,6 @@ key=“recipe_photo_upload”
 if uploaded:
 st.image(uploaded, use_container_width=True)
 
-```
 c1, c2 = st.columns(2)
 with c1:
     if st.button("Skip for now", use_container_width=True):
@@ -283,7 +278,6 @@ with c2:
                     st.warning(f"Photo update failed: {e}")
         st.session_state["form_photo_done"] = True
         st.rerun()
-```
 
 # ─────────────────────────────────────────────
 
@@ -301,7 +295,6 @@ Nothing is pushed to Supabase here.
 st.markdown(f”### {ing_name}”)
 st.caption(“Define how this is prepared and what raw materials it needs.”)
 
-```
 # ── Prepare qty + unit ──
 c1, c2 = st.columns(2)
 with c1:
@@ -392,7 +385,6 @@ with c_save:
         }
         st.session_state.pop("sub_dialog_lines", None)
         st.rerun()
-```
 
 # ─────────────────────────────────────────────
 
@@ -437,7 +429,6 @@ if not recipes:
 st.info(“No recipes yet. Go to New Recipe to create your first one.”)
 return
 
-```
 col_search, col_cat = st.columns([2, 1])
 with col_search:
     search = st.text_input(
@@ -606,7 +597,6 @@ show_cost: bool,
 ):
 _init_form()
 
-```
 # ── Photo dialog trigger ──
 if st.session_state.get("form_show_photo"):
     _photo_dialog(
@@ -922,7 +912,6 @@ if st.button(
         st.session_state["form_saved_name"] = name
         st.session_state["form_show_photo"] = True
         st.rerun()
-```
 
 # ─────────────────────────────────────────────
 
@@ -935,7 +924,6 @@ client_name = st.session_state.get(“client_name”, “Unknown”)
 outlet      = st.session_state.get(“assigned_outlet”, “Unknown”)
 show_cost   = str(role).lower() in [“admin”, “admin_all”, “manager”, “viewer”]
 
-```
 st.markdown("### Recipes")
 
 if st.session_state.get("recipe_tab") == "library":
@@ -948,4 +936,3 @@ with tab_lib:
 
 with tab_new:
     _render_new_recipe(supabase, client_name, outlet, user, show_cost)
-```
