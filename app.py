@@ -369,7 +369,7 @@ else:
     # Parse allowed modules
     raw_modules = str(st.session_state.get('module', '')).lower().strip()
     if raw_modules == "all_modules" or role in ["admin", "admin_all"]:
-        allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers", "invoices", "ledger", "overview", "recipes", "report recipes"]
+        allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers", "invoices", "ledger", "overview", "recipes", "recipes report"]
     else:
         allowed_modules = [m.strip() for m in raw_modules.split(",") if m.strip()]
 
