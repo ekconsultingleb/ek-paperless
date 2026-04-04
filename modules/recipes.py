@@ -95,7 +95,20 @@ def _upload_recipe_photo(
     supabase: Client, recipe_id: str, file_bytes: bytes, mime: str
 ) -> "str | None":
     try:
-        ext  = mime.split("/")[-1].replace("jpeg", "jpg")
+        # Compress + resize before upload
+        try:
+            from PIL import Image
+            import io as _io
+            img = Image.open(_io.BytesIO(file_bytes))
+            img.thumbnail((800, 800))
+            out = _io.BytesIO()
+            img.save(out, format="JPEG", quality=75)
+            file_bytes = out.getvalue()
+            mime = "image/jpeg"
+        except Exception:
+            pass  # fallback: upload as-is if PIL fails
+
+        ext  = "jpg"
         path = "recipes/" + recipe_id + "." + ext
         supabase.storage.from_("recipe-photos").upload(
             path=path,
