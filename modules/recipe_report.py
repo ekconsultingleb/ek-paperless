@@ -48,7 +48,7 @@ EK_ACCENT = colors.HexColor("#C4A882")
 def _get_client_id(supabase: Client, client_name: str):
     try:
         res = supabase.table("clients").select("id").eq(
-            "name", client_name
+            "client_name", client_name
         ).single().execute()
         return res.data["id"] if res.data else None
     except Exception:
@@ -599,7 +599,7 @@ def generate_recipe_report_pdf(
 # ─────────────────────────────────────────────
 
 def render_recipe_report(supabase: Client, user: str, role: str):
-    client_name = st.session_state.get("client_name", "Unknown")
+    session_client = st.session_state.get("client_name", "All")
 
     st.markdown("### Recipe Report Generator")
     st.caption(
@@ -610,6 +610,20 @@ def render_recipe_report(supabase: Client, user: str, role: str):
     if not REPORTLAB_OK:
         st.error("reportlab is required. Add `reportlab` to requirements.txt.")
         return
+
+    # Admins see a client selector; outlet users use their assigned client
+    if role in ("admin", "admin_all") or session_client.lower() in ("all", "", "none"):
+        try:
+            clients_res = supabase.table("clients").select("client_name").order("client_name").execute()
+            clients_list = [r["client_name"] for r in (clients_res.data or []) if r.get("client_name")]
+        except Exception:
+            clients_list = []
+        if not clients_list:
+            st.warning("No clients found in the clients table.")
+            return
+        client_name = st.selectbox("🏢 Select Client", clients_list, key="rr_client")
+    else:
+        client_name = session_client
 
     client_id = _get_client_id(supabase, client_name)
     if not client_id:
