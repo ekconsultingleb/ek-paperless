@@ -292,62 +292,103 @@ def render_main(conn, sheet_link, user, role):
                     j += 1
                 return count
 
-            # ── Parse Inventory file ───────────────────────────────────────
+                        # ── Parse Inventory file ───────────────────────────────────────────────────
             def parse_inventory(f, client, outlet, location):
-                raw  = pd.read_excel(f, header=None)
-                data_rows = _clean_file(raw)
-                records = []
-                cat = ""
-                sub = ""
-                i = 0
-                n = len(data_rows)
-                while i < n:
-                    row = data_rows[i]
-                    a, b, c = row[0], row[1], row[2]
-                    d = row[3]
+                """
+                Parse Omega Programming Summary (Inventory Items).
+                Col 0 = item_id (internal, unused), Col 1 = product_code,
+                Col 2 = item_name, Col 3 = buying_unit (count_unit).
+                Major categories duplicated on consecutive rows (Title then UPPER).
+                Sub-categories are single text rows before items.
+                """
+                import datetime as _dt3
 
-                    if _is_label(row):
-                        ahead = _next_label_count(data_rows, i)
-                        if ahead >= 2:
-                            cat = proper(str(a)); sub = ""
-                        elif ahead == 1:
-                            pass  # Division row — skip
+                def _inv_empty(v):
+                    if v is None: return True
+                    if isinstance(v, float) and pd.isna(v): return True
+                    return str(v).strip() in ("", "nan", "None", "NaN")
+
+                def _inv_numeric(v):
+                    if _inv_empty(v): return False
+                    try: float(str(v)); return True
+                    except: return False
+
+                _SKIP = {"lucy lu", "programming summary (inventory items)", "item id"}
+
+                raw = pd.read_excel(f, header=None)
+                df  = raw.copy().astype(object)
+                n   = len(df)
+                records     = []
+                current_cat = ""
+                current_sub = ""
+
+                for i in range(n):
+                    a = df.iloc[i, 0]
+                    b = df.iloc[i, 1]
+                    c = df.iloc[i, 2] if df.shape[1] > 2 else None
+                    d = df.iloc[i, 3] if df.shape[1] > 3 else None
+
+                    # skip timestamps, titles, headers
+                    if isinstance(a, (_dt3.datetime, pd.Timestamp)): continue
+                    if str(a).strip().lower() in _SKIP: continue
+                    if str(a).strip().startswith("REP_I_"): continue
+
+                    b_empty = _inv_empty(b)
+
+                    # category / sub-category: col A text, col B empty
+                    if not _inv_empty(a) and not _inv_numeric(a) and b_empty:
+                        text   = str(a).strip()
+                        next_a = df.iloc[i+1, 0] if i+1 < n else None
+                        next_b = df.iloc[i+1, 1] if i+1 < n else None
+                        # major category: next row same text (Omega duplicates title→UPPER)
+                        if str(next_a).strip().upper() == text.upper() and _inv_empty(next_b):
+                            current_cat = proper(text)
+                            current_sub = ""
                         else:
-                            sub = proper(str(a))
-                        i += 1
+                            # skip if this IS the UPPER duplicate
+                            prev_a = df.iloc[i-1, 0] if i > 0 else None
+                            prev_b = df.iloc[i-1, 1] if i > 0 else None
+                            if (not _inv_empty(prev_a) and
+                                    str(prev_a).strip().upper() == text.upper() and
+                                    _inv_empty(prev_b)):
+                                pass  # already set by title-case row above
+                            else:
+                                current_sub = proper(text)
+                        continue
 
-                    elif not _is_empty(a) and isinstance(a, (int, float)) and not _is_empty(b):
-                        try:
-                            int(float(str(a)))
-                        except:
-                            i += 1; continue
-                        item_name  = proper(str(c)) if not _is_empty(c) else ""
-                        count_unit = (proper(str(row[5])) if len(row) > 5 and not _is_empty(row[5])
-                                      else proper(str(d)) if not _is_empty(d) else "")
-                        if (str(b).lower().startswith("xxx") or
-                            str(c).lower().startswith("xxx") if not _is_empty(c) else False or
-                            cat.lower().startswith("xxx") or
-                            sub.lower().startswith("xxx")):
-                            i += 1; continue
-                        if item_name:
-                            records.append({
-                                "client_name": client, "outlet": outlet, "location": location,
-                                "item_type": "Inventory", "category": cat, "sub_category": sub,
-                                "product_code": proper(str(b)), "item_name": item_name,
-                                "count_unit": count_unit,
-                            })
-                        i += 1
-                    else:
-                        i += 1
+                    # item row: col A numeric, col B = product code
+                    if _inv_numeric(a) and not b_empty:
+                        product_code = proper(str(b))
+                        item_name    = proper(str(c)) if not _inv_empty(c) else ""
+                        count_unit   = proper(str(d)) if not _inv_empty(d) else ""
+
+                        if not item_name: continue
+                        if (product_code.lower().startswith("xxx") or
+                                item_name.lower().startswith("xxx") or
+                                current_cat.lower().startswith("xxx") or
+                                current_sub.lower().startswith("xxx")): continue
+
+                        records.append({
+                            "client_name":  client,
+                            "outlet":       outlet,
+                            "location":     location,
+                            "item_type":    "Inventory",
+                            "category":     current_cat,
+                            "sub_category": current_sub,
+                            "product_code": product_code,
+                            "item_name":    item_name,
+                            "count_unit":   count_unit,
+                        })
+
                 return pd.DataFrame(records)
 
-                        # ── Parse Menu Items file ──────────────────────────────────────────────
+            # ── Parse Menu Items file ──────────────────────────────────────────────
             def parse_menu_items(f, client, outlet, location):
                 """
                 Parse Omega Programming Summary (Menu Items) — alternating-row format.
-                Each item spans two rows: name row (col A=NaN, col B=name) then
-                ID row (col A=numeric, col B=NaN). Major categories are identified
-                by Omega duplicating the category name on consecutive rows.
+                Name row: col A=NaN, col B=item name.
+                ID row:   col A=numeric, col B=NaN  (always follows its name row).
+                Major categories duplicated on consecutive rows.
                 """
                 import datetime as _dt2
             
@@ -358,8 +399,7 @@ def render_main(conn, sheet_link, user, role):
             
                 def _mi_is_numeric(v):
                     if _mi_is_empty(v): return False
-                    try:
-                        float(str(v)); return True
+                    try: float(str(v)); return True
                     except (ValueError, TypeError): return False
             
                 raw = pd.read_excel(f, header=None)
@@ -373,41 +413,32 @@ def render_main(conn, sheet_link, user, role):
                 for i in range(n):
                     a = df.iloc[i, 0]
                     b = df.iloc[i, 1] if df.shape[1] > 1 else None
-                    # skip timestamp rows
                     if isinstance(a, (_dt2.datetime, pd.Timestamp)):
                         pending_name = None; continue
-                    # skip column-header rows
                     if str(b).strip() == "Description":
                         pending_name = None; continue
-                    # skip "Item ID" sentinel rows
                     if str(a).strip() == "Item ID":
                         pending_name = None; continue
-                    # skip pure-title rows
                     if str(a).strip() == "Programming Summary" and _mi_is_empty(b):
                         continue
-                    # category / sub-category: col A is non-empty text, not numeric
                     if not _mi_is_empty(a) and not _mi_is_numeric(a):
                         text   = str(a).strip()
                         next_a = df.iloc[i + 1, 0] if i + 1 < n else None
-                        if str(next_a).strip() == text:  # major cat (Omega duplicates it)
+                        if str(next_a).strip() == text:
                             current_cat = proper(text); current_sub = ""
                         else:
                             current_sub = proper(text)
                         pending_name = None; continue
-                    # item name row: col A empty, col B has text
                     if _mi_is_empty(a) and not _mi_is_empty(b):
                         name = str(b).strip()
                         if name == "Description": continue
                         pending_name = proper(name); continue
-                    # item ID row: col A numeric, col B empty — commit record
                     if _mi_is_numeric(a) and _mi_is_empty(b):
                         if pending_name:
                             item_id = str(int(float(str(a))))
-                            if not (
-                                pending_name.lower().startswith("xxx") or
-                                current_cat.lower().startswith("xxx") or
-                                current_sub.lower().startswith("xxx")
-                            ):
+                            if not (pending_name.lower().startswith("xxx") or
+                                    current_cat.lower().startswith("xxx") or
+                                    current_sub.lower().startswith("xxx")):
                                 records.append({
                                     "client_name":  client,
                                     "outlet":       outlet,
@@ -453,9 +484,56 @@ def render_main(conn, sheet_link, user, role):
 
                 if inv_file:
                     try:
-                        df_inv = parse_inventory(inv_file, final_client, final_outlet, final_location)
-                        st.markdown(f"**Inventory Items:** {len(df_inv)} rows cleaned")
-                        st.dataframe(df_inv.head(10), use_container_width=True, hide_index=True)
+                        df_inv_raw = parse_inventory(inv_file, final_client, final_outlet, final_location)
+
+                        # All items included by default
+                        df_inv_raw.insert(0, "include", True)
+
+                        st.markdown(f"**Inventory Items:** {len(df_inv_raw)} rows parsed")
+
+                        # ── Group exclude by category / subcategory ────────────────────
+                        inv_all_cats = sorted(df_inv_raw["category"].unique().tolist())
+                        inv_all_subs = sorted(df_inv_raw["sub_category"].unique().tolist())
+
+                        with st.expander("🗂️ Bulk exclude by Category / Subcategory", expanded=False):
+                            st.caption("Uncheck a category or subcategory to exclude all its items. Row-level checkboxes below can still override.")
+                            ic1, ic2 = st.columns(2)
+                            with ic1:
+                                st.markdown("**By Category**")
+                                inv_excl_cats = set()
+                                for _cat in inv_all_cats:
+                                    n_cat = int((df_inv_raw["category"] == _cat).sum())
+                                    if not st.checkbox(f"{_cat}  ({n_cat})", value=True, key=f"inv_cat_{_cat}"):
+                                        inv_excl_cats.add(_cat)
+                            with ic2:
+                                st.markdown("**By Subcategory**")
+                                inv_excl_subs = set()
+                                for _sub in inv_all_subs:
+                                    n_sub = int((df_inv_raw["sub_category"] == _sub).sum())
+                                    if not st.checkbox(f"{_sub}  ({n_sub})", value=True, key=f"inv_sub_{_sub}"):
+                                        inv_excl_subs.add(_sub)
+
+                        # Apply group exclusions
+                        if inv_excl_cats or inv_excl_subs:
+                            inv_mask = (
+                                df_inv_raw["category"].isin(inv_excl_cats) |
+                                df_inv_raw["sub_category"].isin(inv_excl_subs)
+                            )
+                            df_inv_raw.loc[inv_mask, "include"] = False
+
+                        edited_inv = st.data_editor(
+                            df_inv_raw[["include", "category", "sub_category", "product_code", "item_name", "count_unit"]],
+                            column_config={
+                                "include": st.column_config.CheckboxColumn("✅ Include", default=True, width="small"),
+                            },
+                            hide_index=True,
+                            use_container_width=True,
+                            key="inv_editor",
+                        )
+
+                        df_inv = df_inv_raw[edited_inv["include"].values].drop(columns=["include"]).reset_index(drop=True)
+                        st.caption(f"**{len(df_inv)}** items selected for push · **{len(df_inv_raw) - len(df_inv)}** excluded")
+
                     except Exception as e:
                         st.error(f"❌ Inventory parse error: {e}")
 
@@ -463,7 +541,7 @@ def render_main(conn, sheet_link, user, role):
                     try:
                         df_menu_raw = parse_menu_items(menu_file, final_client, final_outlet, final_location)
 
-                        # Auto-flag modifiers as unchecked; real items as checked
+                        # Auto-flag modifiers as unchecked
                         df_menu_raw.insert(0, "include", ~df_menu_raw.apply(_is_modifier_row, axis=1))
 
                         auto_excluded = int((~df_menu_raw["include"]).sum())
@@ -495,7 +573,6 @@ def render_main(conn, sheet_link, user, role):
                                     if not st.checkbox(f"{_sub}  ({n_sub})", value=True, key=f"grp_sub_{_sub}"):
                                         excl_subs.add(_sub)
 
-                        # Apply group exclusions on top of modifier auto-flag
                         if excl_cats or excl_subs:
                             mask = (
                                 df_menu_raw["category"].isin(excl_cats) |
@@ -513,7 +590,6 @@ def render_main(conn, sheet_link, user, role):
                             key="menu_editor",
                         )
 
-                        # Rebuild df_menu using the admin's selections
                         df_menu = df_menu_raw[edited_menu["include"].values].drop(columns=["include"]).reset_index(drop=True)
                         st.caption(f"**{len(df_menu)}** items selected for push · **{len(df_menu_raw) - len(df_menu)}** excluded")
 
