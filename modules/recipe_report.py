@@ -191,16 +191,7 @@ def render_recipe_report(supabase: Client, user: str, role: str):
         key="rr_date",
     )
 
-    # Options row
-    col_opt1, col_opt2, col_opt3 = st.columns(3)
-    with col_opt1:
-        show_cost = st.toggle("💰 Show cost", value=False, key="rr_show_cost")
-    with col_opt2:
-        filter_cat = st.selectbox("Filter category", ["All"], key="rr_filter_cat")
-    with col_opt3:
-        search = st.text_input("🔍 Search item", placeholder="e.g. Risotto", key="rr_search").strip().lower()
-
-    # Load data
+    # Load data first so category filter has real options
     with st.spinner("Loading…"):
         recipes, subs = _load_data(supabase, client_id, selected_date)
 
@@ -209,11 +200,16 @@ def render_recipe_report(supabase: Client, user: str, role: str):
         return
 
     tree = _build_cards(recipes, subs)
-
-    # Update category filter options dynamically
     all_cats = ["All"] + sorted(tree.keys())
-    # Re-render selectbox with real options (Streamlit limitation — just filter in logic)
-    selected_cat = st.session_state.get("rr_filter_cat", "All")
+
+    # Options row — category selectbox now has real data
+    col_opt1, col_opt2, col_opt3 = st.columns(3)
+    with col_opt1:
+        show_cost = st.toggle("💰 Show cost", value=False, key="rr_show_cost")
+    with col_opt2:
+        selected_cat = st.selectbox("Filter category", all_cats, key="rr_filter_cat")
+    with col_opt3:
+        search = st.text_input("🔍 Search item", placeholder="e.g. Risotto", key="rr_search").strip().lower()
 
     st.divider()
 
@@ -326,38 +322,7 @@ def _render_card(dish: dict, show_cost: bool):
                 row_cols[3].markdown(f"${ac:,.4f}" if ac is not None else "—")
                 row_cols[4].markdown(f"${tc:,.3f}" if tc is not None else "—")
 
-            # Sub-ingredients (production)
-            if ing["is_production"] and ing["sub_ingredients"]:
-                for sub in ing["sub_ingredients"]:
-                    sub_cols = st.columns(col_widths)
-                    sub_cols[0].markdown(
-                        f"<span style='color:#8C7B6E;font-size:12px;padding-left:24px;'>"
-                        f"↳ {sub.get('product_description','')}</span>",
-                        unsafe_allow_html=True,
-                    )
-                    sq = sub.get("qty")
-                    sub_cols[1].markdown(
-                        f"<span style='color:#8C7B6E;font-size:12px;'>{sq:g}</span>"
-                        if sq is not None else "—",
-                        unsafe_allow_html=True,
-                    )
-                    sub_cols[2].markdown(
-                        f"<span style='color:#8C7B6E;font-size:12px;'>{sub.get('unit_name','')}</span>",
-                        unsafe_allow_html=True,
-                    )
-                    if show_cost:
-                        sac = sub.get("average_cost")
-                        sub_cols[3].markdown(
-                            f"<span style='color:#8C7B6E;font-size:12px;'>${sac:,.4f}</span>"
-                            if sac is not None else "—",
-                            unsafe_allow_html=True,
-                        )
-                        sub_cols[4].markdown("—")
 
-                st.markdown(
-                    "<div style='height:4px;'></div>",
-                    unsafe_allow_html=True,
-                )
 
         if show_cost and total:
             st.markdown(
@@ -499,27 +464,7 @@ def _pdf_dish_card(dish: dict, styles: dict, show_cost: bool) -> list:
             ]
         rows.append(row)
 
-        # Sub-ingredients
-        if ing["is_production"] and ing["sub_ingredients"]:
-            for sub in ing["sub_ingredients"]:
-                sq = sub.get("qty")
-                sq_str = f"{sq:g}" if sq is not None else "—"
-                if show_cost:
-                    sac = sub.get("average_cost")
-                    sub_row = [
-                        Paragraph(f"  ↳ {sub.get('product_description','')}", styles["ing_sub"]),
-                        Paragraph(sq_str, styles["ing_num"]),
-                        Paragraph(sub.get("unit_name") or "—", styles["ing_sub"]),
-                        Paragraph(f"${sac:,.4f}" if sac is not None else "—", styles["ing_num"]),
-                        Paragraph("—", styles["ing_num"]),
-                    ]
-                else:
-                    sub_row = [
-                        Paragraph(f"  ↳ {sub.get('product_description','')}", styles["ing_sub"]),
-                        Paragraph(sq_str, styles["ing_num"]),
-                        Paragraph(sub.get("unit_name") or "—", styles["ing_sub"]),
-                    ]
-                rows.append(sub_row)
+
 
     tbl = Table(rows, colWidths=col_w, repeatRows=1)
     n_rows = len(rows)
@@ -536,11 +481,12 @@ def _pdf_dish_card(dish: dict, styles: dict, show_cost: bool) -> list:
         ("VALIGN",        (0, 0), (-1, -1),     "MIDDLE"),
         ("ALIGN",         (1, 1), (-1, -1),     "RIGHT"),
     ]
-    # Shade production rows slightly
+    # Production rows: sand background with dark text — clearly distinct
     for row_idx, ing in enumerate(dish["ingredients"], start=1):
         if ing["is_production"]:
-            style_cmds.append(("BACKGROUND", (0, row_idx), (-1, row_idx), colors.HexColor("#2E3D47")))
-            style_cmds.append(("TEXTCOLOR",  (0, row_idx), (-1, row_idx), EK_SAND))
+            style_cmds.append(("BACKGROUND", (0, row_idx), (-1, row_idx), EK_SAND))
+            style_cmds.append(("TEXTCOLOR",  (0, row_idx), (-1, row_idx), EK_DARK))
+            style_cmds.append(("FONTNAME",   (0, row_idx), (0, row_idx), "Helvetica-Bold"))
 
     tbl.setStyle(TableStyle(style_cmds))
     elements.append(tbl)
