@@ -194,6 +194,31 @@ def render_invoices(conn, sheet_link, user, role):
                                                     
                                                     st.success(f"✅ Invoice updated successfully!")
                                                     st.rerun()
+                                        
+                                        # Delete — admin only, outside the form
+                                        if user_role in ("admin", "admin_all"):
+                                            st.divider()
+                                            confirm_key = f"confirm_del_inv_{inv_id}"
+                                            if st.session_state.get(confirm_key):
+                                                st.warning("Are you sure? This cannot be undone.")
+                                                col_yes, col_no = st.columns(2)
+                                                with col_yes:
+                                                    if st.button("🗑️ Yes, delete", key=f"yes_del_{inv_id}", use_container_width=True, type="primary"):
+                                                        try:
+                                                            supabase.table("invoices_log").delete().eq("id", inv_id).execute()
+                                                            st.session_state.pop(confirm_key, None)
+                                                            st.success("Deleted.")
+                                                            st.rerun()
+                                                        except Exception as e:
+                                                            st.error(f"Delete failed: {e}")
+                                                with col_no:
+                                                    if st.button("Cancel", key=f"no_del_{inv_id}", use_container_width=True):
+                                                        st.session_state.pop(confirm_key, None)
+                                                        st.rerun()
+                                            else:
+                                                if st.button("🗑️ Delete Invoice", key=f"del_inv_{inv_id}", use_container_width=True):
+                                                    st.session_state[confirm_key] = True
+                                                    st.rerun()
             except Exception as e:
                 st.error(f"❌ Error loading dashboard: {e}")
 
@@ -415,7 +440,7 @@ def render_invoices(conn, sheet_link, user, role):
                                 import io as _io2
                                 _img = _PImage.open(_io2.BytesIO(file_bytes))
                                 _img = _img.convert("RGB")
-                                _img.thumbnail((1200, 1600))  # keep invoice readable
+                                _img.thumbnail((1200, 1600))
                                 _out = _io2.BytesIO()
                                 _img.save(_out, format="JPEG", quality=80)
                                 file_bytes = _out.getvalue()
