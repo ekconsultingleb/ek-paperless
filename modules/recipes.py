@@ -98,14 +98,16 @@ def _upload_recipe_photo(
         try:
             from PIL import Image
             import io as _io
+            # Convert bytes to PIL — handles JPEG, PNG, WEBP, HEIC if pillow-heif installed
             img = Image.open(_io.BytesIO(file_bytes))
+            img = img.convert("RGB")   # strips alpha + normalises HEIC/HEIF colour space
             img.thumbnail((800, 800))
             out = _io.BytesIO()
             img.save(out, format="JPEG", quality=75)
             file_bytes = out.getvalue()
             mime = "image/jpeg"
         except Exception as e:
-            st.warning("Compress failed: " + str(e))
+            st.warning("Photo compress skipped: " + str(e))
         ext  = "jpg"
         path = "recipes/" + recipe_id + "." + ext
         supabase.storage.from_("recipe-photos").upload(

@@ -10,3 +10,4 @@ matplotlib
 reportlab
 reportlab>=4.0.0
 Pillow
+pillow-heif
