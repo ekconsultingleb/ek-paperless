@@ -104,8 +104,8 @@ def _upload_recipe_photo(
             img.save(out, format="JPEG", quality=75)
             file_bytes = out.getvalue()
             mime = "image/jpeg"
-        except Exception:
-            pass
+        except Exception as e:
+            st.warning("Compress failed: " + str(e))
         ext  = "jpg"
         path = "recipes/" + recipe_id + "." + ext
         supabase.storage.from_("recipe-photos").upload(
