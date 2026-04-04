@@ -421,8 +421,8 @@ def render_invoices(conn, sheet_link, user, role):
                                 file_bytes = _out.getvalue()
                                 file_mime  = "image/jpeg"
                                 unique_filename = f"{_safe_client}_{uuid.uuid4().hex[:8]}.jpg"
-                            except Exception:
-                                pass
+                            except Exception as _e:
+                                st.warning("Compress failed: " + str(_e))
 
                         supabase.storage.from_("invoices").upload(path=unique_filename, file=file_bytes, file_options={"content-type": file_mime})
                         image_url = supabase.storage.from_("invoices").get_public_url(unique_filename)
