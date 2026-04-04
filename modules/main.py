@@ -344,80 +344,62 @@ def render_main(conn, sheet_link, user, role):
                         # ── Parse Menu Items file ──────────────────────────────────────────────
             def parse_menu_items(f, client, outlet, location):
                 """
-                Parse an Omega Programming Summary (Menu Items) Excel export.
-                Actual file structure (confirmed from live exports):
-                  - Row 0: restaurant name
-                  - Row 1: "Programming Summary"
-                  - Row 2: timestamp
-                  - Row 3: blank
-                  - Row 4: column headers
-                  - Row 5+: alternating pattern:
-                      Major category : col A = text, SAME text repeated on next row
-                      Sub-category   : col A = text, NOT repeated on next row
-                      Item name row  : col A = NaN,     col B = item name
-                      Item ID row    : col A = numeric, col B = NaN  (follows name row)
-                  Timestamp rows and Description/Item-ID header rows
-                  scattered throughout — filtered out.
+                Parse Omega Programming Summary (Menu Items) — alternating-row format.
+                Each item spans two rows: name row (col A=NaN, col B=name) then
+                ID row (col A=numeric, col B=NaN). Major categories are identified
+                by Omega duplicating the category name on consecutive rows.
                 """
                 import datetime as _dt2
-                
+            
                 def _mi_is_empty(v):
                     if v is None: return True
                     if isinstance(v, float) and pd.isna(v): return True
                     return str(v).strip() in ("", "nan", "None", "NaN")
-                
+            
                 def _mi_is_numeric(v):
                     if _mi_is_empty(v): return False
                     try:
                         float(str(v)); return True
                     except (ValueError, TypeError): return False
-                
+            
                 raw = pd.read_excel(f, header=None)
                 df  = raw.copy().astype(object)
                 n   = len(df)
-                
                 records      = []
                 current_cat  = ""
                 current_sub  = ""
-                pending_name = None   # item name waiting to be paired with its ID row
-                
+                pending_name = None
+            
                 for i in range(n):
                     a = df.iloc[i, 0]
                     b = df.iloc[i, 1] if df.shape[1] > 1 else None
-                    
                     # skip timestamp rows
                     if isinstance(a, (_dt2.datetime, pd.Timestamp)):
                         pending_name = None; continue
-                    
-                    # skip column-header rows (col B = "Description")
+                    # skip column-header rows
                     if str(b).strip() == "Description":
                         pending_name = None; continue
-                    
                     # skip "Item ID" sentinel rows
                     if str(a).strip() == "Item ID":
                         pending_name = None; continue
-                    
                     # skip pure-title rows
                     if str(a).strip() == "Programming Summary" and _mi_is_empty(b):
                         continue
-                    
-                    # category / sub-category row: col A is non-empty text, not numeric
+                    # category / sub-category: col A is non-empty text, not numeric
                     if not _mi_is_empty(a) and not _mi_is_numeric(a):
                         text   = str(a).strip()
                         next_a = df.iloc[i + 1, 0] if i + 1 < n else None
-                        if str(next_a).strip() == text:   # major category (Omega duplicates it)
+                        if str(next_a).strip() == text:  # major cat (Omega duplicates it)
                             current_cat = proper(text); current_sub = ""
-                        else:                              # sub-category
+                        else:
                             current_sub = proper(text)
                         pending_name = None; continue
-                    
                     # item name row: col A empty, col B has text
                     if _mi_is_empty(a) and not _mi_is_empty(b):
                         name = str(b).strip()
                         if name == "Description": continue
                         pending_name = proper(name); continue
-                    
-                    # item ID row: col A numeric, col B empty — commit the record
+                    # item ID row: col A numeric, col B empty — commit record
                     if _mi_is_numeric(a) and _mi_is_empty(b):
                         if pending_name:
                             item_id = str(int(float(str(a))))
@@ -438,7 +420,7 @@ def render_main(conn, sheet_link, user, role):
                                     "count_unit":   "Unit",
                                 })
                         pending_name = None; continue
-                
+            
                 return pd.DataFrame(records)
             
 # ── Modifier detection helpers ──────────────────────────────
@@ -491,6 +473,36 @@ def render_main(conn, sheet_link, user, role):
                             f"Review below and adjust before pushing."
                         )
 
+                        # ── Group exclude by category / subcategory ────────────────────
+                        all_cats = sorted(df_menu_raw["category"].unique().tolist())
+                        all_subs = sorted(df_menu_raw["sub_category"].unique().tolist())
+
+                        with st.expander("🗂️ Bulk exclude by Category / Subcategory", expanded=False):
+                            st.caption("Uncheck a category or subcategory to exclude all its items. Row-level checkboxes below can still override.")
+                            gc1, gc2 = st.columns(2)
+                            with gc1:
+                                st.markdown("**By Category**")
+                                excl_cats = set()
+                                for _cat in all_cats:
+                                    n_cat = int((df_menu_raw["category"] == _cat).sum())
+                                    if not st.checkbox(f"{_cat}  ({n_cat})", value=True, key=f"grp_cat_{_cat}"):
+                                        excl_cats.add(_cat)
+                            with gc2:
+                                st.markdown("**By Subcategory**")
+                                excl_subs = set()
+                                for _sub in all_subs:
+                                    n_sub = int((df_menu_raw["sub_category"] == _sub).sum())
+                                    if not st.checkbox(f"{_sub}  ({n_sub})", value=True, key=f"grp_sub_{_sub}"):
+                                        excl_subs.add(_sub)
+
+                        # Apply group exclusions on top of modifier auto-flag
+                        if excl_cats or excl_subs:
+                            mask = (
+                                df_menu_raw["category"].isin(excl_cats) |
+                                df_menu_raw["sub_category"].isin(excl_subs)
+                            )
+                            df_menu_raw.loc[mask, "include"] = False
+
                         edited_menu = st.data_editor(
                             df_menu_raw[["include", "category", "sub_category", "product_code", "item_name"]],
                             column_config={
@@ -507,7 +519,6 @@ def render_main(conn, sheet_link, user, role):
 
                     except Exception as e:
                         st.error(f"❌ Menu Items parse error: {e}")
-                
                 combined = pd.concat([df_inv, df_menu], ignore_index=True)
                 
                 if len(combined) > 0:
