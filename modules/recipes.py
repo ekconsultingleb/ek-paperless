@@ -351,18 +351,21 @@ def _render_library(supabase: Client, client_name: str, show_cost: bool):
                         st.session_state["confirm_delete"] = None
                         st.rerun()
                 with c2:
-                    lines     = _get_recipe_lines(supabase, recipe["id"])
-                    pdf_bytes = _generate_recipe_pdf(recipe, lines)
-                    if pdf_bytes:
-                        st.download_button(
-                            "PDF", data=pdf_bytes,
-                            file_name=recipe["name"].replace(" ", "_") + ".pdf",
-                            mime="application/pdf",
-                            key="pdf_" + recipe["id"],
-                            use_container_width=True
-                        )
-                    else:
-                        st.button("PDF", key="pdf_na_" + recipe["id"], use_container_width=True, disabled=True)
+                    if st.button("PDF", key="pdf_btn_" + recipe["id"], use_container_width=True):
+                        st.session_state["gen_pdf_id"] = recipe["id"]
+                        st.rerun()
+                    if st.session_state.get("gen_pdf_id") == recipe["id"]:
+                        with st.spinner("Generating…"):
+                            lines     = _get_recipe_lines(supabase, recipe["id"])
+                            pdf_bytes = _generate_recipe_pdf(recipe, lines)
+                        if pdf_bytes:
+                            st.download_button(
+                                "⬇️ Download", data=pdf_bytes,
+                                file_name=recipe["name"].replace(" ", "_") + ".pdf",
+                                mime="application/pdf",
+                                key="pdf_dl_" + recipe["id"],
+                                use_container_width=True,
+                            )
                 with c3:
                     if st.session_state["confirm_delete"] == recipe["id"]:
                         if st.button("Confirm", key="conf_" + recipe["id"], use_container_width=True, type="primary"):
