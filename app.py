@@ -368,7 +368,7 @@ else:
     # Parse allowed modules
     raw_modules = str(st.session_state.get('module', '')).lower().strip()
     if raw_modules == "all_modules" or role in ["admin", "admin_all"]:
-        allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers", "invoices", "ledger", "overview", "recipes"]
+        allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers", "invoices", "ledger", "overview", "recipes", "report recipes"]
     else:
         allowed_modules = [m.strip() for m in raw_modules.split(",") if m.strip()]
 
@@ -479,6 +479,14 @@ else:
                     st.session_state['current_page'] = 'recipes'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
+        if "recipes report" in allowed_modules:
+            with col_j:
+                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
+                if st.button("📋\nRecipe Report", width="stretch", key="btn_recipe_report"):
+                    st.session_state['current_page'] = 'recipes report'; st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
+        
+
     # ==========================================
     # PAGE ROUTING (INSIDE MODULES)
     # ==========================================
@@ -503,4 +511,6 @@ else:
         elif st.session_state['current_page'] == 'overview':
             render_overview(None, None, user, role, client, outlet, location)
         elif st.session_state['current_page'] == 'recipes':
-            render_recipes(supabase, user, role) 
+            render_recipes(supabase, user, role)
+        elif st.session_state['current_page'] == 'recipes report':
+            render_recipe_report(supabase, user, role) 
