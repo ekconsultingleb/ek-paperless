@@ -6,7 +6,6 @@ import streamlit.components.v1 as components
 
 # --- IMPORT YOUR MODULES ---
 from modules.overview import render_overview
-from modules.recipe_report import render_recipe_report
 from modules.ledger import render_ledger
 from modules.main import render_main
 from modules.dashboard import render_dashboard
@@ -56,7 +55,7 @@ def inject_back_button_protection():
 inject_back_button_protection()
 
 # --- BRANDING & LOGO ---
-st.sidebar.image("https://hgvubaohmgvesblfvdps.supabase.co/storage/v1/object/public/assets/EK-Logo.png", use_container_width=True)
+st.sidebar.image("https://hgvubaohmgvesblfvdps.supabase.co/storage/v1/object/public/assets/EK-Logo.png", width=240)
 st.sidebar.divider()
 st.sidebar.markdown(
     "<div style='color:#8a9eaa; font-size:11px; text-align:center; padding:4px 0; letter-spacing:0.06em;'>PAPERLESS v2.0</div>",
@@ -300,7 +299,7 @@ if not st.session_state.get('logged_in', False):
             _remaining = int(st.session_state['login_locked_until'] - _now)
             st.error(f"🔒 Too many failed attempts. Try again in {_remaining // 60}m {_remaining % 60}s.")
 
-        if st.button("Sign In", use_container_width=True, type="primary"):
+        if st.button("Sign In", width="stretch", type="primary"):
             _now = time.time()
             if st.session_state['login_locked_until'] > _now:
                 _remaining = int(st.session_state['login_locked_until'] - _now)
@@ -351,7 +350,7 @@ else:
     if st.session_state['assigned_location'].lower() != 'all':
         st.sidebar.write(f"📍 **Location:** {st.session_state['assigned_location']}")
 
-    if st.sidebar.button("Logout", use_container_width=True):
+    if st.sidebar.button("Logout", width="stretch"):
         st.session_state.clear()
         st.rerun()
 
@@ -369,14 +368,14 @@ else:
     # Parse allowed modules
     raw_modules = str(st.session_state.get('module', '')).lower().strip()
     if raw_modules == "all_modules" or role in ["admin", "admin_all"]:
-        allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers", "invoices", "ledger", "overview", "recipes", "recipe report"]
+        allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers", "invoices", "ledger", "overview", "recipes"]
     else:
         allowed_modules = [m.strip() for m in raw_modules.split(",") if m.strip()]
 
     # ── Sidebar back button (visible on every module page) ───────────────────
     if st.session_state.get('current_page', 'home') != 'home':
         st.sidebar.divider()
-        if st.sidebar.button("⬅️ Back to Menu", use_container_width=True, key="sidebar_back_btn"):
+        if st.sidebar.button("⬅️ Back to Menu", width="stretch", key="sidebar_back_btn"):
             st.session_state['current_page'] = 'home'
             st.rerun()
 
@@ -413,28 +412,28 @@ else:
         if "cash" in allowed_modules:
             with col_a:
                 st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("🏦\nDaily Cash", use_container_width=True, key="btn_cash"):
+                if st.button("🏦\nDaily Cash", width="stretch", key="btn_cash"):
                     st.session_state['current_page'] = 'cash'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
         if "inventory" in allowed_modules:
             with col_b:
                 st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("📦\nInventory", use_container_width=True, key="btn_inventory"):
+                if st.button("📦\nInventory", width="stretch", key="btn_inventory"):
                     st.session_state['current_page'] = 'inventory'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
         if "waste" in allowed_modules:
             with col_c:
                 st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("🗑️\nWaste", use_container_width=True, key="btn_waste"):
+                if st.button("🗑️\nWaste", width="stretch", key="btn_waste"):
                     st.session_state['current_page'] = 'waste'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
         if "invoices" in allowed_modules:
             with col_d:
                 st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("📸\nInvoices", use_container_width=True, key="btn_invoices"):
+                if st.button("📸\nInvoices", width="stretch", key="btn_invoices"):
                     st.session_state['current_page'] = 'invoices'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
@@ -444,28 +443,28 @@ else:
         if "transfers" in allowed_modules or "transfer" in allowed_modules:
             with col_e:
                 st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("🔄\nTransfers", use_container_width=True, key="btn_transfers"):
+                if st.button("🔄\nTransfers", width="stretch", key="btn_transfers"):
                     st.session_state['current_page'] = 'transfers'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
         if "dashboard" in allowed_modules:
             with col_f:
                 st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("📊\nDashboard", use_container_width=True, key="btn_dashboard"):
+                if st.button("📊\nDashboard", width="stretch", key="btn_dashboard"):
                     st.session_state['current_page'] = 'dashboard'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
         if "ledger" in allowed_modules:
             with col_g:
                 st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("💸\nDebt Control", use_container_width=True, key="btn_ledger"):
+                if st.button("💸\nDebt Control", width="stretch", key="btn_ledger"):
                     st.session_state['current_page'] = 'ledger'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
         if "overview" in allowed_modules:
             with col_h:
                 st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("📊\nOverview", use_container_width=True, key="btn_overview"):
+                if st.button("📊\nOverview", width="stretch", key="btn_overview"):
                     st.session_state['current_page'] = 'overview'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
         
@@ -476,7 +475,7 @@ else:
         if "recipes" in allowed_modules:
             with col_i:
                 st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("🍳\nRecipes", use_container_width=True, key="btn_recipes"):
+                if st.button("🍳\nRecipes", width="stretch", key="btn_recipes"):
                     st.session_state['current_page'] = 'recipes'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
