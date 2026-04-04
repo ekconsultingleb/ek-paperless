@@ -6,6 +6,7 @@ import streamlit.components.v1 as components
 
 # --- IMPORT YOUR MODULES ---
 from modules.overview import render_overview
+from modules.recipe_report import render_recipe_report
 from modules.ledger import render_ledger
 from modules.main import render_main
 from modules.dashboard import render_dashboard
