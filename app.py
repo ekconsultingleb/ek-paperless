@@ -6,6 +6,7 @@ import streamlit.components.v1 as components
 
 # --- IMPORT YOUR MODULES ---
 from modules.overview import render_overview
+from modules.recipe_report import render_recipe_report
 from modules.ledger import render_ledger
 from modules.main import render_main
 from modules.dashboard import render_dashboard
@@ -368,7 +369,7 @@ else:
     # Parse allowed modules
     raw_modules = str(st.session_state.get('module', '')).lower().strip()
     if raw_modules == "all_modules" or role in ["admin", "admin_all"]:
-        allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers", "invoices", "ledger", "overview", "recipes"]
+        allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers", "invoices", "ledger", "overview", "recipes", "recipe report"]
     else:
         allowed_modules = [m.strip() for m in raw_modules.split(",") if m.strip()]
 
