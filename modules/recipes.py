@@ -795,12 +795,13 @@ def _render_new_recipe(
             _render_sub_builder(default_unit)
     else:
         ctr = st.session_state["ing_counter"]
-        col_n, col_q, col_u, col_t, col_btn = st.columns([3, 1.2, 1.2, 1.5, 0.8])
-        with col_n:
-            ing_name = st.text_input(
-                "Ingredient", placeholder="Ingredient",
-                key="ing_name_" + str(ctr), label_visibility="collapsed"
-            )
+        # Row 1: ingredient name full width
+        ing_name = st.text_input(
+            "Ingredient", placeholder="Ingredient name",
+            key="ing_name_" + str(ctr), label_visibility="collapsed"
+        )
+        # Row 2: qty + unit + buy/produce in one compact row
+        col_q, col_u, col_t = st.columns([1.5, 1.5, 2])
         with col_q:
             ing_qty = st.number_input(
                 "Qty", min_value=0.0, step=1.0, value=0.0,
@@ -818,11 +819,11 @@ def _render_new_recipe(
                 horizontal=True,
                 key="ing_type_" + str(ctr), label_visibility="collapsed"
             )
-        with col_btn:
-            add_clicked = st.button(
-                "Add", use_container_width=True,
-                type="primary", key="ing_add_" + str(ctr)
-            )
+        # Row 3: Add button full width
+        add_clicked = st.button(
+            "Add", use_container_width=True,
+            type="primary", key="ing_add_" + str(ctr)
+        )
 
         if add_clicked:
             if not ing_name.strip():
@@ -870,44 +871,46 @@ def _render_new_recipe(
     lines = st.session_state["form_lines"]
     if lines:
         st.markdown("---")
+        st.caption(str(len(lines)) + " ingredient" + ("s" if len(lines) != 1 else "") + " added")
         to_delete = None
         for idx, line in enumerate(lines):
-            with st.container(border=True):
-                type_tag     = "Produce" if line["is_production"] else "Buy"
-                name_display = line["chef_input"] if line["chef_input"] else "(unnamed)"
-                label        = name_display + " - " + str(int(line["qty"])) + " " + line["unit"] + " - " + type_tag
-                if line["is_production"] and line.get("batch_qty"):
-                    label += " - prepare " + str(line["batch_qty"]) + " " + str(line["batch_unit"])
-                st.markdown(label)
-
-                btn_cols = st.columns([1, 1, 4])
-                with btn_cols[0]:
-                    if st.button("x", key="del_line_" + str(idx)):
-                        to_delete = idx
-                with btn_cols[1]:
-                    if line["is_production"]:
-                        if st.button("Edit", key="edit_line_" + str(idx)):
-                            # Pre-fill builder with existing sub-recipe data
-                            temp_id = line.get("_temp_sub_id")
-                            pre_lines = []
-                            if temp_id and temp_id in st.session_state.get("pending_sub_recipes", {}):
-                                pre_lines = [
-                                    {
-                                        "name": sl["chef_input"],
-                                        "qty":  sl["qty"],
-                                        "unit": sl["unit"],
-                                    }
-                                    for sl in st.session_state["pending_sub_recipes"][temp_id]["lines"]
-                                ]
-                            st.session_state["sub_ing_name"]    = line["chef_input"]
-                            st.session_state["sub_ing_qty"]     = line["qty"]
-                            st.session_state["sub_ing_unit"]    = line["unit"]
-                            st.session_state["sub_building"]    = True
-                            st.session_state["sub_editing_idx"] = idx
-                            st.session_state["sub_lines"]       = pre_lines
-                            st.session_state["sub_mat_counter"] = len(pre_lines)
-                            st.session_state["sub_match_pending"] = False
-                            st.rerun()
+            type_tag     = "Produce" if line["is_production"] else "Buy"
+            name_display = line["chef_input"] if line["chef_input"] else "(unnamed)"
+            qty_display  = str(int(line["qty"])) + " " + line["unit"]
+            # compact row: name | qty | tag | [edit] [x]
+            if line["is_production"]:
+                col_name, col_qty, col_tag, col_edit, col_del = st.columns([4, 1.5, 1.5, 1, 0.7])
+            else:
+                col_name, col_qty, col_tag, col_del = st.columns([4, 1.5, 1.5, 0.7])
+            col_name.markdown(name_display)
+            col_qty.caption(qty_display)
+            col_tag.caption(type_tag)
+            if line["is_production"]:
+                with col_edit:
+                    if st.button("Edit", key="edit_line_" + str(idx), use_container_width=True):
+                        temp_id = line.get("_temp_sub_id")
+                        pre_lines = []
+                        if temp_id and temp_id in st.session_state.get("pending_sub_recipes", {}):
+                            pre_lines = [
+                                {
+                                    "name": sl["chef_input"],
+                                    "qty":  sl["qty"],
+                                    "unit": sl["unit"],
+                                }
+                                for sl in st.session_state["pending_sub_recipes"][temp_id]["lines"]
+                            ]
+                        st.session_state["sub_ing_name"]    = line["chef_input"]
+                        st.session_state["sub_ing_qty"]     = line["qty"]
+                        st.session_state["sub_ing_unit"]    = line["unit"]
+                        st.session_state["sub_building"]    = True
+                        st.session_state["sub_editing_idx"] = idx
+                        st.session_state["sub_lines"]       = pre_lines
+                        st.session_state["sub_mat_counter"] = len(pre_lines)
+                        st.session_state["sub_match_pending"] = False
+                        st.rerun()
+            with col_del:
+                if st.button("×", key="del_line_" + str(idx), use_container_width=True):
+                    to_delete = idx
 
         if to_delete is not None:
             st.session_state["form_lines"].pop(to_delete)
