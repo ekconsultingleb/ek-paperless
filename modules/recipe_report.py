@@ -276,17 +276,12 @@ def render_recipe_report(supabase: Client, user: str, role: str):
 def _render_card(dish: dict, show_cost: bool):
     """Render a single dish as a Streamlit expander card."""
     total = dish["total_cost"]
-    label_parts = [dish["name"]]
-    if show_cost and total:
-        label_parts.append(f"  —  ${total:,.3f}")
 
     with st.expander(dish["name"] + (f"  ·  ${total:,.3f}" if show_cost and total else ""),
                      expanded=False):
 
-        ings     = dish["ingredients"]
-        has_prod = any(i["is_production"] for i in ings)
+        ings = dish["ingredients"]
 
-        # Ingredient table header
         cols = ["**Ingredient**", "**Qty**", "**Unit**"]
         if show_cost:
             cols += ["**Avg Cost**", "**Total Cost**"]
@@ -301,19 +296,15 @@ def _render_card(dish: dict, show_cost: bool):
 
         for ing in ings:
             row_cols = st.columns(col_widths)
-            name_display = ing["name"]
-
             if ing["is_production"]:
                 row_cols[0].markdown(
-                    f"<span style='color:#E3C5AD;font-weight:600;'>⚙️ {name_display}</span>",
+                    f"<span style='color:#E3C5AD;font-weight:600;'>⚙️ {ing["name"]}</span>",
                     unsafe_allow_html=True,
                 )
             else:
-                row_cols[0].markdown(name_display)
+                row_cols[0].markdown(ing["name"])
 
-            row_cols[1].markdown(
-                f"{ing['qty']:g}" if ing["qty"] is not None else "—"
-            )
+            row_cols[1].markdown(f"{ing['qty']:g}" if ing["qty"] is not None else "—")
             row_cols[2].markdown(ing["unit"] or "—")
 
             if show_cost:
@@ -322,14 +313,27 @@ def _render_card(dish: dict, show_cost: bool):
                 row_cols[3].markdown(f"${ac:,.4f}" if ac is not None else "—")
                 row_cols[4].markdown(f"${tc:,.3f}" if tc is not None else "—")
 
-
-
         if show_cost and total:
             st.markdown(
                 f"<div style='text-align:right;color:#E3C5AD;font-size:12px;"
                 f"font-weight:600;margin-top:6px;'>Total cost: ${total:,.3f}</div>",
                 unsafe_allow_html=True,
             )
+
+        # ── Single card PDF export ─────────────────────────────────────────────
+        if REPORTLAB_OK:
+            card_key = "pdf_" + dish["name"].replace(" ", "_").replace("/", "_").replace("'", "")
+            if st.button("📄 Export this card", key=card_key):
+                single_tree = {dish["category"]: {dish["item_group"]: [dish]}}
+                pdf = _build_pdf(single_tree, "", "", show_cost)
+                if pdf:
+                    fname = dish["name"].replace(" ", "_") + ".pdf"
+                    st.download_button(
+                        "⬇️ Download",
+                        data=pdf, file_name=fname,
+                        mime="application/pdf",
+                        key=card_key + "_dl",
+                    )
 
 
 # ── PDF Builder ───────────────────────────────────────────────────────────────
