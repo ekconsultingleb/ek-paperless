@@ -308,6 +308,32 @@ def render_invoices(conn, sheet_link, user, role):
                                             
                                             notes = row.get('data_entry_notes', '')
                                             st.write(f"**📝 Notes:** {notes if notes else '*No notes provided.*'}")
+                                            
+                                            # Delete — admin only
+                                            if user_role in ("admin", "admin_all"):
+                                                st.divider()
+                                                arch_inv_id = row['id']
+                                                confirm_key = f"confirm_del_arch_{arch_inv_id}"
+                                                if st.session_state.get(confirm_key):
+                                                    st.warning("Are you sure? This cannot be undone.")
+                                                    col_yes, col_no = st.columns(2)
+                                                    with col_yes:
+                                                        if st.button("🗑️ Yes, delete", key=f"yes_arch_{arch_inv_id}", use_container_width=True, type="primary"):
+                                                            try:
+                                                                supabase.table("invoices_log").delete().eq("id", arch_inv_id).execute()
+                                                                st.session_state.pop(confirm_key, None)
+                                                                st.success("Deleted.")
+                                                                st.rerun()
+                                                            except Exception as e:
+                                                                st.error(f"Delete failed: {e}")
+                                                    with col_no:
+                                                        if st.button("Cancel", key=f"no_arch_{arch_inv_id}", use_container_width=True):
+                                                            st.session_state.pop(confirm_key, None)
+                                                            st.rerun()
+                                                else:
+                                                    if st.button("🗑️ Delete Invoice", key=f"del_arch_{arch_inv_id}", use_container_width=True):
+                                                        st.session_state[confirm_key] = True
+                                                        st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error loading archive: {e}")
             else:
