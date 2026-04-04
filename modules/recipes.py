@@ -95,7 +95,6 @@ def _upload_recipe_photo(
     supabase: Client, recipe_id: str, file_bytes: bytes, mime: str
 ) -> "str | None":
     try:
-        # Compress + resize before upload
         try:
             from PIL import Image
             import io as _io
@@ -106,8 +105,7 @@ def _upload_recipe_photo(
             file_bytes = out.getvalue()
             mime = "image/jpeg"
         except Exception:
-            pass  # fallback: upload as-is if PIL fails
-
+            pass
         ext  = "jpg"
         path = "recipes/" + recipe_id + "." + ext
         supabase.storage.from_("recipe-photos").upload(
@@ -184,6 +182,15 @@ def _generate_recipe_pdf(recipe: dict, lines: list) -> "bytes | None":
             try:
                 req = urllib.request.Request(photo_url, headers={"User-Agent": "Mozilla/5.0"})
                 img_data = urllib.request.urlopen(req, timeout=5).read()
+                try:
+                    from PIL import Image as PImage
+                    pimg = PImage.open(io.BytesIO(img_data))
+                    pimg.thumbnail((900, 600))
+                    pout = io.BytesIO()
+                    pimg.save(pout, format="JPEG", quality=70)
+                    img_data = pout.getvalue()
+                except Exception:
+                    pass
                 img_buffer = io.BytesIO(img_data)
                 page_width = A4[0] - 4*cm
                 img = Image(img_buffer, width=page_width, height=8*cm)
@@ -795,12 +802,10 @@ def _render_new_recipe(
             _render_sub_builder(default_unit)
     else:
         ctr = st.session_state["ing_counter"]
-        # Row 1: ingredient name full width
         ing_name = st.text_input(
             "Ingredient", placeholder="Ingredient name",
             key="ing_name_" + str(ctr), label_visibility="collapsed"
         )
-        # Row 2: qty + unit + buy/produce in one compact row
         col_q, col_u, col_t = st.columns([1.5, 1.5, 2])
         with col_q:
             ing_qty = st.number_input(
@@ -819,7 +824,6 @@ def _render_new_recipe(
                 horizontal=True,
                 key="ing_type_" + str(ctr), label_visibility="collapsed"
             )
-        # Row 3: Add button full width
         add_clicked = st.button(
             "Add", use_container_width=True,
             type="primary", key="ing_add_" + str(ctr)
@@ -872,50 +876,50 @@ def _render_new_recipe(
     if lines:
         st.markdown("---")
         st.caption(str(len(lines)) + " ingredient" + ("s" if len(lines) != 1 else "") + " added")
-        to_delete = None
+        to_delete  = None
+        edit_idx   = None
+
         for idx, line in enumerate(lines):
-            type_tag     = "Produce" if line["is_production"] else "Buy"
+            type_tag     = "🟢" if line["is_production"] else "🔵"
             name_display = line["chef_input"] if line["chef_input"] else "(unnamed)"
-            qty_display  = str(int(line["qty"])) + " " + line["unit"]
-            # compact row: name | qty | tag | [edit] [x]
-            if line["is_production"]:
-                col_name, col_qty, col_tag, col_edit, col_del = st.columns([4, 1.5, 1.5, 1, 0.7])
-            else:
-                col_name, col_qty, col_tag, col_del = st.columns([4, 1.5, 1.5, 0.7])
-            col_name.markdown(name_display)
-            col_qty.caption(qty_display)
-            col_tag.caption(type_tag)
-            if line["is_production"]:
-                with col_edit:
-                    if st.button("Edit", key="edit_line_" + str(idx), use_container_width=True):
-                        temp_id = line.get("_temp_sub_id")
-                        pre_lines = []
-                        if temp_id and temp_id in st.session_state.get("pending_sub_recipes", {}):
-                            pre_lines = [
-                                {
-                                    "name": sl["chef_input"],
-                                    "qty":  sl["qty"],
-                                    "unit": sl["unit"],
-                                }
-                                for sl in st.session_state["pending_sub_recipes"][temp_id]["lines"]
-                            ]
-                        st.session_state["sub_ing_name"]    = line["chef_input"]
-                        st.session_state["sub_ing_qty"]     = line["qty"]
-                        st.session_state["sub_ing_unit"]    = line["unit"]
-                        st.session_state["sub_building"]    = True
-                        st.session_state["sub_editing_idx"] = idx
-                        st.session_state["sub_lines"]       = pre_lines
-                        st.session_state["sub_mat_counter"] = len(pre_lines)
-                        st.session_state["sub_match_pending"] = False
-                        st.rerun()
+            qty_str      = str(int(line["qty"])) + " " + line["unit"]
+            tag_str      = "Produce" if line["is_production"] else "Buy"
+            label = type_tag + " **" + name_display + "** — " + qty_str + " · " + tag_str
+
+            col_info, col_del = st.columns([8, 1])
+            with col_info:
+                st.markdown(label)
+                if line["is_production"] and line.get("batch_qty"):
+                    st.caption("prepare " + str(line["batch_qty"]) + " " + str(line.get("batch_unit", "")))
             with col_del:
                 if st.button("×", key="del_line_" + str(idx), use_container_width=True):
                     to_delete = idx
 
+            if line["is_production"]:
+                if st.button("✏️ Edit sub-recipe", key="edit_line_" + str(idx), use_container_width=True):
+                    edit_idx = idx
+
+            if edit_idx == idx:
+                temp_id   = line.get("_temp_sub_id")
+                pre_lines = []
+                if temp_id and temp_id in st.session_state.get("pending_sub_recipes", {}):
+                    pre_lines = [
+                        {"name": sl["chef_input"], "qty": sl["qty"], "unit": sl["unit"]}
+                        for sl in st.session_state["pending_sub_recipes"][temp_id]["lines"]
+                    ]
+                st.session_state["sub_ing_name"]      = line["chef_input"]
+                st.session_state["sub_ing_qty"]       = line["qty"]
+                st.session_state["sub_ing_unit"]      = line["unit"]
+                st.session_state["sub_building"]      = True
+                st.session_state["sub_editing_idx"]   = idx
+                st.session_state["sub_lines"]         = pre_lines
+                st.session_state["sub_mat_counter"]   = len(pre_lines)
+                st.session_state["sub_match_pending"] = False
+                st.rerun()
+
         if to_delete is not None:
             st.session_state["form_lines"].pop(to_delete)
             st.rerun()
-
     # ── Method ──
     st.markdown("---")
     with st.expander("Method of preparation (optional)"):
