@@ -408,6 +408,22 @@ def render_invoices(conn, sheet_link, user, role):
                         _safe_client = _re.sub(r'[^A-Za-z0-9_-]', '', upload_client.replace(' ', '_'))
                         unique_filename = f"{_safe_client}_{uuid.uuid4().hex[:8]}.{file_ext}"
 
+                        # Compress image before upload (skip PDFs)
+                        if file_mime and file_mime.startswith("image"):
+                            try:
+                                from PIL import Image as _PImage
+                                import io as _io2
+                                _img = _PImage.open(_io2.BytesIO(file_bytes))
+                                _img = _img.convert("RGB")
+                                _img.thumbnail((1200, 1600))  # keep invoice readable
+                                _out = _io2.BytesIO()
+                                _img.save(_out, format="JPEG", quality=80)
+                                file_bytes = _out.getvalue()
+                                file_mime  = "image/jpeg"
+                                unique_filename = f"{_safe_client}_{uuid.uuid4().hex[:8]}.jpg"
+                            except Exception:
+                                pass
+
                         supabase.storage.from_("invoices").upload(path=unique_filename, file=file_bytes, file_options={"content-type": file_mime})
                         image_url = supabase.storage.from_("invoices").get_public_url(unique_filename)
 
