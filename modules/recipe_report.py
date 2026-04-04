@@ -1,9 +1,10 @@
 # modules/recipe_report.py
 """
-Recipe Report Generator
-Reads from ac_recipes, ac_sub_recipes (Auto Calc tables) and the
-Paperless recipes / recipe_lines / recipe_sub_lines tables, then
-produces a luxury PDF report: cover + summary table + per-recipe detail cards.
+Recipe Card Report
+------------------
+Reads ac_recipes + ac_sub_recipes, groups by menu_item,
+renders expandable cards in the UI, and exports a clean
+per-item PDF menu card.
 """
 
 import io
@@ -11,9 +12,6 @@ import streamlit as st
 from datetime import datetime
 from supabase import Client
 
-# ─────────────────────────────────────────────
-# REPORTLAB IMPORTS
-# ─────────────────────────────────────────────
 try:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
@@ -28,10 +26,7 @@ try:
 except ImportError:
     REPORTLAB_OK = False
 
-
-# ─────────────────────────────────────────────
-# BRAND COLOURS
-# ─────────────────────────────────────────────
+# ── Brand colours ─────────────────────────────────────────────────────────────
 EK_DARK   = colors.HexColor("#1B252C")
 EK_SAND   = colors.HexColor("#E3C5AD")
 EK_LIGHT  = colors.HexColor("#F5F0EB")
@@ -39,11 +34,10 @@ EK_MID    = colors.HexColor("#8C7B6E")
 EK_WHITE  = colors.white
 EK_GREY   = colors.HexColor("#D3D1C7")
 EK_ACCENT = colors.HexColor("#C4A882")
+EK_PROD   = colors.HexColor("#2E3D47")   # darker tint for production rows
 
 
-# ─────────────────────────────────────────────
-# SUPABASE HELPERS
-# ─────────────────────────────────────────────
+# ── Supabase helpers ──────────────────────────────────────────────────────────
 
 def _get_client_id(supabase: Client, client_name: str):
     try:
@@ -55,573 +49,128 @@ def _get_client_id(supabase: Client, client_name: str):
         return None
 
 
-def _get_report_dates(supabase: Client, client_id: int, table: str) -> list:
+def _load_data(supabase: Client, client_id: int, report_date: str):
+    """Return (recipes_rows, sub_recipes_rows) as plain lists of dicts."""
     try:
-        res = supabase.table(table).select("report_date").eq(
+        r = supabase.table("ac_recipes").select(
+            "category,item_group,menu_items,product_description,qty,unit,avg_cost,total_cost,sales"
+        ).eq("client_id", client_id).eq("report_date", report_date).execute()
+        recipes = r.data or []
+    except Exception as e:
+        st.error(f"Error loading ac_recipes: {e}")
+        recipes = []
+
+    try:
+        s = supabase.table("ac_sub_recipes").select(
+            "production_name,product_description,qty,unit_name,cost,average_cost,qty_to_prepared,prepared_unit,cost_for_1"
+        ).eq("client_id", client_id).eq("report_date", report_date).execute()
+        subs = s.data or []
+    except Exception as e:
+        st.error(f"Error loading ac_sub_recipes: {e}")
+        subs = []
+
+    return recipes, subs
+
+
+def _get_dates(supabase: Client, client_id: int) -> list:
+    try:
+        res = supabase.table("ac_recipes").select("report_date").eq(
             "client_id", client_id
         ).execute()
-        dates = sorted(
-            {r["report_date"] for r in (res.data or [])}, reverse=True
-        )
-        return dates
+        return sorted({r["report_date"] for r in (res.data or [])}, reverse=True)
     except Exception:
         return []
 
 
-def _get_ac_recipes(supabase: Client, client_id: int, report_date: str) -> list:
-    try:
-        res = supabase.table("ac_recipes").select("*").eq(
-            "client_id", client_id
-        ).eq("report_date", report_date).order("category").order(
-            "menu_items"
-        ).execute()
-        return res.data or []
-    except Exception as e:
-        st.error(f"Error fetching ac_recipes: {e}")
-        return []
-
-
-def _get_ac_sub_recipes(supabase: Client, client_id: int, report_date: str) -> list:
-    try:
-        res = supabase.table("ac_sub_recipes").select("*").eq(
-            "client_id", client_id
-        ).eq("report_date", report_date).order("production_name").execute()
-        return res.data or []
-    except Exception as e:
-        st.error(f"Error fetching ac_sub_recipes: {e}")
-        return []
-
-
-def _get_paperless_recipes(supabase: Client, client_name: str) -> list:
-    """Paperless chef-entered recipes with their lines."""
-    try:
-        res = supabase.table("recipes").select("*").eq(
-            "client_name", client_name
-        ).order("category").order("name").execute()
-        recipes = res.data or []
-        for r in recipes:
-            lines_res = supabase.table("recipe_lines").select("*").eq(
-                "recipe_id", r["id"]
-            ).execute()
-            lines = lines_res.data or []
-            # Fetch sub_lines per line
-            for line in lines:
-                sl_res = supabase.table("recipe_sub_lines").select("*").eq(
-                    "parent_line_id", line["id"]
-                ).execute()
-                line["sub_lines_data"] = sl_res.data or []
-            r["lines"] = lines
-        return recipes
-    except Exception as e:
-        st.error(f"Error fetching Paperless recipes: {e}")
-        return []
-
-
-# ─────────────────────────────────────────────
-# PDF STYLES
-# ─────────────────────────────────────────────
-
-def _make_styles():
-    return {
-        "cover_brand": ParagraphStyle(
-            "cover_brand", fontSize=11, textColor=EK_SAND,
-            fontName="Helvetica", spaceAfter=4, alignment=TA_CENTER,
-            letterSpacing=3
-        ),
-        "cover_title": ParagraphStyle(
-            "cover_title", fontSize=32, textColor=EK_WHITE,
-            fontName="Helvetica-Bold", spaceAfter=8, alignment=TA_CENTER,
-            leading=38
-        ),
-        "cover_sub": ParagraphStyle(
-            "cover_sub", fontSize=13, textColor=EK_SAND,
-            fontName="Helvetica", alignment=TA_CENTER, spaceAfter=4
-        ),
-        "cover_meta": ParagraphStyle(
-            "cover_meta", fontSize=9, textColor=EK_MID,
-            fontName="Helvetica", alignment=TA_CENTER
-        ),
-        "section_header": ParagraphStyle(
-            "section_header", fontSize=14, textColor=EK_DARK,
-            fontName="Helvetica-Bold", spaceBefore=16, spaceAfter=8,
-            letterSpacing=1
-        ),
-        "card_title": ParagraphStyle(
-            "card_title", fontSize=13, textColor=EK_DARK,
-            fontName="Helvetica-Bold", spaceAfter=2
-        ),
-        "card_meta": ParagraphStyle(
-            "card_meta", fontSize=9, textColor=EK_MID,
-            fontName="Helvetica", spaceAfter=6
-        ),
-        "table_header": ParagraphStyle(
-            "table_header", fontSize=8, textColor=EK_WHITE,
-            fontName="Helvetica-Bold", alignment=TA_CENTER
-        ),
-        "table_cell": ParagraphStyle(
-            "table_cell", fontSize=8, textColor=EK_DARK,
-            fontName="Helvetica"
-        ),
-        "table_cell_r": ParagraphStyle(
-            "table_cell_r", fontSize=8, textColor=EK_DARK,
-            fontName="Helvetica", alignment=TA_RIGHT
-        ),
-        "kpi_label": ParagraphStyle(
-            "kpi_label", fontSize=7, textColor=EK_MID,
-            fontName="Helvetica", alignment=TA_CENTER
-        ),
-        "kpi_value": ParagraphStyle(
-            "kpi_value", fontSize=13, textColor=EK_DARK,
-            fontName="Helvetica-Bold", alignment=TA_CENTER
-        ),
-        "method_body": ParagraphStyle(
-            "method_body", fontSize=9, textColor=EK_DARK,
-            fontName="Helvetica", leading=15
-        ),
-        "footer": ParagraphStyle(
-            "footer", fontSize=7, textColor=EK_MID,
-            fontName="Helvetica", alignment=TA_CENTER
-        ),
-        "sub_label": ParagraphStyle(
-            "sub_label", fontSize=7, textColor=EK_MID,
-            fontName="Helvetica-Oblique"
-        ),
-    }
-
-
-# ─────────────────────────────────────────────
-# COVER PAGE
-# ─────────────────────────────────────────────
-
-def _cover_page(story, client_name: str, report_date: str, styles: dict,
-                total_recipes: int, total_sub_recipes: int):
-    # Dark full-page feel via a tall coloured table
-    cover_data = [[""]]
-    cover_tbl = Table(cover_data, colWidths=[17*cm], rowHeights=[3*cm])
-    cover_tbl.setStyle(TableStyle([
-        ("BACKGROUND", (0,0), (-1,-1), EK_DARK),
-        ("GRID",       (0,0), (-1,-1), 0, EK_DARK),
-    ]))
-    story.append(cover_tbl)
-    story.append(Spacer(1, 1.5*cm))
-
-    story.append(Paragraph("EK CONSULTING", styles["cover_brand"]))
-    story.append(Spacer(1, 0.4*cm))
-    story.append(HRFlowable(width="60%", thickness=1.5, color=EK_SAND,
-                             hAlign="CENTER"))
-    story.append(Spacer(1, 0.6*cm))
-    story.append(Paragraph("Recipe &amp; Cost Report", styles["cover_title"]))
-    story.append(Spacer(1, 0.3*cm))
-    story.append(Paragraph(client_name.upper(), styles["cover_sub"]))
-    story.append(Spacer(1, 0.2*cm))
-
-    try:
-        d = datetime.strptime(report_date, "%Y-%m-%d")
-        date_str = d.strftime("%B %Y")
-    except Exception:
-        date_str = report_date
-    story.append(Paragraph(date_str, styles["cover_meta"]))
-    story.append(Spacer(1, 1.5*cm))
-    story.append(HRFlowable(width="40%", thickness=0.5, color=EK_GREY,
-                             hAlign="CENTER"))
-    story.append(Spacer(1, 1*cm))
-
-    # KPI boxes
-    kpi_data = [[
-        Paragraph("MENU ITEMS", styles["kpi_label"]),
-        Paragraph("SUB-RECIPES", styles["kpi_label"]),
-        Paragraph("GENERATED", styles["kpi_label"]),
-    ],[
-        Paragraph(str(total_recipes), styles["kpi_value"]),
-        Paragraph(str(total_sub_recipes), styles["kpi_value"]),
-        Paragraph(datetime.now().strftime("%d %b %Y"), styles["kpi_value"]),
-    ]]
-    kpi_tbl = Table(kpi_data, colWidths=[5.5*cm, 5.5*cm, 5.5*cm])
-    kpi_tbl.setStyle(TableStyle([
-        ("BACKGROUND",  (0,0), (-1,-1), EK_LIGHT),
-        ("TOPPADDING",  (0,0), (-1,-1), 10),
-        ("BOTTOMPADDING",(0,0),(-1,-1), 10),
-        ("GRID",        (0,0), (-1,-1), 0.5, EK_GREY),
-        ("ROUNDEDCORNERS", [4]),
-    ]))
-    story.append(kpi_tbl)
-    story.append(PageBreak())
-
-
-# ─────────────────────────────────────────────
-# SUMMARY TABLE  — ac_recipes
-# ─────────────────────────────────────────────
-
-def _summary_table(story, recipes: list, styles: dict):
-    if not recipes:
-        return
-
-    story.append(Paragraph("Menu Items — Cost Summary", styles["section_header"]))
-    story.append(HRFlowable(width="100%", thickness=1, color=EK_SAND,
-                             spaceAfter=8))
-
-    headers = ["Category", "Menu Item", "Description", "Qty", "Unit",
-               "Avg Cost", "Total Cost", "Sales"]
-    col_w   = [2.5*cm, 4*cm, 3.5*cm, 1.2*cm, 1.2*cm, 2*cm, 2*cm, 2*cm]
-
-    header_row = [Paragraph(h, styles["table_header"]) for h in headers]
-    rows = [header_row]
-
-    current_cat = None
-    for r in recipes:
-        cat = r.get("category") or "—"
-        if cat != current_cat:
-            current_cat = cat
-
-        def _p(val, right=False):
-            s = styles["table_cell_r"] if right else styles["table_cell"]
-            return Paragraph(str(val) if val is not None else "—", s)
-
-        avg_cost   = r.get("avg_cost")
-        total_cost = r.get("total_cost")
-        sales      = r.get("sales")
-
-        rows.append([
-            _p(cat),
-            _p(r.get("menu_items") or "—"),
-            _p(r.get("product_description") or "—"),
-            _p(r.get("qty") or "—", right=True),
-            _p(r.get("unit") or "—"),
-            _p(f"${avg_cost:,.3f}"   if avg_cost   is not None else "—", right=True),
-            _p(f"${total_cost:,.2f}" if total_cost is not None else "—", right=True),
-            _p(f"${sales:,.2f}"      if sales      is not None else "—", right=True),
-        ])
-
-    tbl = Table(rows, colWidths=col_w, repeatRows=1)
-    tbl.setStyle(TableStyle([
-        ("BACKGROUND",     (0,0), (-1,0),  EK_DARK),
-        ("TEXTCOLOR",      (0,0), (-1,0),  EK_WHITE),
-        ("ROWBACKGROUNDS", (0,1), (-1,-1), [EK_WHITE, EK_LIGHT]),
-        ("GRID",           (0,0), (-1,-1), 0.3, EK_GREY),
-        ("FONTSIZE",       (0,0), (-1,-1), 8),
-        ("LEFTPADDING",    (0,0), (-1,-1), 5),
-        ("RIGHTPADDING",   (0,0), (-1,-1), 5),
-        ("TOPPADDING",     (0,0), (-1,-1), 4),
-        ("BOTTOMPADDING",  (0,0), (-1,-1), 4),
-        ("VALIGN",         (0,0), (-1,-1), "MIDDLE"),
-    ]))
-    story.append(tbl)
-    story.append(PageBreak())
-
-
-# ─────────────────────────────────────────────
-# SUB-RECIPE SUMMARY TABLE
-# ─────────────────────────────────────────────
-
-def _sub_recipe_summary(story, sub_recipes: list, styles: dict):
-    if not sub_recipes:
-        return
-
-    story.append(Paragraph("Sub-Recipes — Production Summary", styles["section_header"]))
-    story.append(HRFlowable(width="100%", thickness=1, color=EK_SAND,
-                             spaceAfter=8))
-
-    headers = ["Production Name", "Description", "Qty to Prep", "Prep Unit",
-               "Cost / 1", "Avg Cost", "Total Prd", "Sales"]
-    col_w   = [3.5*cm, 3*cm, 1.8*cm, 1.8*cm, 2*cm, 2*cm, 2*cm, 2.4*cm]
-
-    header_row = [Paragraph(h, styles["table_header"]) for h in headers]
-    rows = [header_row]
-
-    for r in sub_recipes:
-        def _p(val, right=False):
-            s = styles["table_cell_r"] if right else styles["table_cell"]
-            return Paragraph(str(val) if val is not None else "—", s)
-
-        cost1   = r.get("cost_for_1")
-        avg_c   = r.get("average_cost")
-        tot_prd = r.get("total_prd")
-        sales   = r.get("sales")
-
-        rows.append([
-            _p(r.get("production_name") or "—"),
-            _p(r.get("product_description") or "—"),
-            _p(r.get("qty_to_prepared") or "—", right=True),
-            _p(r.get("prepared_unit") or "—"),
-            _p(f"${cost1:,.3f}"   if cost1   is not None else "—", right=True),
-            _p(f"${avg_c:,.3f}"   if avg_c   is not None else "—", right=True),
-            _p(f"{tot_prd:,.2f}"  if tot_prd is not None else "—", right=True),
-            _p(f"{sales:,.2f}"    if sales   is not None else "—", right=True),
-        ])
-
-    tbl = Table(rows, colWidths=col_w, repeatRows=1)
-    tbl.setStyle(TableStyle([
-        ("BACKGROUND",     (0,0), (-1,0),  EK_DARK),
-        ("TEXTCOLOR",      (0,0), (-1,0),  EK_WHITE),
-        ("ROWBACKGROUNDS", (0,1), (-1,-1), [EK_WHITE, EK_LIGHT]),
-        ("GRID",           (0,0), (-1,-1), 0.3, EK_GREY),
-        ("FONTSIZE",       (0,0), (-1,-1), 8),
-        ("LEFTPADDING",    (0,0), (-1,-1), 5),
-        ("RIGHTPADDING",   (0,0), (-1,-1), 5),
-        ("TOPPADDING",     (0,0), (-1,-1), 4),
-        ("BOTTOMPADDING",  (0,0), (-1,-1), 4),
-        ("VALIGN",         (0,0), (-1,-1), "MIDDLE"),
-    ]))
-    story.append(tbl)
-    story.append(PageBreak())
-
-
-# ─────────────────────────────────────────────
-# DETAIL CARDS — Paperless recipes
-# ─────────────────────────────────────────────
-
-def _recipe_detail_cards(story, recipes: list, styles: dict):
-    if not recipes:
-        return
-
-    story.append(Paragraph("Recipe Detail Cards", styles["section_header"]))
-    story.append(HRFlowable(width="100%", thickness=1, color=EK_SAND,
-                             spaceAfter=12))
-
-    # Group by category
-    from collections import defaultdict
-    by_cat = defaultdict(list)
-    for r in recipes:
-        by_cat[r.get("category", "Other")].append(r)
-
-    for cat, cat_recipes in by_cat.items():
-        # Category divider
-        cat_tbl = Table([[Paragraph(cat.upper(), ParagraphStyle(
-            "ch", fontSize=9, textColor=EK_WHITE, fontName="Helvetica-Bold",
-            leftIndent=6
-        ))]],
-            colWidths=[17*cm], rowHeights=[0.6*cm]
-        )
-        cat_tbl.setStyle(TableStyle([
-            ("BACKGROUND",   (0,0), (-1,-1), EK_ACCENT),
-            ("VALIGN",       (0,0), (-1,-1), "MIDDLE"),
-            ("LEFTPADDING",  (0,0), (-1,-1), 8),
-            ("BOTTOMPADDING",(0,0), (-1,-1), 4),
-            ("TOPPADDING",   (0,0), (-1,-1), 4),
-        ]))
-        story.append(cat_tbl)
-        story.append(Spacer(1, 0.3*cm))
-
-        for recipe in cat_recipes:
-            _single_recipe_card(story, recipe, styles)
-
-    story.append(PageBreak())
-
-
-def _single_recipe_card(story, recipe: dict, styles: dict):
-    elements = []
-
-    # Header bar
-    portions   = recipe.get("portions", 1)
-    yield_unit = recipe.get("yield_unit") or "portion"
-    cost_pp    = recipe.get("cost_per_portion")
-    meta_parts = [
-        f"{portions} {yield_unit}",
-        recipe.get("category", ""),
-    ]
-    if cost_pp:
-        meta_parts.append(f"Cost: ${cost_pp:.3f}/portion")
-
-    name_bar_data = [[
-        Paragraph(recipe.get("name", "—"), styles["card_title"]),
-        Paragraph(" · ".join(p for p in meta_parts if p), styles["card_meta"]),
-    ]]
-    name_bar = Table(name_bar_data, colWidths=[9*cm, 8*cm])
-    name_bar.setStyle(TableStyle([
-        ("VALIGN",       (0,0), (-1,-1), "BOTTOM"),
-        ("LEFTPADDING",  (0,0), (-1,-1), 0),
-        ("RIGHTPADDING", (0,0), (-1,-1), 0),
-        ("TOPPADDING",   (0,0), (-1,-1), 0),
-        ("BOTTOMPADDING",(0,0), (-1,-1), 2),
-    ]))
-    elements.append(name_bar)
-    elements.append(HRFlowable(width="100%", thickness=0.5, color=EK_GREY,
-                                spaceAfter=6))
-
-    # Ingredient table
-    lines = recipe.get("lines", [])
-    if lines:
-        ing_headers = ["#", "Ingredient", "Qty", "Unit", "Type", "Sub-lines"]
-        ing_col_w   = [0.8*cm, 5.5*cm, 1.5*cm, 1.5*cm, 2*cm, 5.7*cm]
-
-        ing_rows = [[Paragraph(h, styles["table_header"]) for h in ing_headers]]
-        for i, line in enumerate(lines, 1):
-            display = (
-                line.get("ai_resolved") or
-                line.get("chef_input") or
-                line.get("item_name") or "—"
-            )
-            qty  = line.get("qty", "")
-            unit = line.get("unit", "")
-            typ  = "Production" if line.get("is_production") else "Purchase"
-
-            # Sub-lines summary
-            sub_lines = line.get("sub_lines_data", [])
-            if sub_lines:
-                sub_text = ", ".join(
-                    f"{sl.get('chef_input','?')} {sl.get('qty','')} {sl.get('unit','')}"
-                    for sl in sub_lines
-                )
-            elif line.get("sub_lines"):
-                # JSONB fallback
-                import json
-                try:
-                    sl_data = line["sub_lines"]
-                    if isinstance(sl_data, str):
-                        sl_data = json.loads(sl_data)
-                    sub_text = ", ".join(
-                        f"{sl.get('chef_input','?')} {sl.get('qty','')} {sl.get('unit','')}"
-                        for sl in (sl_data or [])
-                    )
-                except Exception:
-                    sub_text = "—"
-            else:
-                sub_text = "—"
-
-            ing_rows.append([
-                Paragraph(str(i), styles["table_cell"]),
-                Paragraph(display, styles["table_cell"]),
-                Paragraph(str(qty) if qty else "—", styles["table_cell_r"]),
-                Paragraph(unit or "—", styles["table_cell"]),
-                Paragraph(typ, styles["table_cell"]),
-                Paragraph(sub_text, styles["sub_label"]),
-            ])
-
-        ing_tbl = Table(ing_rows, colWidths=ing_col_w, repeatRows=1)
-        ing_tbl.setStyle(TableStyle([
-            ("BACKGROUND",     (0,0), (-1,0),  EK_DARK),
-            ("TEXTCOLOR",      (0,0), (-1,0),  EK_WHITE),
-            ("ROWBACKGROUNDS", (0,1), (-1,-1), [EK_WHITE, EK_LIGHT]),
-            ("GRID",           (0,0), (-1,-1), 0.3, EK_GREY),
-            ("FONTSIZE",       (0,0), (-1,-1), 8),
-            ("LEFTPADDING",    (0,0), (-1,-1), 4),
-            ("RIGHTPADDING",   (0,0), (-1,-1), 4),
-            ("TOPPADDING",     (0,0), (-1,-1), 3),
-            ("BOTTOMPADDING",  (0,0), (-1,-1), 3),
-            ("VALIGN",         (0,0), (-1,-1), "MIDDLE"),
-        ]))
-        elements.append(ing_tbl)
-
-    # Method
-    method = recipe.get("method", "")
-    if method:
-        elements.append(Spacer(1, 0.25*cm))
-        elements.append(Paragraph("Method of Preparation", ParagraphStyle(
-            "mh", fontSize=8, textColor=EK_MID, fontName="Helvetica-Bold",
-            spaceBefore=4, spaceAfter=2
-        )))
-        for ln in method.split("\n"):
-            if ln.strip():
-                elements.append(Paragraph(ln.strip(), styles["method_body"]))
-
-    elements.append(Spacer(1, 0.5*cm))
-    story.append(KeepTogether(elements))
-
-
-# ─────────────────────────────────────────────
-# FOOTER CALLBACK
-# ─────────────────────────────────────────────
-
-def _add_footer(canvas, doc):
-    canvas.saveState()
-    w, h = A4
-    canvas.setFont("Helvetica", 7)
-    canvas.setFillColor(EK_MID)
-    canvas.drawCentredString(
-        w / 2, 1.2*cm,
-        f"EK Consulting · ek-consulting.co · Confidential"
-    )
-    canvas.drawRightString(
-        w - 2*cm, 1.2*cm,
-        f"Page {doc.page}"
-    )
-    canvas.setStrokeColor(EK_GREY)
-    canvas.setLineWidth(0.5)
-    canvas.line(2*cm, 1.5*cm, w - 2*cm, 1.5*cm)
-    canvas.restoreState()
-
-
-# ─────────────────────────────────────────────
-# MASTER PDF BUILDER
-# ─────────────────────────────────────────────
-
-def generate_recipe_report_pdf(
-    client_name:   str,
-    report_date:   str,
-    ac_recipes:    list,
-    ac_sub_recipes: list,
-    paperless_recipes: list,
-) -> "bytes | None":
-    if not REPORTLAB_OK:
-        st.error("reportlab not installed. Add it to requirements.txt.")
-        return None
-
-    try:
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(
-            buffer, pagesize=A4,
-            leftMargin=2*cm, rightMargin=2*cm,
-            topMargin=2*cm, bottomMargin=2.2*cm,
-        )
-        styles = _make_styles()
-        story  = []
-
-        _cover_page(
-            story, client_name, report_date, styles,
-            total_recipes=len(ac_recipes),
-            total_sub_recipes=len(ac_sub_recipes),
-        )
-        _summary_table(story, ac_recipes, styles)
-        _sub_recipe_summary(story, ac_sub_recipes, styles)
-        _recipe_detail_cards(story, paperless_recipes, styles)
-
-        # Final footer page
-        story.append(Spacer(1, 2*cm))
-        story.append(HRFlowable(width="40%", thickness=1, color=EK_SAND,
-                                 hAlign="CENTER"))
-        story.append(Spacer(1, 0.5*cm))
-        story.append(Paragraph(
-            f"End of Report · {client_name} · {report_date}",
-            styles["footer"]
-        ))
-
-        doc.build(story, onFirstPage=_add_footer, onLaterPages=_add_footer)
-        buffer.seek(0)
-        return buffer.read()
-
-    except Exception as e:
-        st.error(f"PDF generation error: {e}")
-        return None
-
-
-# ─────────────────────────────────────────────
-# STREAMLIT UI
-# ─────────────────────────────────────────────
+# ── Data builder ──────────────────────────────────────────────────────────────
+
+def _build_cards(recipes: list, subs: list) -> dict:
+    """
+    Returns:
+        {
+          category: {
+            item_group: [
+              {
+                name, total_cost, sales,
+                ingredients: [
+                  { name, qty, unit, avg_cost, total_cost,
+                    is_production, sub_ingredients: [...] }
+                ]
+              }
+            ]
+          }
+        }
+    """
+    # Build production lookup: production_name → [sub-ingredient rows]
+    prod_lookup: dict[str, list] = {}
+    for row in subs:
+        pn = row.get("production_name") or ""
+        prod_lookup.setdefault(pn, []).append(row)
+
+    # Group ac_recipes rows by menu_item
+    dishes: dict[str, dict] = {}
+    for row in recipes:
+        name = row.get("menu_items") or "Unknown"
+        if name not in dishes:
+            dishes[name] = {
+                "name":       name,
+                "category":   row.get("category") or "",
+                "item_group": row.get("item_group") or "",
+                "sales":      row.get("sales"),
+                "total_cost": 0.0,
+                "ingredients": [],
+            }
+        desc        = row.get("product_description") or ""
+        is_prod     = desc.endswith(("Prdk", "Prdb"))
+        tc          = row.get("total_cost") or 0
+        dishes[name]["total_cost"] += tc
+        dishes[name]["ingredients"].append({
+            "name":         desc,
+            "qty":          row.get("qty"),
+            "unit":         row.get("unit") or "",
+            "avg_cost":     row.get("avg_cost"),
+            "total_cost":   tc,
+            "is_production": is_prod,
+            "sub_ingredients": prod_lookup.get(desc, []) if is_prod else [],
+        })
+
+    # Nest into category → item_group
+    tree: dict[str, dict] = {}
+    for dish in dishes.values():
+        cat   = dish["category"] or "Other"
+        group = dish["item_group"] or "Other"
+        tree.setdefault(cat, {}).setdefault(group, []).append(dish)
+
+    # Sort
+    for cat in tree:
+        for group in tree[cat]:
+            tree[cat][group].sort(key=lambda d: d["name"])
+
+    return tree
+
+
+# ── Streamlit UI ──────────────────────────────────────────────────────────────
 
 def render_recipe_report(supabase: Client, user: str, role: str):
     session_client = st.session_state.get("client_name", "All")
 
-    st.markdown("### Recipe Report Generator")
-    st.caption(
-        "Combines Auto Calc costing data with Paperless recipe cards "
-        "into a single luxury PDF report."
-    )
+    st.markdown("### 🍽️ Recipe Cards")
+    st.caption("Menu item cards with ingredients and production details from Auto Calc.")
 
     if not REPORTLAB_OK:
-        st.error("reportlab is required. Add `reportlab` to requirements.txt.")
-        return
+        st.warning("reportlab not installed — PDF export unavailable. Add it to requirements.txt.")
 
-    # Admins see a client selector; outlet users use their assigned client
+    # Client selector for admins
     if role in ("admin", "admin_all") or session_client.lower() in ("all", "", "none"):
         try:
-            clients_res = supabase.table("clients").select("client_name").order("client_name").execute()
-            clients_list = [r["client_name"] for r in (clients_res.data or []) if r.get("client_name")]
+            cl_res = supabase.table("clients").select("client_name").order("client_name").execute()
+            cl_list = [r["client_name"] for r in (cl_res.data or []) if r.get("client_name")]
         except Exception:
-            clients_list = []
-        if not clients_list:
-            st.warning("No clients found in the clients table.")
+            cl_list = []
+        if not cl_list:
+            st.warning("No clients found.")
             return
-        client_name = st.selectbox("🏢 Select Client", clients_list, key="rr_client")
+        client_name = st.selectbox("🏢 Client", cl_list, key="rr_client")
     else:
         client_name = session_client
 
@@ -630,91 +179,468 @@ def render_recipe_report(supabase: Client, user: str, role: str):
         st.warning(f"Client **{client_name}** not found in clients table.")
         return
 
-    # ── Date selector ────────────────────────────────────
-    st.markdown("#### Report period")
-    ac_dates  = _get_report_dates(supabase, client_id, "ac_recipes")
-    sub_dates = _get_report_dates(supabase, client_id, "ac_sub_recipes")
-    all_dates = sorted(set(ac_dates + sub_dates), reverse=True)
-
-    if not all_dates:
-        st.info(
-            "No Auto Calc data found for this client. "
-            "Push data via the Auto Calc Reader first."
-        )
+    # Date selector
+    dates = _get_dates(supabase, client_id)
+    if not dates:
+        st.info("No Auto Calc data found for this client. Push data via Auto Calc tab first.")
         return
 
     selected_date = st.selectbox(
-        "Select report month",
-        all_dates,
-        format_func=lambda d: (
-            datetime.strptime(d, "%Y-%m-%d").strftime("%B %Y")
-            if d else d
-        ),
+        "📅 Report month", dates,
+        format_func=lambda d: datetime.strptime(d, "%Y-%m-%d").strftime("%B %Y") if d else d,
         key="rr_date",
     )
 
-    # ── Section toggles ──────────────────────────────────
-    st.markdown("#### Include sections")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        inc_menu = st.toggle("Menu items summary", value=True, key="rr_menu")
-    with c2:
-        inc_sub  = st.toggle("Sub-recipes summary", value=True, key="rr_sub")
-    with c3:
-        inc_cards = st.toggle("Recipe detail cards", value=True, key="rr_cards")
+    # Options row
+    col_opt1, col_opt2, col_opt3 = st.columns(3)
+    with col_opt1:
+        show_cost = st.toggle("💰 Show cost", value=False, key="rr_show_cost")
+    with col_opt2:
+        filter_cat = st.selectbox("Filter category", ["All"], key="rr_filter_cat")
+    with col_opt3:
+        search = st.text_input("🔍 Search item", placeholder="e.g. Risotto", key="rr_search").strip().lower()
 
-    # ── Preview counts ───────────────────────────────────
-    if selected_date:
-        with st.spinner("Loading data…"):
-            ac_recipes_data    = _get_ac_recipes(supabase, client_id, selected_date) if inc_menu  else []
-            ac_sub_data        = _get_ac_sub_recipes(supabase, client_id, selected_date) if inc_sub else []
-            paperless_data     = _get_paperless_recipes(supabase, client_name) if inc_cards else []
+    # Load data
+    with st.spinner("Loading…"):
+        recipes, subs = _load_data(supabase, client_id, selected_date)
 
-        if ac_recipes_data or ac_sub_data or paperless_data:
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Menu items",   len(ac_recipes_data))
-            m2.metric("Sub-recipes",  len(ac_sub_data))
-            m3.metric("Recipe cards", len(paperless_data))
-        else:
-            st.warning("No data found for the selected period and sections.")
+    if not recipes:
+        st.warning("No recipe data found for this period.")
+        return
 
-        # ── Generate button ──────────────────────────────
-        st.markdown("")
-        if st.button(
-            "Generate PDF Report",
-            type="primary",
-            use_container_width=True,
-            key="rr_generate",
-        ):
-            if not (ac_recipes_data or ac_sub_data or paperless_data):
-                st.error("Nothing to generate — no data available.")
-                return
+    tree = _build_cards(recipes, subs)
 
-            with st.spinner("Building PDF…"):
-                pdf_bytes = generate_recipe_report_pdf(
-                    client_name        = client_name,
-                    report_date        = selected_date,
-                    ac_recipes         = ac_recipes_data if inc_menu  else [],
-                    ac_sub_recipes     = ac_sub_data     if inc_sub   else [],
-                    paperless_recipes  = paperless_data  if inc_cards else [],
-                )
+    # Update category filter options dynamically
+    all_cats = ["All"] + sorted(tree.keys())
+    # Re-render selectbox with real options (Streamlit limitation — just filter in logic)
+    selected_cat = st.session_state.get("rr_filter_cat", "All")
 
-            if pdf_bytes:
-                try:
-                    d = datetime.strptime(selected_date, "%Y-%m-%d")
-                    fname = (
-                        f"Recipe_Report_{client_name.replace(' ','_')}"
-                        f"_{d.strftime('%b_%Y')}.pdf"
+    st.divider()
+
+    total_dishes = sum(len(dishes) for cat in tree.values() for dishes in cat.values())
+    st.caption(f"**{total_dishes} menu items** · {len(subs and {r.get('production_name') for r in subs} or [])} productions")
+
+    # ── Render cards ──────────────────────────────────────────────────────────
+    for cat, groups in sorted(tree.items()):
+        if selected_cat not in ("All", cat):
+            continue
+
+        # Category header
+        st.markdown(
+            f"<div style='background:linear-gradient(135deg,#1B252C,#2E3D47);"
+            f"border-radius:10px;padding:10px 16px;margin:16px 0 8px;'>"
+            f"<span style='color:#E3C5AD;font-size:13px;font-weight:700;"
+            f"letter-spacing:0.08em;'>{cat.upper()}</span></div>",
+            unsafe_allow_html=True,
+        )
+
+        for group, dishes in sorted(groups.items()):
+            # Item group sub-header
+            st.markdown(
+                f"<div style='color:#8C7B6E;font-size:11px;font-weight:600;"
+                f"letter-spacing:0.06em;text-transform:uppercase;"
+                f"margin:4px 0 4px 4px;'>{group}</div>",
+                unsafe_allow_html=True,
+            )
+
+            for dish in dishes:
+                # Search filter
+                if search and search not in dish["name"].lower():
+                    continue
+
+                _render_card(dish, show_cost)
+
+    # ── Export button ─────────────────────────────────────────────────────────
+    if REPORTLAB_OK:
+        st.divider()
+        col_exp1, col_exp2 = st.columns([3, 1])
+        with col_exp2:
+            export_cost = st.toggle("Include cost in PDF", value=False, key="rr_pdf_cost")
+        with col_exp1:
+            if st.button("📄 Export PDF Menu Cards", type="primary",
+                         use_container_width=True, key="rr_export"):
+                with st.spinner("Building PDF…"):
+                    pdf = _build_pdf(tree, client_name, selected_date, export_cost)
+                if pdf:
+                    try:
+                        d = datetime.strptime(selected_date, "%Y-%m-%d")
+                        fname = f"RecipeCards_{client_name.replace(' ','_')}_{d.strftime('%b_%Y')}.pdf"
+                    except Exception:
+                        fname = f"RecipeCards_{client_name}.pdf"
+                    st.success("PDF ready!")
+                    st.download_button(
+                        "⬇️ Download PDF",
+                        data=pdf, file_name=fname,
+                        mime="application/pdf",
+                        use_container_width=True,
+                        key="rr_dl",
                     )
-                except Exception:
-                    fname = f"Recipe_Report_{client_name}.pdf"
 
-                st.success("Report ready!")
-                st.download_button(
-                    label="Download PDF",
-                    data=pdf_bytes,
-                    file_name=fname,
-                    mime="application/pdf",
-                    use_container_width=True,
-                    key="rr_download",
+
+def _render_card(dish: dict, show_cost: bool):
+    """Render a single dish as a Streamlit expander card."""
+    total = dish["total_cost"]
+    label_parts = [dish["name"]]
+    if show_cost and total:
+        label_parts.append(f"  —  ${total:,.3f}")
+
+    with st.expander(dish["name"] + (f"  ·  ${total:,.3f}" if show_cost and total else ""),
+                     expanded=False):
+
+        ings     = dish["ingredients"]
+        has_prod = any(i["is_production"] for i in ings)
+
+        # Ingredient table header
+        cols = ["**Ingredient**", "**Qty**", "**Unit**"]
+        if show_cost:
+            cols += ["**Avg Cost**", "**Total Cost**"]
+
+        col_widths = [4, 1, 1] + ([1.5, 1.5] if show_cost else [])
+        header_cols = st.columns(col_widths)
+        for hc, label in zip(header_cols, cols):
+            hc.markdown(label)
+
+        st.markdown("<hr style='margin:4px 0;border-color:rgba(227,197,173,0.2);'>",
+                    unsafe_allow_html=True)
+
+        for ing in ings:
+            row_cols = st.columns(col_widths)
+            name_display = ing["name"]
+
+            if ing["is_production"]:
+                row_cols[0].markdown(
+                    f"<span style='color:#E3C5AD;font-weight:600;'>⚙️ {name_display}</span>",
+                    unsafe_allow_html=True,
                 )
+            else:
+                row_cols[0].markdown(name_display)
+
+            row_cols[1].markdown(
+                f"{ing['qty']:g}" if ing["qty"] is not None else "—"
+            )
+            row_cols[2].markdown(ing["unit"] or "—")
+
+            if show_cost:
+                ac = ing["avg_cost"]
+                tc = ing["total_cost"]
+                row_cols[3].markdown(f"${ac:,.4f}" if ac is not None else "—")
+                row_cols[4].markdown(f"${tc:,.3f}" if tc is not None else "—")
+
+            # Sub-ingredients (production)
+            if ing["is_production"] and ing["sub_ingredients"]:
+                for sub in ing["sub_ingredients"]:
+                    sub_cols = st.columns(col_widths)
+                    sub_cols[0].markdown(
+                        f"<span style='color:#8C7B6E;font-size:12px;padding-left:24px;'>"
+                        f"↳ {sub.get('product_description','')}</span>",
+                        unsafe_allow_html=True,
+                    )
+                    sq = sub.get("qty")
+                    sub_cols[1].markdown(
+                        f"<span style='color:#8C7B6E;font-size:12px;'>{sq:g}</span>"
+                        if sq is not None else "—",
+                        unsafe_allow_html=True,
+                    )
+                    sub_cols[2].markdown(
+                        f"<span style='color:#8C7B6E;font-size:12px;'>{sub.get('unit_name','')}</span>",
+                        unsafe_allow_html=True,
+                    )
+                    if show_cost:
+                        sac = sub.get("average_cost")
+                        sub_cols[3].markdown(
+                            f"<span style='color:#8C7B6E;font-size:12px;'>${sac:,.4f}</span>"
+                            if sac is not None else "—",
+                            unsafe_allow_html=True,
+                        )
+                        sub_cols[4].markdown("—")
+
+                st.markdown(
+                    "<div style='height:4px;'></div>",
+                    unsafe_allow_html=True,
+                )
+
+        if show_cost and total:
+            st.markdown(
+                f"<div style='text-align:right;color:#E3C5AD;font-size:12px;"
+                f"font-weight:600;margin-top:6px;'>Total cost: ${total:,.3f}</div>",
+                unsafe_allow_html=True,
+            )
+
+
+# ── PDF Builder ───────────────────────────────────────────────────────────────
+
+def _make_styles():
+    return {
+        "cover_brand": ParagraphStyle(
+            "cover_brand", fontSize=10, textColor=EK_SAND,
+            fontName="Helvetica", alignment=TA_CENTER, letterSpacing=3, spaceAfter=4,
+        ),
+        "cover_title": ParagraphStyle(
+            "cover_title", fontSize=28, textColor=EK_WHITE,
+            fontName="Helvetica-Bold", alignment=TA_CENTER, leading=34, spaceAfter=6,
+        ),
+        "cover_sub": ParagraphStyle(
+            "cover_sub", fontSize=12, textColor=EK_SAND,
+            fontName="Helvetica", alignment=TA_CENTER, spaceAfter=4,
+        ),
+        "cover_meta": ParagraphStyle(
+            "cover_meta", fontSize=9, textColor=EK_MID,
+            fontName="Helvetica", alignment=TA_CENTER,
+        ),
+        "cat_header": ParagraphStyle(
+            "cat_header", fontSize=12, textColor=EK_WHITE,
+            fontName="Helvetica-Bold", letterSpacing=1,
+        ),
+        "group_header": ParagraphStyle(
+            "group_header", fontSize=9, textColor=EK_MID,
+            fontName="Helvetica-Bold", letterSpacing=0.5, spaceBefore=8, spaceAfter=4,
+        ),
+        "dish_name": ParagraphStyle(
+            "dish_name", fontSize=13, textColor=EK_DARK,
+            fontName="Helvetica-Bold", spaceAfter=2,
+        ),
+        "dish_meta": ParagraphStyle(
+            "dish_meta", fontSize=8, textColor=EK_MID,
+            fontName="Helvetica", spaceAfter=6,
+        ),
+        "ing_name": ParagraphStyle(
+            "ing_name", fontSize=8, textColor=EK_DARK, fontName="Helvetica",
+        ),
+        "ing_prod": ParagraphStyle(
+            "ing_prod", fontSize=8, textColor=EK_SAND, fontName="Helvetica-Bold",
+        ),
+        "ing_sub": ParagraphStyle(
+            "ing_sub", fontSize=7, textColor=EK_MID, fontName="Helvetica-Oblique",
+        ),
+        "ing_num": ParagraphStyle(
+            "ing_num", fontSize=8, textColor=EK_DARK,
+            fontName="Helvetica", alignment=TA_RIGHT,
+        ),
+        "th": ParagraphStyle(
+            "th", fontSize=7, textColor=EK_WHITE,
+            fontName="Helvetica-Bold", alignment=TA_CENTER,
+        ),
+        "footer": ParagraphStyle(
+            "footer", fontSize=7, textColor=EK_MID,
+            fontName="Helvetica", alignment=TA_CENTER,
+        ),
+    }
+
+
+def _add_footer(canvas, doc):
+    canvas.saveState()
+    w, _ = A4
+    canvas.setFont("Helvetica", 7)
+    canvas.setFillColor(EK_MID)
+    canvas.drawCentredString(w / 2, 1.2 * cm, "EK Consulting · ek-consulting.co · Confidential")
+    canvas.drawRightString(w - 2 * cm, 1.2 * cm, f"Page {doc.page}")
+    canvas.setStrokeColor(EK_GREY)
+    canvas.setLineWidth(0.3)
+    canvas.line(2 * cm, 1.5 * cm, w - 2 * cm, 1.5 * cm)
+    canvas.restoreState()
+
+
+def _pdf_dish_card(dish: dict, styles: dict, show_cost: bool) -> list:
+    """Return a list of flowables for one dish card."""
+    elements = []
+
+    # Dish name bar
+    meta_parts = [dish["category"]]
+    if dish["item_group"] and dish["item_group"] != dish["category"]:
+        meta_parts.append(dish["item_group"])
+    if show_cost and dish["total_cost"]:
+        meta_parts.append(f"Total cost: ${dish['total_cost']:,.3f}")
+
+    name_data = [[
+        Paragraph(dish["name"], styles["dish_name"]),
+        Paragraph(" · ".join(p for p in meta_parts if p), styles["dish_meta"]),
+    ]]
+    name_tbl = Table(name_data, colWidths=[10 * cm, 7 * cm])
+    name_tbl.setStyle(TableStyle([
+        ("VALIGN",        (0, 0), (-1, -1), "BOTTOM"),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 0),
+        ("TOPPADDING",    (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+    elements.append(name_tbl)
+    elements.append(HRFlowable(width="100%", thickness=0.5, color=EK_SAND, spaceAfter=4))
+
+    # Ingredient table
+    if show_cost:
+        headers  = ["Ingredient", "Qty", "Unit", "Avg Cost", "Total"]
+        col_w    = [7.5 * cm, 1.5 * cm, 1.5 * cm, 2 * cm, 2 * cm]
+    else:
+        headers  = ["Ingredient", "Qty", "Unit"]
+        col_w    = [10 * cm, 2.5 * cm, 2 * cm]
+
+    rows = [[Paragraph(h, styles["th"]) for h in headers]]
+
+    for ing in dish["ingredients"]:
+        name_style = styles["ing_prod"] if ing["is_production"] else styles["ing_name"]
+        prefix     = "⚙ " if ing["is_production"] else ""
+        qty_str    = f"{ing['qty']:g}" if ing["qty"] is not None else "—"
+
+        if show_cost:
+            ac = ing["avg_cost"]
+            tc = ing["total_cost"]
+            row = [
+                Paragraph(prefix + ing["name"], name_style),
+                Paragraph(qty_str, styles["ing_num"]),
+                Paragraph(ing["unit"] or "—", styles["ing_name"]),
+                Paragraph(f"${ac:,.4f}" if ac is not None else "—", styles["ing_num"]),
+                Paragraph(f"${tc:,.3f}" if tc is not None else "—", styles["ing_num"]),
+            ]
+        else:
+            row = [
+                Paragraph(prefix + ing["name"], name_style),
+                Paragraph(qty_str, styles["ing_num"]),
+                Paragraph(ing["unit"] or "—", styles["ing_name"]),
+            ]
+        rows.append(row)
+
+        # Sub-ingredients
+        if ing["is_production"] and ing["sub_ingredients"]:
+            for sub in ing["sub_ingredients"]:
+                sq = sub.get("qty")
+                sq_str = f"{sq:g}" if sq is not None else "—"
+                if show_cost:
+                    sac = sub.get("average_cost")
+                    sub_row = [
+                        Paragraph(f"  ↳ {sub.get('product_description','')}", styles["ing_sub"]),
+                        Paragraph(sq_str, styles["ing_num"]),
+                        Paragraph(sub.get("unit_name") or "—", styles["ing_sub"]),
+                        Paragraph(f"${sac:,.4f}" if sac is not None else "—", styles["ing_num"]),
+                        Paragraph("—", styles["ing_num"]),
+                    ]
+                else:
+                    sub_row = [
+                        Paragraph(f"  ↳ {sub.get('product_description','')}", styles["ing_sub"]),
+                        Paragraph(sq_str, styles["ing_num"]),
+                        Paragraph(sub.get("unit_name") or "—", styles["ing_sub"]),
+                    ]
+                rows.append(sub_row)
+
+    tbl = Table(rows, colWidths=col_w, repeatRows=1)
+    n_rows = len(rows)
+    style_cmds = [
+        ("BACKGROUND",    (0, 0), (-1, 0),      EK_DARK),
+        ("TEXTCOLOR",     (0, 0), (-1, 0),      EK_WHITE),
+        ("ROWBACKGROUNDS",(0, 1), (-1, -1),     [EK_WHITE, EK_LIGHT]),
+        ("GRID",          (0, 0), (-1, -1),     0.3, EK_GREY),
+        ("FONTSIZE",      (0, 0), (-1, -1),     7),
+        ("LEFTPADDING",   (0, 0), (-1, -1),     4),
+        ("RIGHTPADDING",  (0, 0), (-1, -1),     4),
+        ("TOPPADDING",    (0, 0), (-1, -1),     3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1),     3),
+        ("VALIGN",        (0, 0), (-1, -1),     "MIDDLE"),
+        ("ALIGN",         (1, 1), (-1, -1),     "RIGHT"),
+    ]
+    # Shade production rows slightly
+    for row_idx, ing in enumerate(dish["ingredients"], start=1):
+        if ing["is_production"]:
+            style_cmds.append(("BACKGROUND", (0, row_idx), (-1, row_idx), colors.HexColor("#2E3D47")))
+            style_cmds.append(("TEXTCOLOR",  (0, row_idx), (-1, row_idx), EK_SAND))
+
+    tbl.setStyle(TableStyle(style_cmds))
+    elements.append(tbl)
+    elements.append(Spacer(1, 0.6 * cm))
+
+    return elements
+
+
+def _build_pdf(tree: dict, client_name: str, report_date: str, show_cost: bool) -> bytes | None:
+    if not REPORTLAB_OK:
+        return None
+    try:
+        buf    = io.BytesIO()
+        doc    = SimpleDocTemplate(
+            buf, pagesize=A4,
+            leftMargin=2*cm, rightMargin=2*cm,
+            topMargin=2*cm, bottomMargin=2.2*cm,
+        )
+        styles = _make_styles()
+        story  = []
+
+        # ── Cover ─────────────────────────────────────────────────────────────
+        total_dishes = sum(len(d) for cat in tree.values() for d in cat.values())
+        cover_bg = Table([[""]], colWidths=[17*cm], rowHeights=[2.5*cm])
+        cover_bg.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,-1), EK_DARK),
+            ("GRID",       (0,0), (-1,-1), 0, EK_DARK),
+        ]))
+        story.append(cover_bg)
+        story.append(Spacer(1, 1.5*cm))
+        story.append(Paragraph("EK CONSULTING", styles["cover_brand"]))
+        story.append(Spacer(1, 0.3*cm))
+        story.append(HRFlowable(width="50%", thickness=1.5, color=EK_SAND, hAlign="CENTER"))
+        story.append(Spacer(1, 0.5*cm))
+        story.append(Paragraph("Recipe Cards", styles["cover_title"]))
+        story.append(Paragraph(client_name.upper(), styles["cover_sub"]))
+        try:
+            d = datetime.strptime(report_date, "%Y-%m-%d")
+            story.append(Paragraph(d.strftime("%B %Y"), styles["cover_meta"]))
+        except Exception:
+            story.append(Paragraph(report_date, styles["cover_meta"]))
+        story.append(Spacer(1, 1*cm))
+
+        kpi = Table(
+            [[Paragraph("MENU ITEMS", styles["cover_meta"]),
+              Paragraph("GENERATED", styles["cover_meta"])],
+             [Paragraph(str(total_dishes), ParagraphStyle("kv", fontSize=18,
+              fontName="Helvetica-Bold", textColor=EK_DARK, alignment=TA_CENTER)),
+              Paragraph(datetime.now().strftime("%d %b %Y"), ParagraphStyle("kv2", fontSize=18,
+              fontName="Helvetica-Bold", textColor=EK_DARK, alignment=TA_CENTER))]],
+            colWidths=[8.5*cm, 8.5*cm],
+        )
+        kpi.setStyle(TableStyle([
+            ("BACKGROUND",     (0,0), (-1,-1), EK_LIGHT),
+            ("GRID",           (0,0), (-1,-1), 0.5, EK_GREY),
+            ("TOPPADDING",     (0,0), (-1,-1), 10),
+            ("BOTTOMPADDING",  (0,0), (-1,-1), 10),
+            ("ALIGN",          (0,0), (-1,-1), "CENTER"),
+        ]))
+        story.append(kpi)
+        story.append(PageBreak())
+
+        # ── Cards by category ─────────────────────────────────────────────────
+        for cat, groups in sorted(tree.items()):
+            # Category banner
+            cat_tbl = Table(
+                [[Paragraph(cat.upper(), styles["cat_header"])]],
+                colWidths=[17*cm], rowHeights=[0.7*cm],
+            )
+            cat_tbl.setStyle(TableStyle([
+                ("BACKGROUND",    (0,0), (-1,-1), EK_DARK),
+                ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
+                ("LEFTPADDING",   (0,0), (-1,-1), 10),
+                ("TOPPADDING",    (0,0), (-1,-1), 4),
+                ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+            ]))
+            story.append(cat_tbl)
+            story.append(Spacer(1, 0.3*cm))
+
+            for group, dishes in sorted(groups.items()):
+                story.append(Paragraph(group.upper(), styles["group_header"]))
+
+                for dish in dishes:
+                    card_elements = _pdf_dish_card(dish, styles, show_cost)
+                    story.append(KeepTogether(card_elements))
+
+        # ── Back page ─────────────────────────────────────────────────────────
+        story.append(PageBreak())
+        story.append(Spacer(1, 3*cm))
+        story.append(HRFlowable(width="40%", thickness=1, color=EK_SAND, hAlign="CENTER"))
+        story.append(Spacer(1, 0.5*cm))
+        story.append(Paragraph(
+            f"End of Report · {client_name} · {report_date}",
+            styles["footer"],
+        ))
+
+        doc.build(story, onFirstPage=_add_footer, onLaterPages=_add_footer)
+        buf.seek(0)
+        return buf.read()
+
+    except Exception as e:
+        st.error(f"PDF generation error: {e}")
+        return None
