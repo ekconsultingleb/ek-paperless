@@ -108,7 +108,7 @@ def load_sessions(_supabase: Client, client_id: int) -> pd.DataFrame:
 
 @st.cache_data(ttl=120, show_spinner=False)
 def load_clients(_supabase: Client) -> pd.DataFrame:
-    res = _supabase.table("clients").select("id, name").order("name").execute()
+    res = _supabase.table("clients").select("id, client_name").order("client_name").execute()
     if not res.data:
         return pd.DataFrame()
     return pd.DataFrame(res.data)
@@ -953,7 +953,7 @@ def show_dpos(supabase: Client):
         st.error("No clients found.")
         st.stop()
 
-    client_options = dict(zip(clients_df["name"], clients_df["id"]))
+    client_options = dict(zip(clients_df["client_name"], clients_df["id"]))
 
     # Pre-select from session state if available
     default_name = None
@@ -961,7 +961,7 @@ def show_dpos(supabase: Client):
     if existing_id:
         match = clients_df[clients_df["id"] == existing_id]
         if not match.empty:
-            default_name = match.iloc[0]["name"]
+            default_name = match.iloc[0]["client_name"]
 
     selected_name = st.selectbox(
         "Client",
