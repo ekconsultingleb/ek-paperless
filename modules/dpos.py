@@ -343,7 +343,6 @@ def _sync_unit_costs(supabase: Client, client_id: int, uc_date):
             "qty_buy":             float(row.get("qty_pur") or 1),
             "avg_cost_lbp":        float(row.get("lbp") or 0),
             "rate":                float(row.get("rate") or 90000),
-            "unit_cost_usd":       float(row.get("unit_cost") or 0),
             "usage_cost_usd":      float(row.get("usage_cost") or 0),
             "show_in_report":      True,
         })
