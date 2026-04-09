@@ -22,8 +22,8 @@ from modules.dpos import show_dpos
 # --- INITIALIZE SUPABASE ---
 @st.cache_resource
 def init_supabase():
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_SERVICE_KEY"]
+    url = st.secrets["https://hgvubaohmgvesblfvdps.supabase.co"]
+    key = st.secrets["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhndnViYW9obWd2ZXNibGZ2ZHBzIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTk5ODY1NiwiZXhwIjoyMDg3NTc0NjU2fQ.EnYTgaN7yKVvCUrcft4Zt5Ajv4pIG1cIsXBWhtyE4Lc"]
     return create_client(url, key)
 
 supabase: Client = init_supabase()

@@ -4,7 +4,7 @@ import numpy as np
 from supabase import Client
 from io import BytesIO
 import openpyxl
-from dpos_simulation import tab_final_report
+from modules.dpos_simulation import tab_final_report
 
 # ─────────────────────────────────────────────
 #  CONSTANTS
