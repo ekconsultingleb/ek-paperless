@@ -926,8 +926,8 @@ def show_dpos(supabase: Client):
     """
 
     # ── Role gate ──
-    user_role = st.session_state.get("user_role", "")
-    if user_role not in ("admin", "ek_team", "superadmin"):
+    user_role = str(st.session_state.get("role", "")).lower()
+    if user_role not in ("admin", "admin_all", "manager"):
         st.error("Access restricted to EK team members.")
         st.stop()
 
