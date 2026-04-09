@@ -17,6 +17,7 @@ from modules.transfers import render_transfers
 from modules.invoices import render_invoices
 from modules.recipes import render_recipes
 from modules.nav_helper import hash_password, verify_password
+from modules.dpos import show_dpos
 
 # --- INITIALIZE SUPABASE ---
 @st.cache_resource
@@ -369,7 +370,7 @@ else:
     # Parse allowed modules
     raw_modules = str(st.session_state.get('module', '')).lower().strip()
     if raw_modules == "all_modules" or role in ["admin", "admin_all"]:
-        allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers", "invoices", "ledger", "overview", "recipes", "recipes report"]
+        allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers", "invoices", "ledger", "overview", "recipes", "recipes report", "pricing studio"]
     else:
         allowed_modules = [m.strip() for m in raw_modules.split(",") if m.strip()]
 
@@ -386,6 +387,14 @@ else:
             st.sidebar.divider()
         if st.sidebar.button("⚙️ Control Panel", type="primary"):
             st.session_state['current_page'] = "main"
+            st.rerun()
+
+    # Pricing Studio button (ek_team / admin only)
+    if role in ["admin", "admin_all", "ek_team"]:
+        if st.session_state.get('current_page', 'home') == 'home':
+            st.sidebar.divider()
+        if st.sidebar.button("💲 Pricing Studio", type="primary"):
+            st.session_state['current_page'] = "pricing studio"
             st.rerun()
     # ==========================================
     # PAGE: HOME MENU
@@ -486,7 +495,14 @@ else:
                 if st.button("📋\nRecipe Report", width="stretch", key="btn_recipe_report"):
                     st.session_state['current_page'] = 'recipes report'; st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
-        
+
+        if "pricing studio" in allowed_modules:
+            with col_k:
+                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
+                if st.button("💲\nPricing Studio", width="stretch", key="btn_pricing_studio"):
+                    st.session_state['current_page'] = 'pricing studio'; st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
+
 
     # ==========================================
     # PAGE ROUTING (INSIDE MODULES)
@@ -514,4 +530,6 @@ else:
         elif st.session_state['current_page'] == 'recipes':
             render_recipes(supabase, user, role)
         elif st.session_state['current_page'] == 'recipes report':
-            render_recipe_report(supabase, user, role) 
+            render_recipe_report(supabase, user, role)
+        elif st.session_state['current_page'] == 'pricing studio':
+            show_dpos(supabase)
