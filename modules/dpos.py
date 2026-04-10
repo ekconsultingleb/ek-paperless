@@ -279,7 +279,7 @@ def _run_full_sync(supabase: Client, client_id: int, client_name: str):
 
             # Sync sub recipes
             sr_res = supabase.table("ac_sub_recipes") \
-                .select("production_name, product_description, qty, unit_name, average_cost, qty_to_prepared, prepared_unit, cost_for_1") \
+                .select("production_name, product_description, qty, unit_name, average_cost, qty_to_prepared, prepared_unit") \
                 .eq("client_id", client_id) \
                 .eq("report_date", sr_date).execute()
 
