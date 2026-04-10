@@ -319,26 +319,37 @@ def _validate_tier_hierarchy(df: pd.DataFrame) -> pd.DataFrame:
     if tagged.empty:
         return df
 
-    # Group by category+group_name to compare within same spirit family
     for (cat, grp), grp_df in tagged.groupby(["category", "group_name"]):
         btl_grp = grp_df[grp_df["item_type"] == "btl"].copy()
         if btl_grp.empty:
             btl_grp = grp_df.copy()
 
         btl_grp["tier_order"] = btl_grp["tier"].str.lower().str.strip().map(tier_order)
-        btl_grp = btl_grp.dropna(subset=["tier_order"]).sort_values("tier_order")
+        btl_grp = btl_grp.dropna(subset=["tier_order"])
 
-        prev_price = 0.0
-        prev_tier  = ""
-        for _, row in btl_grp.iterrows():
-            price = float(row.get("psychological_price") or 0)
-            tier  = str(row.get("tier", "")).strip()
-            if prev_price > 0 and price <= prev_price:
-                msg = f"{tier} (${price:.2f}) ≤ {prev_tier} (${prev_price:.2f})"
-                df.loc[df["menu_item"] == row["menu_item"], "tier_violation"]     = True
-                df.loc[df["menu_item"] == row["menu_item"], "tier_violation_msg"] = msg
-            prev_price = price
-            prev_tier  = tier
+        # Get the max price per tier level
+        tier_max_price = btl_grp.groupby("tier_order")["psychological_price"].max().to_dict()
+
+        # Only flag when a higher tier's MAX price <= a lower tier's MAX price
+        tier_levels = sorted(tier_max_price.keys())
+        for i in range(1, len(tier_levels)):
+            lower_tier_order  = tier_levels[i - 1]
+            higher_tier_order = tier_levels[i]
+            lower_price  = float(tier_max_price[lower_tier_order])
+            higher_price = float(tier_max_price[higher_tier_order])
+
+            if higher_price <= lower_price:
+                lower_tier_name  = [k for k, v in tier_order.items() if v == lower_tier_order][0].title()
+                higher_tier_name = [k for k, v in tier_order.items() if v == higher_tier_order][0].title()
+                msg = f"{higher_tier_name} (${higher_price:.2f}) ≤ {lower_tier_name} (${lower_price:.2f})"
+                # Flag all items in the higher tier within this group
+                mask = (
+                    (df["category"]   == cat) &
+                    (df["group_name"] == grp) &
+                    (df["tier"].str.lower().str.strip() == higher_tier_name.lower())
+                )
+                df.loc[mask, "tier_violation"]     = True
+                df.loc[mask, "tier_violation_msg"] = msg
 
     return df
 
