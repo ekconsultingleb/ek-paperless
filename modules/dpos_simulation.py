@@ -3,14 +3,22 @@ dpos_simulation.py
 ──────────────────
 Simulation engine for D-POS Pricing Studio.
 
-Key points:
-- dpos_unit_costs.usage_cost_usd is already the final USD per g/ml/unit
-  (pulled directly from ac_unit_cost.usage_cost — no recalculation needed)
-- Overrides store predicted_avg_cost_lbp → recalculate usage_cost on the fly
-- Sub recipe cost_for_1 is already USD (pulled from ac_sub_recipes.cost_for_1)
-- Selling prices from ac_selling_prices are ex-VAT
-- Final display shows both ex-VAT and inc-VAT prices
-- Psychological price = round to nearest session.rounding (default $0.50)
+Source of truth: ac_unit_cost (mirrored into dpos_unit_costs)
+  - Contains ALL ingredients including sub recipes
+  - usage_cost_usd is already the final USD per g/ml/unit
+  - No separate sub recipe calculation needed
+  - dpos_sub_recipes kept for display/breakdown only
+
+Override logic:
+  - Overrides store predicted_avg_cost_lbp
+  - When override exists → recalculate usage_cost from lbp/rate/qty
+  - ac_unit_cost never touched
+
+Pricing flow:
+  new_cost         = SUM(gross_w × usage_cost) per menu item
+  suggestive_ex    = new_cost / target_cost_pct
+  suggestive_inc   = suggestive_ex × (1 + vat_rate)
+  psychological    = round(suggestive_inc / rounding) × rounding
 """
 
 import numpy as np
@@ -57,19 +65,22 @@ def psychological_price(price: float, rounding: float = 0.50) -> float:
 def compute_simulation(
     recipes_df: pd.DataFrame,
     unit_costs_df: pd.DataFrame,
-    sub_recipes_df: pd.DataFrame,
+    sub_recipes_df: pd.DataFrame,   # kept for signature compatibility, not used in calc
     overrides: dict,
     session: dict,
 ) -> tuple[pd.DataFrame, dict, dict]:
     """
     Full bottom-up pricing simulation.
 
+    Single source of truth: dpos_unit_costs (mirrors ac_unit_cost).
+    Contains ALL ingredients including sub recipes with correct usage_cost_usd.
+
     overrides: {product_description_lower: predicted_avg_cost_lbp}
 
     Returns:
       sim_df       — one row per menu item
-      usage_lookup — {ingredient_lower: usage_cost_usd}  for drill-down
-      sr_lookup    — {product_name_lower: cost_for_1_usd} for drill-down
+      usage_lookup — {ingredient_lower: usage_cost_usd} for drill-down
+      sr_lookup    — always empty dict (kept for compatibility)
     """
     vat_rate   = float(session.get("vat_rate", 0))
     target_pct = float(session.get("target_cost_pct", 0.30))
@@ -78,88 +89,56 @@ def compute_simulation(
     if recipes_df.empty:
         return pd.DataFrame(), {}, {}
 
-    # ── Step 1: Build usage cost lookup ──
-    # Use usage_cost_usd directly — already the final number from ac_unit_cost
-    # Only recalculate when an override exists (override is LBP)
+    # ── Build usage cost lookup from dpos_unit_costs ──
+    # Use usage_cost_usd directly — already the final number
+    # Only recalculate when an override exists
     usage_lookup = {}
 
     if not unit_costs_df.empty:
         for _, uc in unit_costs_df.iterrows():
-            key          = str(uc.get("product_description","")).lower().strip()
+            key          = str(uc.get("product_description", "")).lower().strip()
             usage_direct = float(uc.get("usage_cost_usd") or 0)
 
             if key in overrides:
-                # Recalculate from override LBP value
-                rate         = float(uc.get("rate") or 90000)
-                qty_inv      = float(uc.get("qty_inv") or 1)
-                qty_buy      = float(uc.get("qty_buy") or 1)
-                unit_cost    = compute_unit_cost_usd(float(overrides[key]), rate)
-                usage_lookup[key] = compute_usage_cost(unit_cost, qty_inv, qty_buy)
+                # Recalculate from override predicted LBP value
+                rate    = float(uc.get("rate") or 90000)
+                qty_inv = float(uc.get("qty_inv") or 1)
+                qty_buy = float(uc.get("qty_buy") or 1)
+                unit_cost_usd = compute_unit_cost_usd(float(overrides[key]), rate)
+                usage_lookup[key] = compute_usage_cost(unit_cost_usd, qty_inv, qty_buy)
             else:
                 usage_lookup[key] = usage_direct
 
-    # ── Step 2: Build sub recipe cost lookup ──
-    # Use cost_for_1 directly from dpos_sub_recipes (already USD)
-    # If override affects a sub recipe ingredient, recompute
-    sr_lookup = {}
-
-    if not sub_recipes_df.empty:
-        for prod_name, grp in sub_recipes_df.groupby("product_name"):
-            key = prod_name.lower().strip()
-
-            # Check if any ingredient in this sub recipe is overridden
-            has_override = any(
-                str(ln.get("ingredient_description","")).lower().strip() in overrides
-                for _, ln in grp.iterrows()
-            )
-
-            if has_override:
-                # Recompute SUMIF: each line = (gross_w × avg_cost_usd) / prepared_qty
-                total = 0.0
-                for _, ln in grp.iterrows():
-                    ing_key  = str(ln.get("ingredient_description","")).lower().strip()
-                    gw       = float(ln.get("gross_w") or ln.get("net_w") or 0)
-                    prep_qty = float(ln.get("prepared_qty") or 1)
-                    # avg_cost in sub recipes = usage_cost USD — use lookup (has override applied)
-                    avg_usd  = usage_lookup.get(ing_key, float(ln.get("avg_cost") or 0))
-                    total   += (gw * avg_usd) / prep_qty if prep_qty > 0 else 0.0
-                sr_lookup[key] = total
-            else:
-                # Use pre-calculated cost_for_1 directly
-                cost_for_1 = float(grp.iloc[0].get("cost_for_1") or 0)
-                sr_lookup[key] = cost_for_1
-
-    # ── Step 3: Resolve ingredient cost ──
-    # IF ingredient found in sub recipe product names → sr_lookup
-    # ELSE → usage_lookup
+    # ── Resolve ingredient cost ──
+    # Everything comes from usage_lookup — raw materials and sub recipes alike
     def get_cost(ingredient_desc: str) -> float:
-        k = ingredient_desc.lower().strip()
-        return sr_lookup.get(k, usage_lookup.get(k, 0.0))
+        return usage_lookup.get(ingredient_desc.lower().strip(), 0.0)
 
-    # ── Step 4: Sum recipe costs per menu item ──
+    # ── Sum recipe costs per menu item ──
     results = {}
     for _, line in recipes_df.iterrows():
-        item  = str(line.get("menu_item","")).strip()
+        item = str(line.get("menu_item", "")).strip()
         if not item:
             continue
+
         gw        = float(line.get("gross_w") or line.get("net_w") or 0)
-        line_cost = gw * get_cost(str(line.get("ingredient_description","")))
+        line_cost = gw * get_cost(str(line.get("ingredient_description", "")))
 
         if item not in results:
             results[item] = {
-                "menu_item":              item,
-                "category":               line.get("category") or "",
-                "group_name":             line.get("group_name") or "",
-                "new_cost":               0.0,
+                "menu_item":                item,
+                "category":                 line.get("category") or "",
+                "group_name":               line.get("group_name") or "",
+                "new_cost":                 0.0,
                 "current_selling_price_ex": float(line.get("current_selling_price") or 0) or None,
             }
         results[item]["new_cost"] += line_cost
 
-    # ── Step 5: Build output rows ──
+    # ── Build output rows ──
     rows = []
     for item, data in results.items():
         new_cost = data["new_cost"]
-        sp_ex    = data.get("current_selling_price_ex")  # ex-VAT from ac_selling_prices
+        sp_ex    = data.get("current_selling_price_ex")
 
         # Suggestive price
         if target_pct > 0:
@@ -168,13 +147,12 @@ def compute_simulation(
         else:
             suggestive_ex = suggestive_inc = 0.0
 
-        # Current SP inc-VAT for display
         sp_inc = sp_ex * (1 + vat_rate) if sp_ex else None
 
         rows.append({
             "menu_item":                  item,
-            "category":                   data.get("category",""),
-            "group_name":                 data.get("group_name",""),
+            "category":                   data.get("category", ""),
+            "group_name":                 data.get("group_name", ""),
             "new_cost":                   round(new_cost, 6),
             "current_selling_price_ex":   sp_ex,
             "current_sp_inc_vat":         round(sp_inc, 4) if sp_inc else None,
@@ -188,16 +166,24 @@ def compute_simulation(
 
     df = pd.DataFrame(rows)
     if df.empty:
-        return df, usage_lookup, sr_lookup
+        return df, usage_lookup, {}
 
-    return df.sort_values(["category","group_name","menu_item"]).reset_index(drop=True), usage_lookup, sr_lookup
+    return df.sort_values(["category", "group_name", "menu_item"]).reset_index(drop=True), usage_lookup, {}
 
+
+# ─────────────────────────────────────────────
+#  ENRICH WITH PRICES
+# ─────────────────────────────────────────────
 
 def enrich_with_prices(
     sim_df: pd.DataFrame,
     old_costs: dict,
     session: dict,
 ) -> pd.DataFrame:
+    """
+    Add cost % metrics using current selling prices already in sim_df.
+    old_costs: {menu_item: previous_new_cost_usd} from last approved session
+    """
     if sim_df.empty:
         return sim_df
 
@@ -207,10 +193,7 @@ def enrich_with_prices(
     df = sim_df.copy()
     df["old_cost"] = df["menu_item"].map(lambda x: old_costs.get(x))
 
-    def ex_vat(p):
-        return p / (1 + vat) if vat > 0 and p else p
-
-    # Cost variance — force numeric
+    # Cost variance vs previous session
     df["cost_variance"] = df.apply(
         lambda r: round(float(r["new_cost"]) - float(r["old_cost"]), 6)
         if r["old_cost"] is not None else None, axis=1
@@ -220,26 +203,35 @@ def enrich_with_prices(
         if r["old_cost"] and r["cost_variance"] is not None else None, axis=1
     )
 
-    # Force numeric before abs()
+    # Force numeric before abs() to avoid type errors
     cv = pd.to_numeric(df["cost_variance"], errors="coerce")
     df["affected"] = cv.notna() & (cv.abs() > 0.000001)
 
+    # Current cost % — new_cost vs current SP ex-VAT
     df["current_cost_pct"] = df.apply(
-        lambda r: round((r["new_cost"] / r["current_selling_price_ex"]) * 100, 2)
+        lambda r: round((r["new_cost"] / float(r["current_selling_price_ex"])) * 100, 2)
         if r.get("current_selling_price_ex") and float(r["current_selling_price_ex"]) > 0 else None, axis=1
     )
+
+    # Current profit margin
     df["current_profit_margin"] = df.apply(
-        lambda r: round((1 - r["new_cost"] / r["current_selling_price_ex"]) * 100, 2)
+        lambda r: round((1 - r["new_cost"] / float(r["current_selling_price_ex"])) * 100, 2)
         if r.get("current_selling_price_ex") and float(r["current_selling_price_ex"]) > 0 else None, axis=1
     )
+
+    # New cost % — new_cost vs suggestive ex-VAT
     df["new_cost_pct"] = df.apply(
-        lambda r: round((r["new_cost"] / r["suggestive_ex_vat"]) * 100, 2)
+        lambda r: round((r["new_cost"] / float(r["suggestive_ex_vat"])) * 100, 2)
         if r.get("suggestive_ex_vat") and float(r["suggestive_ex_vat"]) > 0 else None, axis=1
     )
+
+    # New profit margin
     df["profit_margin"] = df.apply(
-        lambda r: round((1 - r["new_cost"] / r["suggestive_ex_vat"]) * 100, 2)
+        lambda r: round((1 - r["new_cost"] / float(r["suggestive_ex_vat"])) * 100, 2)
         if r.get("suggestive_ex_vat") and float(r["suggestive_ex_vat"]) > 0 else None, axis=1
     )
+
+    # Cost position flag
     df["cost_position"] = df["current_cost_pct"].apply(
         lambda v: f"Higher > {target:.0f}%" if v and v > target
         else (f"Lower ≤ {target:.0f}%" if v else "—")
