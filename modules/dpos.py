@@ -787,52 +787,50 @@ def _tab_tranches(supabase: Client, session_id: int):
                 supabase.table("dpos_tranches").delete().eq("id", del_options[del_sel]).execute()
                 st.rerun()
 
-    # Add new tranche
+    # Add new tranche — mode selector outside form so it re-renders dynamically
     st.markdown("**Add tranche**")
-    with st.form(f"tranche_form_{session_id}", clear_on_submit=True):
-        tc1, tc2, tc3 = st.columns(3)
-        with tc1:
-            item_type_sel = st.selectbox(
-                "Item type",
-                ITEM_TYPE_OPTIONS,
-                key=f"tr_itype_{session_id}",
-                help="Select a specific type (BTL, GLS, etc.) or 'All types' to apply to everything.",
-            )
-            min_c = st.number_input("Min cost $", value=0.0,  min_value=0.0,  step=0.5, key=f"tr_min_{session_id}")
-            max_c = st.number_input("Max cost $", value=10.0, min_value=0.01, step=0.5, key=f"tr_max_{session_id}")
-        with tc2:
-            mode  = st.selectbox("Mode", ["target_pct", "fixed_price"],
-                                 format_func=lambda x: "Target %" if x == "target_pct" else "Fixed price",
-                                 key=f"tr_mode_{session_id}")
-        with tc3:
-            if mode == "target_pct":
-                tgt = st.number_input("Target %", value=25.0, min_value=1.0, max_value=80.0, step=1.0, key=f"tr_tgt_{session_id}")
-                fp  = None
-                st.empty()
-            else:
-                fp  = st.number_input("Fixed price $", value=0.0, min_value=0.01, step=5.0, key=f"tr_fp_{session_id}")
-                tgt = None
+    tc1, tc2, tc3 = st.columns(3)
+    with tc1:
+        item_type_sel = st.selectbox(
+            "Item type",
+            ITEM_TYPE_OPTIONS,
+            key=f"tr_itype_{session_id}",
+            help="Select a specific type (BTL, GLS, etc.) or 'All types' to apply to everything.",
+        )
+        min_c = st.number_input("Min cost $", value=0.0,  min_value=0.0,  step=0.5, key=f"tr_min_{session_id}")
+        max_c = st.number_input("Max cost $", value=10.0, min_value=0.01, step=0.5, key=f"tr_max_{session_id}")
+    with tc2:
+        mode = st.selectbox("Mode", ["target_pct", "fixed_price"],
+                            format_func=lambda x: "Target %" if x == "target_pct" else "Fixed price",
+                            key=f"tr_mode_{session_id}")
+    with tc3:
+        if mode == "target_pct":
+            tgt = st.number_input("Target %", value=25.0, min_value=1.0, max_value=80.0, step=1.0, key=f"tr_tgt_{session_id}")
+            fp  = None
+        else:
+            fp  = st.number_input("Fixed price $", value=100.0, min_value=0.01, step=5.0, key=f"tr_fp_{session_id}")
+            tgt = None
 
-        if st.form_submit_button("Add tranche", type="primary"):
-            if min_c >= max_c:
-                st.error("Min cost must be less than max cost.")
-            elif mode == "fixed_price" and (fp is None or fp <= 0):
-                st.error("Fixed price must be greater than 0.")
-            else:
-                stored_type = None if item_type_sel == "All types" else item_type_sel.lower()
-                supabase.table("dpos_tranches").insert({
-                    "session_id":  session_id,
-                    "item_type":   stored_type,
-                    "min_cost":    min_c,
-                    "max_cost":    max_c,
-                    "mode":        mode,
-                    "target_pct":  tgt / 100 if tgt else None,
-                    "fixed_price": fp,
-                }).execute()
-                type_label = item_type_sel.upper() if item_type_sel != "All types" else "All types"
-                rule_label = f"${fp:.2f} fixed" if mode == "fixed_price" else f"{tgt:.1f}%"
-                st.success(f"Tranche added: [{type_label}] ${min_c}–${max_c} → {rule_label}")
-                st.rerun()
+    if st.button("Add tranche", type="primary", key=f"tr_add_{session_id}"):
+        if min_c >= max_c:
+            st.error("Min cost must be less than max cost.")
+        elif mode == "fixed_price" and (fp is None or fp <= 0):
+            st.error("Fixed price must be greater than 0.")
+        else:
+            stored_type = None if item_type_sel == "All types" else item_type_sel.lower()
+            supabase.table("dpos_tranches").insert({
+                "session_id":  session_id,
+                "item_type":   stored_type,
+                "min_cost":    min_c,
+                "max_cost":    max_c,
+                "mode":        mode,
+                "target_pct":  tgt / 100 if tgt else None,
+                "fixed_price": fp,
+            }).execute()
+            type_label = item_type_sel.upper() if item_type_sel != "All types" else "All types"
+            rule_label = f"${fp:.2f} fixed" if mode == "fixed_price" else f"{tgt:.1f}%"
+            st.success(f"Tranche added: [{type_label}] ${min_c}–${max_c} → {rule_label}")
+            st.rerun()
 
 
 def _add_override_form(supabase: Client, session_id: int, client_id: int):
