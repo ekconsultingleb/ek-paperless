@@ -265,31 +265,47 @@ def _tab_bottle_glass(supabase: Client, client_id: int, rec_df: pd.DataFrame):
     for _, row in view.iterrows():
         col_name, col_type, col_glasses = st.columns([4, 1, 2])
         with col_name:
-            st.markdown(f"**{row['menu_item']}**")
+            item_name = str(row.get("menu_item") or "")
+            st.markdown(f"**{item_name}**")
         with col_type:
             badge_color = "#1B4F72" if row["item_type"] == "btl" else "#1B6B3A"
             st.markdown(
-                f"<span style='background:{badge_color};color:white;padding:2px 8px;border-radius:4px;font-size:11px'>"
+                f"<span style='background:{badge_color};color:white;padding:2px 8px;"
+                f"border-radius:4px;font-size:11px'>"
                 f"{'BTL' if row['item_type'] == 'btl' else 'GLS'}</span>",
                 unsafe_allow_html=True,
             )
         with col_glasses:
             if row["item_type"] == "btl":
-                current_glasses = float(raw) if raw and not (isinstance(raw, float) and np.isnan(raw)) else 10.0
-                new_glasses = st.number_input(
+                raw = row.get("glasses_count")
+                if raw is None or (isinstance(raw, float) and np.isnan(raw)):
+                    current_glasses = 10.0
+                else:
+                    current_glasses = float(raw)
+                st.number_input(
                     "Glasses",
                     value=current_glasses,
                     min_value=1.0,
                     step=0.5,
-                    key=f"gl_{row['menu_item']}",
+                    key=f"gl_{item_name}",
                     label_visibility="collapsed",
                 )
-                if float(new_glasses) != current_glasses:
-                    supabase.table("dpos_recipes").update({"glasses_count": float(new_glasses)}) \
-                        .eq("client_id", client_id).eq("menu_item", row["menu_item"]).execute()
-                    clear_cache()
             else:
                 st.caption("Derived from Btl")
+
+    # Save button outside the loop
+    if st.button("Save glasses counts", type="primary", key="save_glasses"):
+        for _, row in view[view["item_type"] == "btl"].iterrows():
+            item_name = str(row.get("menu_item") or "")
+            key = f"gl_{item_name}"
+            if key in st.session_state:
+                val = float(st.session_state[key])
+                supabase.table("dpos_recipes").update({"glasses_count": val}) \
+                    .eq("client_id", client_id) \
+                    .eq("menu_item", item_name).execute()
+        clear_cache()
+        st.success("Glasses counts saved.")
+        st.rerun()
 
 
 def _tab_tier_tagging(supabase: Client, client_id: int, rec_df: pd.DataFrame):
