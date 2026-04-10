@@ -7,7 +7,8 @@ Tranche modes:
   target_pct  — suggestive price = cost / target_pct
   fixed_price — suggestive price = fixed_price directly (ignores cost %)
 
-Priority: tranche > category_target > global_target
+Tranche priority: per-Type tranche > global tranche > category_target > global_target
+BTL→GLS derivation: optional per-client toggle. When ON, GLS price = BTL price ÷ glasses_count.
 """
 
 import numpy as np
@@ -39,15 +40,11 @@ def psychological_price(price: float, rounding: float = 0.50) -> float:
     return round(price / rounding) * rounding
 
 
-def resolve_tranche(
-    new_cost: float,
-    tranches: list,
-) -> dict | None:
+def resolve_tranche(new_cost: float, tranches: list) -> dict | None:
     """
     Find the matching tranche for a given cost.
     Returns the tranche dict or None if no match.
-
-    Tranche dict keys: min_cost, max_cost, mode, target_pct, fixed_price
+    Tranche dict keys: min_cost, max_cost, mode, target_pct, fixed_price, item_type (optional)
     """
     for t in sorted(tranches, key=lambda x: float(x.get("min_cost", 0))):
         min_c = float(t.get("min_cost", 0))
@@ -60,6 +57,7 @@ def resolve_tranche(
 def get_target_for_item(
     new_cost: float,
     category: str,
+    item_type: str,
     category_targets: dict,
     tranches: list,
     global_target: float,
@@ -67,29 +65,51 @@ def get_target_for_item(
     """
     Resolve pricing for an item.
 
+    Priority:
+      1. Type-specific tranche (item_type column matches)
+      2. Global tranche (no item_type on tranche, or item_type is None/'')
+      3. Category target
+      4. Global target
+
     Returns:
       effective_target  — target cost % (0 if fixed price mode)
       fixed_price       — fixed selling price inc-VAT or None
       pricing_mode      — 'target_pct' or 'fixed_price'
     """
-    # 1. Check tranches first
-    tranche = resolve_tranche(new_cost, tranches)
+    item_type_clean = (item_type or "").lower().strip()
+
+    # 1. Type-specific tranches first
+    type_tranches = [
+        t for t in tranches
+        if (t.get("item_type") or "").lower().strip() == item_type_clean
+        and item_type_clean != ""
+    ]
+    tranche = resolve_tranche(new_cost, type_tranches)
+
+    # 2. Fall back to global tranches (no item_type set)
+    if not tranche:
+        global_tranches = [
+            t for t in tranches
+            if not (t.get("item_type") or "").strip()
+        ]
+        tranche = resolve_tranche(new_cost, global_tranches)
+
     if tranche:
         mode = str(tranche.get("mode", "target_pct"))
         if mode == "fixed_price":
             fp = tranche.get("fixed_price")
-            return 0.0, float(fp) if fp else None, "fixed_price"
+            return 0.0, float(fp) if fp is not None else None, "fixed_price"
         else:
             tp = tranche.get("target_pct")
             return float(tp) if tp else global_target, None, "target_pct"
 
-    # 2. Category target
+    # 3. Category target
     if category:
         cat_key = category.lower().strip()
         if cat_key in category_targets:
             return category_targets[cat_key], None, "target_pct"
 
-    # 3. Global target
+    # 4. Global target
     return global_target, None, "target_pct"
 
 
@@ -132,9 +152,13 @@ def compute_simulation(
     category_targets: dict = None,
     tranches: list = None,
     item_config: pd.DataFrame = None,
+    btl_gls_derive: bool = True,
 ) -> tuple[pd.DataFrame, dict, dict]:
     """
     Full bottom-up pricing simulation.
+
+    btl_gls_derive: when True, GLS price is derived from BTL price ÷ glasses_count
+                    (client-level toggle). When False, GLS uses its own tranche rules.
     """
     vat_rate   = float(session.get("vat_rate", 0))
     target_pct = float(session.get("target_cost_pct", 0.30))
@@ -153,25 +177,23 @@ def compute_simulation(
             key          = str(uc.get("product_description", "")).lower().strip()
             usage_direct = float(uc.get("usage_cost_usd") or 0)
             if key in overrides:
-                rate    = float(uc.get("rate") or 90000)
-                qty_inv = float(uc.get("qty_inv") or 1)
-                qty_buy = float(uc.get("qty_buy") or 1)
+                rate          = float(uc.get("rate") or 90000)
+                qty_inv       = float(uc.get("qty_inv") or 1)
+                qty_buy       = float(uc.get("qty_buy") or 1)
                 unit_cost_usd = compute_unit_cost_usd(float(overrides[key]), rate)
                 usage_lookup[key] = compute_usage_cost(unit_cost_usd, qty_inv, qty_buy)
             else:
                 usage_lookup[key] = usage_direct
 
     # ── Build item config lookup ──
-    glasses_map  = {}
-    sub_cat_map  = {}
-    tier_map     = {}
+    glasses_map = {}
+    tier_map    = {}
     if item_config is not None and not item_config.empty:
         for _, row in item_config.drop_duplicates("menu_item").iterrows():
             item = row["menu_item"]
-            if row.get("glasses_count") and not (isinstance(row["glasses_count"], float) and np.isnan(row["glasses_count"])):
-                glasses_map[item] = float(row["glasses_count"])
-            if row.get("sub_category"):
-                sub_cat_map[item] = str(row["sub_category"])
+            gc = row.get("glasses_count")
+            if gc is not None and not (isinstance(gc, float) and np.isnan(gc)):
+                glasses_map[item] = float(gc)
             if row.get("tier"):
                 tier_map[item] = str(row["tier"])
 
@@ -199,22 +221,21 @@ def compute_simulation(
     # ── Build output rows ──
     rows = []
     for item, data in results.items():
-        new_cost = data["new_cost"]
-        category = data.get("category", "")
-        sp_ex    = data.get("current_selling_price_ex")
-
-        item_type     = detect_btl_gls(item)
+        new_cost  = data["new_cost"]
+        category  = data.get("category", "")
+        sp_ex     = data.get("current_selling_price_ex")
+        item_type = detect_btl_gls(item)
         glasses_count = glasses_map.get(item)
 
-        # Resolve pricing
+        # Resolve pricing using type-aware tranche lookup
         effective_target, fixed_price, pricing_mode = get_target_for_item(
-            new_cost, category, category_targets, tranches, target_pct
+            new_cost, category, item_type, category_targets, tranches, target_pct
         )
 
         # Calculate suggestive price
-        if pricing_mode == "fixed_price" and fixed_price:
-            suggestive_inc = fixed_price
-            suggestive_ex  = fixed_price / (1 + vat_rate) if vat_rate > 0 else fixed_price
+        if pricing_mode == "fixed_price" and fixed_price is not None:
+            suggestive_inc = float(fixed_price)
+            suggestive_ex  = suggestive_inc / (1 + vat_rate) if vat_rate > 0 else suggestive_inc
         elif effective_target > 0:
             suggestive_ex  = new_cost / effective_target
             suggestive_inc = suggestive_ex * (1 + vat_rate)
@@ -240,7 +261,6 @@ def compute_simulation(
             "psychological_price":        psych,
             "item_type":                  item_type,
             "glasses_count":              glasses_count,
-            "sub_category":               sub_cat_map.get(item),
             "tier":                       tier_map.get(item),
             "vat_rate":                   vat_rate,
             "rounding":                   rounding,
@@ -254,13 +274,17 @@ def compute_simulation(
         return df, usage_lookup, {}
 
     df = df.sort_values(["category", "group_name", "menu_item"]).reset_index(drop=True)
-    df = _apply_bottle_glass_pricing(df, rounding, vat_rate)
+
+    if btl_gls_derive:
+        df = _apply_bottle_glass_pricing(df, rounding, vat_rate)
+
     df = _validate_tier_hierarchy(df)
 
     return df, usage_lookup, {}
 
 
 def _apply_bottle_glass_pricing(df: pd.DataFrame, rounding: float, vat_rate: float) -> pd.DataFrame:
+    """Derive GLS price from BTL price ÷ glasses_count where a matching BTL exists."""
     df = df.copy()
 
     btl_price_map = {}
@@ -277,9 +301,9 @@ def _apply_bottle_glass_pricing(df: pd.DataFrame, rounding: float, vat_rate: flo
             gls_price_inc   = btl_price / glasses_count
             gls_price_psych = psychological_price(gls_price_inc, rounding)
             gls_price_ex    = gls_price_psych / (1 + vat_rate) if vat_rate > 0 else gls_price_psych
-            df.at[idx, "suggestive_price"]   = round(gls_price_inc, 4)
-            df.at[idx, "suggestive_ex_vat"]  = round(gls_price_ex, 4)
-            df.at[idx, "psychological_price"] = gls_price_psych
+            df.at[idx, "suggestive_price"]     = round(gls_price_inc, 4)
+            df.at[idx, "suggestive_ex_vat"]    = round(gls_price_ex, 4)
+            df.at[idx, "psychological_price"]  = gls_price_psych
             df.at[idx, "gls_derived_from_btl"] = True
 
     return df
@@ -289,17 +313,17 @@ def _validate_tier_hierarchy(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     tier_order = {"regular": 1, "premium": 2, "ultra premium": 3}
 
-    has_sub_cat = df["sub_category"].notna() & (df["sub_category"] != "")
-    has_tier    = df["tier"].notna() & (df["tier"] != "")
-    tagged      = df[has_sub_cat & has_tier].copy()
+    has_tier = df["tier"].notna() & (df["tier"] != "")
+    tagged   = df[has_tier].copy()
 
     if tagged.empty:
         return df
 
-    for sub_cat, grp in tagged.groupby("sub_category"):
-        btl_grp = grp[grp["item_type"] == "btl"].copy()
+    # Group by category+group_name to compare within same spirit family
+    for (cat, grp), grp_df in tagged.groupby(["category", "group_name"]):
+        btl_grp = grp_df[grp_df["item_type"] == "btl"].copy()
         if btl_grp.empty:
-            btl_grp = grp.copy()
+            btl_grp = grp_df.copy()
 
         btl_grp["tier_order"] = btl_grp["tier"].str.lower().str.strip().map(tier_order)
         btl_grp = btl_grp.dropna(subset=["tier_order"]).sort_values("tier_order")

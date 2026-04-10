@@ -25,6 +25,9 @@ TIER_OPTIONS    = ["", "Regular", "Premium", "Ultra Premium"]
 SPIRITS_OPTIONS = ["", "Gin", "Whisky", "Tequila", "Vodka", "Rum", "Cognac",
                    "Champagne / Prosecco", "Wine", "Beer", "Liqueur", "Other"]
 
+# Item types available for tranche assignment
+ITEM_TYPE_OPTIONS = ["All types", "BTL", "GLS", "Food", "Soft", "Beer", "Other"]
+
 
 # ─────────────────────────────────────────────
 #  HELPERS
@@ -71,6 +74,26 @@ def load_tranches(supabase: Client, session_id: int) -> list:
     res = supabase.table("dpos_tranches").select("*").eq("session_id", session_id) \
         .order("min_cost").execute()
     return res.data if res.data else []
+
+
+def load_client_config(supabase: Client, client_id: int) -> dict:
+    """Load per-client DPOS config (btl_gls_derive toggle, etc.)."""
+    res = supabase.table("dpos_client_config").select("*").eq("client_id", client_id).limit(1).execute()
+    if res.data:
+        return res.data[0]
+    return {"client_id": client_id, "btl_gls_derive": True}
+
+
+def save_client_config(supabase: Client, client_id: int, btl_gls_derive: bool):
+    existing = supabase.table("dpos_client_config").select("id").eq("client_id", client_id).limit(1).execute()
+    if existing.data:
+        supabase.table("dpos_client_config").update({"btl_gls_derive": btl_gls_derive}) \
+            .eq("client_id", client_id).execute()
+    else:
+        supabase.table("dpos_client_config").insert({
+            "client_id": client_id,
+            "btl_gls_derive": btl_gls_derive,
+        }).execute()
 
 
 def clear_cache():
@@ -123,14 +146,14 @@ def tab_setup(supabase: Client, client_id: int, client_name: str):
 
     st.divider()
 
-    setup_tab1, setup_tab2, setup_tab3 = st.tabs(["Menu visibility", "Bottle / Glass config", "Sub-category & Tier"])
+    setup_tab1, setup_tab2, setup_tab3 = st.tabs(["Menu visibility", "Bottle / Glass config", "Pricing Rules"])
 
     with setup_tab1:
         _tab_menu_visibility(supabase, client_id, rec_df)
     with setup_tab2:
         _tab_bottle_glass(supabase, client_id, rec_df)
     with setup_tab3:
-        _tab_tier_tagging(supabase, client_id, rec_df)
+        _tab_pricing_rules(supabase, client_id, rec_df)
 
     st.divider()
     with st.expander("View unit costs", expanded=False):
@@ -212,8 +235,27 @@ def _tab_bottle_glass(supabase: Client, client_id: int, rec_df: pd.DataFrame):
     st.markdown("**Bottle / Glass configuration**")
     st.caption("Set glasses per bottle. Glass price = Bottle price ÷ glasses count.")
 
+    # ── BTL→GLS derivation toggle ──
+    client_cfg = load_client_config(supabase, client_id)
+    btl_gls_on = bool(client_cfg.get("btl_gls_derive", True))
+
+    col_tog, col_tog_desc = st.columns([1, 4])
+    with col_tog:
+        new_toggle = st.toggle("BTL → GLS auto-derive", value=btl_gls_on, key="btl_gls_toggle")
+    with col_tog_desc:
+        if new_toggle:
+            st.caption("GLS price = BTL simulated price ÷ glasses count (auto-matched by name). Ideal for bottle-focused venues.")
+        else:
+            st.caption("GLS priced independently using its own Pricing Rules. Ideal for glass-focused venues (pubs, etc.).")
+
+    if new_toggle != btl_gls_on:
+        save_client_config(supabase, client_id, new_toggle)
+        st.rerun()
+
+    st.divider()
+
     items_df = rec_df.drop_duplicates("menu_item")[
-        ["menu_item", "category", "group_name", "sub_category", "glasses_count"]
+        ["menu_item", "category", "group_name", "glasses_count"]
     ].copy()
     items_df["item_type"] = items_df["menu_item"].apply(detect_btl_gls)
     btl_gls = items_df[items_df["item_type"].isin(["btl", "gls"])].copy()
@@ -222,8 +264,8 @@ def _tab_bottle_glass(supabase: Client, client_id: int, rec_df: pd.DataFrame):
         st.info("No Btl/Gls items detected.")
         return
 
-    # Filters — with sub-category
-    f1, f2, f3, f4 = st.columns([2, 2, 2, 2])
+    # Filters — Category, Group, Type
+    f1, f2, f3 = st.columns([2, 2, 2])
     with f1:
         cats  = ["All"] + sorted(btl_gls["category"].dropna().unique().tolist())
         cat_f = st.selectbox("Category", cats, key="bg_cat")
@@ -234,25 +276,32 @@ def _tab_bottle_glass(supabase: Client, client_id: int, rec_df: pd.DataFrame):
             grp_opts = ["All"] + sorted(btl_gls["group_name"].dropna().unique().tolist())
         grp_f = st.selectbox("Group", grp_opts, key="bg_grp")
     with f3:
-        sc_opts = ["All"] + sorted(btl_gls["sub_category"].dropna().unique().tolist())
-        sc_f = st.selectbox("Sub-category", sc_opts, key="bg_sc")
-    with f4:
         type_f = st.selectbox("Type", ["All", "Bottle", "Glass"], key="bg_type")
 
     view = btl_gls.copy()
-    if cat_f  != "All":    view = view[view["category"]    == cat_f]
-    if grp_f  != "All":    view = view[view["group_name"]  == grp_f]
-    if sc_f   != "All":    view = view[view["sub_category"] == sc_f]
-    if type_f == "Bottle": view = view[view["item_type"]   == "btl"]
-    if type_f == "Glass":  view = view[view["item_type"]   == "gls"]
+    if cat_f  != "All":    view = view[view["category"]   == cat_f]
+    if grp_f  != "All":    view = view[view["group_name"] == grp_f]
+    if type_f == "Bottle": view = view[view["item_type"]  == "btl"]
+    if type_f == "Glass":  view = view[view["item_type"]  == "gls"]
 
     st.caption(f"Showing {len(view)} items")
 
     with st.expander("Bulk set glasses count", expanded=False):
         with st.form("bulk_glasses_form"):
-            bulk_glasses = st.number_input("Glasses per bottle", value=10.0, min_value=1.0, step=0.5)
-            if st.form_submit_button("Apply to all visible bottles", type="primary"):
-                btl_items = view[view["item_type"] == "btl"]["menu_item"].tolist()
+            bc1, bc2 = st.columns([2, 2])
+            with bc1:
+                bulk_grp = st.selectbox(
+                    "Filter by Group",
+                    ["All groups"] + sorted(btl_gls["group_name"].dropna().unique().tolist()),
+                    key="bulk_grp_sel",
+                )
+            with bc2:
+                bulk_glasses = st.number_input("Glasses per bottle", value=10.0, min_value=1.0, step=0.5)
+            if st.form_submit_button("Apply to visible bottles", type="primary"):
+                target_view = view[view["item_type"] == "btl"]
+                if bulk_grp != "All groups":
+                    target_view = target_view[target_view["group_name"] == bulk_grp]
+                btl_items = target_view["menu_item"].tolist()
                 if btl_items:
                     supabase.table("dpos_recipes") \
                         .update({"glasses_count": float(bulk_glasses)}) \
@@ -268,8 +317,8 @@ def _tab_bottle_glass(supabase: Client, client_id: int, rec_df: pd.DataFrame):
         col_name, col_type, col_glasses = st.columns([4, 1, 2])
         with col_name:
             item_name = str(row.get("menu_item") or "")
-            sub_cat   = str(row.get("sub_category") or "")
-            sub_label = f"  <span style='opacity:0.4;font-size:11px'>{sub_cat}</span>" if sub_cat else ""
+            grp_label = str(row.get("group_name") or "")
+            sub_label = f"  <span style='opacity:0.4;font-size:11px'>{grp_label}</span>" if grp_label else ""
             st.markdown(f"**{item_name}**{sub_label}", unsafe_allow_html=True)
         with col_type:
             badge_color = "#1B4F72" if row["item_type"] == "btl" else "#1B6B3A"
@@ -295,7 +344,10 @@ def _tab_bottle_glass(supabase: Client, client_id: int, rec_df: pd.DataFrame):
                     label_visibility="collapsed",
                 )
             else:
-                st.caption("Derived from Btl")
+                if new_toggle:
+                    st.caption("Derived from Btl")
+                else:
+                    st.caption("Independent (toggle off)")
 
     if st.button("Save glasses counts", type="primary", key="save_glasses"):
         btl_view = view[view["item_type"] == "btl"]
@@ -311,12 +363,19 @@ def _tab_bottle_glass(supabase: Client, client_id: int, rec_df: pd.DataFrame):
         st.rerun()
 
 
-def _tab_tier_tagging(supabase: Client, client_id: int, rec_df: pd.DataFrame):
-    st.markdown("**Sub-category & Tier tagging**")
-    st.caption("Tag spirits with sub-category and tier. Save when done.")
+def _tab_pricing_rules(supabase: Client, client_id: int, rec_df: pd.DataFrame):
+    """
+    Pricing Rules tab — previously 'Sub-category & Tier'.
+    Two sections:
+      1. Tier tagging (per item)
+      2. Item type assignment (tag items with a custom type like Wine, Spirits, etc.)
+    Note: Tranches are defined per session, not here. This tab manages per-item metadata.
+    """
+    st.markdown("**Pricing Rules — Item tagging**")
+    st.caption("Tag items with a tier (Regular / Premium / Ultra Premium) for hierarchy validation.")
 
     items_df = rec_df.drop_duplicates("menu_item")[
-        ["menu_item", "category", "group_name", "sub_category", "tier"]
+        ["menu_item", "category", "group_name", "tier"]
     ].copy()
 
     f1, f2, f3 = st.columns([2, 2, 2])
@@ -346,37 +405,20 @@ def _tab_tier_tagging(supabase: Client, client_id: int, rec_df: pd.DataFrame):
         st.info("No items match the filter.")
         return
 
-    def auto_sub_cat(group_name: str, current: str) -> str:
-        if current:
-            return current
-        if not group_name:
-            return ""
-        g = group_name.strip()
-        for opt in SPIRITS_OPTIONS[1:]:
-            if opt.lower() in g.lower() or g.lower() in opt.lower():
-                return opt
-        return ""
-
     bulk_tier = st.session_state.pop("bulk_tier_value", None)
 
     for _, row in view.iterrows():
         item_name    = str(row.get("menu_item") or "")
         group_name   = str(row.get("group_name") or "")
-        current_sc   = str(row.get("sub_category") or "")
         current_tier = str(row.get("tier") or "")
-        suggested_sc = auto_sub_cat(group_name, current_sc)
         display_tier = bulk_tier if bulk_tier is not None else current_tier
 
-        col_name, col_subcat, col_tier = st.columns([3, 2, 2])
+        col_name, col_tier = st.columns([4, 2])
         with col_name:
             st.markdown(
                 f"**{item_name}**  <span style='opacity:0.4;font-size:11px'>{group_name}</span>",
                 unsafe_allow_html=True,
             )
-        with col_subcat:
-            idx_sc = SPIRITS_OPTIONS.index(suggested_sc) if suggested_sc in SPIRITS_OPTIONS else 0
-            st.selectbox("Sub-category", SPIRITS_OPTIONS, index=idx_sc,
-                         key=f"sc_{item_name}", label_visibility="collapsed")
         with col_tier:
             idx_t = TIER_OPTIONS.index(display_tier) if display_tier in TIER_OPTIONS else 0
             st.selectbox("Tier", TIER_OPTIONS, index=idx_t,
@@ -392,15 +434,13 @@ def _tab_tier_tagging(supabase: Client, client_id: int, rec_df: pd.DataFrame):
             st.session_state["bulk_tier_value"] = ""
             st.rerun()
     with b3:
-        if st.button("Save sub-category & tier", type="primary", key="save_tier"):
+        if st.button("Save tiers", type="primary", key="save_tier"):
             updated = 0
             for _, row in view.iterrows():
                 item_name = str(row.get("menu_item") or "")
-                new_sc    = st.session_state.get(f"sc_{item_name}", "")
                 new_tier  = st.session_state.get(f"tier_{item_name}", "")
                 supabase.table("dpos_recipes").update({
-                    "sub_category": new_sc or None,
-                    "tier":         new_tier or None,
+                    "tier": new_tier or None,
                 }).eq("client_id", client_id).eq("menu_item", item_name).execute()
                 updated += 1
             clear_cache()
@@ -427,13 +467,12 @@ def _run_full_sync(supabase: Client, client_id: int, client_name: str):
             st.caption(f"Using: recipes {rec_date} · unit costs {uc_date} · selling prices {sp_date}")
 
             existing = supabase.table("dpos_recipes") \
-                .select("menu_item, on_menu, current_selling_price, glasses_count, sub_category, tier") \
+                .select("menu_item, on_menu, current_selling_price, glasses_count, tier") \
                 .eq("client_id", client_id).execute()
 
             on_menu_map = {}
             sp_map      = {}
             glasses_map = {}
-            sub_cat_map = {}
             tier_map    = {}
 
             if existing.data:
@@ -444,8 +483,6 @@ def _run_full_sync(supabase: Client, client_id: int, client_name: str):
                         sp_map[item] = float(r["current_selling_price"])
                     if r.get("glasses_count"):
                         glasses_map[item] = float(r["glasses_count"])
-                    if r.get("sub_category"):
-                        sub_cat_map[item] = r["sub_category"]
                     if r.get("tier"):
                         tier_map[item] = r["tier"]
 
@@ -486,7 +523,6 @@ def _run_full_sync(supabase: Client, client_id: int, client_name: str):
                         "on_menu":                on_menu_map.get(item, True),
                         "current_selling_price":  sp_map.get(item),
                         "glasses_count":          glasses_map.get(item),
-                        "sub_category":           sub_cat_map.get(item),
                         "tier":                   tier_map.get(item),
                     })
                 for i in range(0, len(records), 500):
@@ -637,10 +673,8 @@ def tab_sessions(supabase: Client, client_id: int):
 
             with st1:
                 _session_actions(supabase, sess_id, status, client_id)
-
             with st2:
                 _tab_category_targets(supabase, sess_id, rec_df, float(sess.get("target_cost_pct", 0.30)))
-
             with st3:
                 _tab_tranches(supabase, sess_id)
 
@@ -721,19 +755,25 @@ def _tab_category_targets(supabase: Client, session_id: int, rec_df: pd.DataFram
 
 def _tab_tranches(supabase: Client, session_id: int):
     st.markdown("**Cost tranches**")
-    st.caption("Define cost brackets. Two modes: target % (calculate from cost) or fixed price (set directly).")
+    st.caption(
+        "Define cost brackets per item type. "
+        "Two modes: Target % (calculate from cost) or Fixed price (set directly). "
+        "Leave item type as 'All types' to apply the rule to all items regardless of type."
+    )
 
     tranches = load_tranches(supabase, session_id)
 
     if tranches:
         rows = []
         for t in tranches:
-            mode = t.get("mode", "target_pct")
+            mode      = t.get("mode", "target_pct")
+            item_type = t.get("item_type") or "All types"
             if mode == "fixed_price":
                 rule = f"Fixed price: ${float(t.get('fixed_price') or 0):.2f}"
             else:
                 rule = f"Target: {float(t.get('target_pct') or 0)*100:.1f}%"
             rows.append({
+                "Item type":  item_type.upper() if item_type != "All types" else "All types",
                 "Min cost $": f"${float(t['min_cost']):.2f}",
                 "Max cost $": f"${float(t['max_cost']):.2f}",
                 "Mode":       mode.replace("_", " ").title(),
@@ -741,10 +781,12 @@ def _tab_tranches(supabase: Client, session_id: int):
                 "ID":         t["id"],
             })
         t_df = pd.DataFrame(rows)
-        st.dataframe(t_df[["Min cost $", "Max cost $", "Mode", "Rule"]], use_container_width=True, hide_index=True)
+        st.dataframe(t_df[["Item type", "Min cost $", "Max cost $", "Mode", "Rule"]], use_container_width=True, hide_index=True)
 
-        # Delete individual tranche
-        del_options = {f"${float(t['min_cost']):.2f}–${float(t['max_cost']):.2f}": t["id"] for t in tranches}
+        del_options = {
+            f"{t.get('item_type','All') or 'All'}  ${float(t['min_cost']):.2f}–${float(t['max_cost']):.2f}": t["id"]
+            for t in tranches
+        }
         col_del1, col_del2 = st.columns([3, 1])
         with col_del1:
             del_sel = st.selectbox("Delete tranche", ["—"] + list(del_options.keys()), key=f"del_t_{session_id}")
@@ -756,35 +798,48 @@ def _tab_tranches(supabase: Client, session_id: int):
     # Add new tranche
     st.markdown("**Add tranche**")
     with st.form(f"tranche_form_{session_id}", clear_on_submit=True):
-        tc1, tc2 = st.columns(2)
+        tc1, tc2, tc3 = st.columns(3)
         with tc1:
+            item_type_sel = st.selectbox(
+                "Item type",
+                ITEM_TYPE_OPTIONS,
+                key=f"tr_itype_{session_id}",
+                help="Select a specific type (BTL, GLS, etc.) or 'All types' to apply to everything.",
+            )
             min_c = st.number_input("Min cost $", value=0.0,  min_value=0.0,  step=0.5, key=f"tr_min_{session_id}")
             max_c = st.number_input("Max cost $", value=10.0, min_value=0.01, step=0.5, key=f"tr_max_{session_id}")
         with tc2:
             mode  = st.selectbox("Mode", ["target_pct", "fixed_price"],
                                  format_func=lambda x: "Target %" if x == "target_pct" else "Fixed price",
                                  key=f"tr_mode_{session_id}")
+        with tc3:
             if mode == "target_pct":
                 tgt = st.number_input("Target %", value=25.0, min_value=1.0, max_value=80.0, step=1.0, key=f"tr_tgt_{session_id}")
                 fp  = None
+                st.empty()
             else:
-                fp  = st.number_input("Fixed price $", value=100.0, min_value=0.01, step=5.0, key=f"tr_fp_{session_id}")
+                fp  = st.number_input("Fixed price $", value=0.0, min_value=0.01, step=5.0, key=f"tr_fp_{session_id}")
                 tgt = None
 
         if st.form_submit_button("Add tranche", type="primary"):
             if min_c >= max_c:
                 st.error("Min cost must be less than max cost.")
+            elif mode == "fixed_price" and (fp is None or fp <= 0):
+                st.error("Fixed price must be greater than 0.")
             else:
+                stored_type = None if item_type_sel == "All types" else item_type_sel.lower()
                 supabase.table("dpos_tranches").insert({
                     "session_id":  session_id,
+                    "item_type":   stored_type,
                     "min_cost":    min_c,
                     "max_cost":    max_c,
                     "mode":        mode,
                     "target_pct":  tgt / 100 if tgt else None,
                     "fixed_price": fp,
                 }).execute()
-                rule = f"${fp:.2f} fixed" if mode == "fixed_price" else f"{tgt:.1f}%"
-                st.success(f"Tranche added: ${min_c}–${max_c} → {rule}")
+                type_label = item_type_sel.upper() if item_type_sel != "All types" else "All types"
+                rule_label = f"${fp:.2f} fixed" if mode == "fixed_price" else f"{tgt:.1f}%"
+                st.success(f"Tranche added: [{type_label}] ${min_c}–${max_c} → {rule_label}")
                 st.rerun()
 
 
@@ -867,6 +922,9 @@ def tab_final_report(supabase: Client, client_id: int):
         ap_res   = supabase.table("dpos_approved_prices").select("*").eq("session_id", session_id).execute()
         tgt_res  = supabase.table("dpos_session_targets").select("*").eq("session_id", session_id).execute()
         tranches = load_tranches(supabase, session_id)
+        client_cfg = load_client_config(supabase, client_id)
+
+    btl_gls_derive = bool(client_cfg.get("btl_gls_derive", True))
 
     if rec_df.empty:
         st.warning("No recipes. Run Setup → Full sync first.")
@@ -891,12 +949,17 @@ def tab_final_report(supabase: Client, client_id: int):
     if tranches:
         with st.expander(f"Active tranches ({len(tranches)})", expanded=False):
             for t in tranches:
-                mode = t.get("mode", "target_pct")
+                mode      = t.get("mode", "target_pct")
+                item_type = (t.get("item_type") or "All types").upper() if t.get("item_type") else "All types"
                 if mode == "fixed_price":
                     rule = f"→ Fixed ${float(t.get('fixed_price') or 0):.2f}"
                 else:
                     rule = f"→ Target {float(t.get('target_pct') or 0)*100:.1f}%"
-                st.caption(f"${float(t['min_cost']):.2f} – ${float(t['max_cost']):.2f}  {rule}")
+                st.caption(f"[{item_type}]  ${float(t['min_cost']):.2f} – ${float(t['max_cost']):.2f}  {rule}")
+
+    # Show BTL→GLS derive status
+    derive_label = "BTL→GLS derive: **ON**" if btl_gls_derive else "BTL→GLS derive: **OFF** (GLS uses own tranche rules)"
+    st.caption(derive_label)
 
     # ── Item selection ──
     st.markdown("**Item selection**")
@@ -952,7 +1015,6 @@ def tab_final_report(supabase: Client, client_id: int):
                 selected.remove(item)
     st.session_state[sel_key] = selected
 
-    # Only show items that are BOTH visible AND checked
     items_to_simulate = [i for i in selected if i in visible]
     st.caption(f"{len(items_to_simulate)} items will be simulated")
 
@@ -972,7 +1034,6 @@ def tab_final_report(supabase: Client, client_id: int):
         if not items_to_simulate:
             st.warning("No items selected. Use filters and checkboxes to select items.")
         else:
-            # Filter recipes to only checked+visible items
             sim_rec = rec_df[rec_df["menu_item"].isin(items_to_simulate)].copy()
             with st.spinner(f"Calculating {len(items_to_simulate)} items…"):
                 raw, usage_lookup, _ = compute_simulation(
@@ -980,6 +1041,7 @@ def tab_final_report(supabase: Client, client_id: int):
                     category_targets=category_targets,
                     tranches=tranches,
                     item_config=rec_df.drop_duplicates("menu_item"),
+                    btl_gls_derive=btl_gls_derive,
                 )
                 old_costs = {}
                 if not ap_df.empty and "new_cost" in ap_df.columns:
@@ -988,6 +1050,7 @@ def tab_final_report(supabase: Client, client_id: int):
                 st.session_state[sim_key] = {"df": sim_df, "usage_lookup": usage_lookup}
 
     cached = st.session_state.get(sim_key)
+
     if cached is None:
         st.info("Select items then click **Run simulation**.")
         return
@@ -1006,18 +1069,19 @@ def tab_final_report(supabase: Client, client_id: int):
     avg_margin   = sim_df["profit_margin"].dropna().mean() if "profit_margin" in sim_df.columns else None
     violations   = int(sim_df["tier_violation"].sum()) if "tier_violation" in sim_df.columns else 0
     fixed_count  = int((sim_df["pricing_mode"] == "fixed_price").sum()) if "pricing_mode" in sim_df.columns else 0
+    gls_derived  = int(sim_df["gls_derived_from_btl"].sum()) if "gls_derived_from_btl" in sim_df.columns else 0
 
-    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    m1, m2, m3, m4, m5, m6, m7 = st.columns(7)
     m1.metric("Items",           total_items)
     m2.metric("Fixed price",     fixed_count)
-    m3.metric("Cost affected",   affected)
-    m4.metric("Above target %",  above_target)
-    m5.metric("Avg margin",      fmt_pct(avg_margin))
-    m6.metric("Tier violations", violations)
+    m3.metric("GLS derived",     gls_derived)
+    m4.metric("Cost affected",   affected)
+    m5.metric("Above target %",  above_target)
+    m6.metric("Avg margin",      fmt_pct(avg_margin))
+    m7.metric("Tier violations", violations)
 
     st.divider()
 
-    # Tier violations
     if violations > 0 and "tier_violation" in sim_df.columns:
         with st.expander(f"⚠️ {violations} tier hierarchy violation(s)", expanded=True):
             for _, row in sim_df[sim_df["tier_violation"] == True].iterrows():
@@ -1033,27 +1097,26 @@ def tab_final_report(supabase: Client, client_id: int):
         fp       = row.get("fixed_price")
         gls_flag = " ✓" if row.get("gls_derived_from_btl") else ""
         tier_flag = " ⚠️" if row.get("tier_violation") else ""
-        mode_label = f"Fixed ${fp:.2f}" if mode == "fixed_price" and fp else fmt_pct(eff_tgt * 100)
+        mode_label = f"Fixed ${float(fp):.2f}" if mode == "fixed_price" and fp is not None else fmt_pct(eff_tgt * 100)
 
         rows.append({
-            "":                    "⚡" if row.get("affected") else "—",
-            "Category":            row.get("category",""),
-            "Group":               row.get("group_name",""),
-            "Menu item":           row.get("menu_item",""),
-            "Type":                row.get("item_type","other").upper() if row.get("item_type","other") != "other" else "—",
-            "Sub-cat":             row.get("sub_category","") or "—",
-            "Tier":                (row.get("tier","") or "—") + tier_flag,
-            "Recipe cost $":       fmt_usd(row.get("new_cost"), 4),
-            "Pricing rule":        mode_label,
-            "Current SP (ex VAT)": fmt_usd(sp_ex, 2) if sp_ex else "—",
+            "":                     "⚡" if row.get("affected") else "—",
+            "Category":             row.get("category",""),
+            "Group":                row.get("group_name",""),
+            "Menu item":            row.get("menu_item",""),
+            "Type":                 row.get("item_type","other").upper() if row.get("item_type","other") != "other" else "—",
+            "Tier":                 (row.get("tier","") or "—") + tier_flag,
+            "Recipe cost $":        fmt_usd(row.get("new_cost"), 4),
+            "Pricing rule":         mode_label,
+            "Current SP (ex VAT)":  fmt_usd(sp_ex, 2) if sp_ex else "—",
             "Current SP (inc VAT)": fmt_usd(sp_inc, 2) if sp_inc else "—",
-            "Current cost %":      fmt_pct(row.get("current_cost_pct")),
-            "Curr. margin %":      fmt_pct(row.get("current_profit_margin")),
-            "Cost var. $":         fmt_variance(row.get("cost_variance")),
+            "Current cost %":       fmt_pct(row.get("current_cost_pct")),
+            "Curr. margin %":       fmt_pct(row.get("current_profit_margin")),
+            "Cost var. $":          fmt_variance(row.get("cost_variance")),
             "Suggestive (inc VAT)": fmt_usd(row.get("suggestive_price"), 2),
-            "Rounded SP $":        fmt_usd(row.get("psychological_price"), 2) + gls_flag,
-            "New cost %":          fmt_pct(row.get("new_cost_pct")),
-            "New margin %":        fmt_pct(row.get("profit_margin")),
+            "Rounded SP $":         fmt_usd(row.get("psychological_price"), 2) + gls_flag,
+            "New cost %":           fmt_pct(row.get("new_cost_pct")),
+            "New margin %":         fmt_pct(row.get("profit_margin")),
         })
 
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
@@ -1089,12 +1152,15 @@ def tab_final_report(supabase: Client, client_id: int):
             st.dataframe(pd.DataFrame(drows), use_container_width=True, hide_index=True)
             st.markdown(f"**Total recipe cost: {fmt_usd(total, 4)}**")
 
-            # Show pricing rule for this item
             item_row = sim_df[sim_df["menu_item"] == drill]
             if not item_row.empty:
                 r = item_row.iloc[0]
                 mode = r.get("pricing_mode", "target_pct")
-                if mode == "fixed_price":
+                if r.get("gls_derived_from_btl"):
+                    btl_name = drill.replace("Gls ", "Btl ").replace("gls ", "btl ").replace("Glass ", "Bottle ")
+                    gc = r.get("glasses_count") or "?"
+                    st.info(f"Pricing mode: **GLS derived from BTL** ({btl_name}, ÷ {gc:.0f} glasses)")
+                elif mode == "fixed_price":
                     st.info(f"Pricing mode: **Fixed price** ${float(r.get('fixed_price') or 0):.2f} (tranche rule)")
                 else:
                     st.info(f"Pricing mode: **Target {float(r.get('effective_target_pct', target))*100:.1f}%**")
