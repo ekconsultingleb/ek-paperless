@@ -275,7 +275,7 @@ def _tab_bottle_glass(supabase: Client, client_id: int, rec_df: pd.DataFrame):
             )
         with col_glasses:
             if row["item_type"] == "btl":
-                current_glasses = float(row.get("glasses_count") or 10.0)
+                current_glasses = float(raw) if raw and not (isinstance(raw, float) and np.isnan(raw)) else 10.0
                 new_glasses = st.number_input(
                     "Glasses",
                     value=current_glasses,
@@ -284,7 +284,7 @@ def _tab_bottle_glass(supabase: Client, client_id: int, rec_df: pd.DataFrame):
                     key=f"gl_{row['menu_item']}",
                     label_visibility="collapsed",
                 )
-                if new_glasses != current_glasses:
+                if float(new_glasses) != current_glasses:
                     supabase.table("dpos_recipes").update({"glasses_count": float(new_glasses)}) \
                         .eq("client_id", client_id).eq("menu_item", row["menu_item"]).execute()
                     clear_cache()
