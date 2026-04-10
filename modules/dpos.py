@@ -77,23 +77,15 @@ def load_tranches(supabase: Client, session_id: int) -> list:
 
 
 def load_client_config(supabase: Client, client_id: int) -> dict:
-    """Load per-client DPOS config (btl_gls_derive toggle, etc.)."""
-    res = supabase.table("dpos_client_config").select("*").eq("client_id", client_id).limit(1).execute()
+    res = supabase.table("clients").select("dpos_btl_gls_derive").eq("id", client_id).limit(1).execute()
     if res.data:
-        return res.data[0]
-    return {"client_id": client_id, "btl_gls_derive": True}
+        return {"btl_gls_derive": res.data[0].get("dpos_btl_gls_derive", True)}
+    return {"btl_gls_derive": True}
 
 
 def save_client_config(supabase: Client, client_id: int, btl_gls_derive: bool):
-    existing = supabase.table("dpos_client_config").select("id").eq("client_id", client_id).limit(1).execute()
-    if existing.data:
-        supabase.table("dpos_client_config").update({"btl_gls_derive": btl_gls_derive}) \
-            .eq("client_id", client_id).execute()
-    else:
-        supabase.table("dpos_client_config").insert({
-            "client_id": client_id,
-            "btl_gls_derive": btl_gls_derive,
-        }).execute()
+    supabase.table("clients").update({"dpos_btl_gls_derive": btl_gls_derive}) \
+        .eq("id", client_id).execute()
 
 
 def clear_cache():
