@@ -5,9 +5,9 @@ D-POS Pricing Studio — Paperless module.
 Entry point: show_dpos(supabase)
 
 Tabs:
-  1. Setup       — sync from Auto Calc, manage on_menu flags, view unit costs
-  2. Sessions    — create / manage repricing exercises
-  3. Final Report — simulation, item selection, CSV export
+  1. Setup       — sync, on_menu flags, glasses config, sub-category/tier tagging
+  2. Sessions    — create sessions, per-category targets, cost tranches
+  3. Final Report — simulation with pricing intelligence, export
 """
 
 import streamlit as st
@@ -24,6 +24,10 @@ from modules.dpos_simulation import (
 EK_DARK = "#1B252C"
 EK_SAND = "#E3C5AD"
 TABS    = ["Setup", "Sessions", "Final Report"]
+
+TIER_OPTIONS    = ["", "Regular", "Premium", "Ultra Premium"]
+SPIRITS_OPTIONS = ["", "Gin", "Whisky", "Tequila", "Vodka", "Rum", "Cognac",
+                   "Champagne / Prosecco", "Wine", "Beer", "Liqueur", "Other"]
 
 
 # ─────────────────────────────────────────────
@@ -95,8 +99,8 @@ def tab_setup(supabase: Client, client_id: int, client_name: str):
     has_data = not rec_df.empty
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Unit costs",      len(uc_df))
-    c2.metric("Recipe lines",    len(rec_df))
+    c1.metric("Unit costs",       len(uc_df))
+    c2.metric("Recipe lines",     len(rec_df))
     c3.metric("Sub recipe lines", len(sr_df))
 
     if has_data:
@@ -109,16 +113,14 @@ def tab_setup(supabase: Client, client_id: int, client_name: str):
     # ── Sync controls ──
     st.markdown("**Sync from Auto Calc**")
     col_full, col_uc = st.columns(2)
-
     with col_full:
         st.markdown("**Full sync**")
-        st.caption("First time or when recipes change. Pulls recipes, unit costs, selling prices.")
+        st.caption("First time or when recipes change.")
         if st.button("Full sync", type="primary", key="sync_full"):
             _run_full_sync(supabase, client_id, client_name)
-
     with col_uc:
         st.markdown("**Unit costs only**")
-        st.caption("Every month after Auto Calc upload. Preserves on_menu flags and selling prices.")
+        st.caption("Every month after Auto Calc upload.")
         if st.button("Sync unit costs only", key="sync_uc"):
             _run_unit_cost_sync(supabase, client_id)
 
@@ -127,27 +129,56 @@ def tab_setup(supabase: Client, client_id: int, client_name: str):
 
     st.divider()
 
-    # ── On menu manager ──
+    # ── Setup sub-tabs ──
+    setup_tab1, setup_tab2, setup_tab3 = st.tabs(["Menu visibility", "Bottle / Glass config", "Sub-category & Tier"])
+
+    with setup_tab1:
+        _tab_menu_visibility(supabase, client_id, rec_df)
+
+    with setup_tab2:
+        _tab_bottle_glass(supabase, client_id, rec_df)
+
+    with setup_tab3:
+        _tab_tier_tagging(supabase, client_id, rec_df)
+
+    st.divider()
+    with st.expander("View unit costs", expanded=False):
+        if uc_df.empty:
+            st.info("No unit costs loaded.")
+        else:
+            s = st.text_input("Search", key="uc_view_s")
+            view = uc_df[uc_df["product_description"].str.contains(s, case=False, na=False)] if s else uc_df
+            st.dataframe(
+                view[["category", "group_name", "product_description", "unit", "usage_cost_usd"]].rename(columns={
+                    "category": "Category", "group_name": "Group",
+                    "product_description": "Ingredient", "unit": "Unit",
+                    "usage_cost_usd": "Usage Cost $",
+                }),
+                use_container_width=True, hide_index=True,
+            )
+
+
+def _tab_menu_visibility(supabase: Client, client_id: int, rec_df: pd.DataFrame):
     st.markdown("**Menu visibility**")
-    st.caption("Mark items that appear on the client's printed menu. Off-menu items (e.g. Add Lemon) are hidden from the Final Report by default.")
+    st.caption("Toggle which items appear on the client's printed menu.")
 
     f1, f2, f3 = st.columns([2, 2, 3])
     with f1:
         cats  = ["All"] + sorted(rec_df["category"].dropna().unique().tolist())
-        cat_f = st.selectbox("Category", cats, key="setup_cat")
+        cat_f = st.selectbox("Category", cats, key="vm_cat")
     with f2:
         grps  = ["All"] + sorted(rec_df["group_name"].dropna().unique().tolist())
-        grp_f = st.selectbox("Group", grps, key="setup_grp")
+        grp_f = st.selectbox("Group", grps, key="vm_grp")
     with f3:
-        search = st.text_input("Search item", placeholder="e.g. burger, lemon…", key="setup_search")
+        search = st.text_input("Search", placeholder="e.g. pizza, gin…", key="vm_search")
 
     items_df = rec_df.drop_duplicates(subset="menu_item")[
         ["menu_item", "category", "group_name", "on_menu", "current_selling_price"]
     ].copy()
 
-    if cat_f   != "All": items_df = items_df[items_df["category"]   == cat_f]
-    if grp_f   != "All": items_df = items_df[items_df["group_name"] == grp_f]
-    if search:            items_df = items_df[items_df["menu_item"].str.contains(search, case=False, na=False)]
+    if cat_f != "All": items_df = items_df[items_df["category"]   == cat_f]
+    if grp_f != "All": items_df = items_df[items_df["group_name"] == grp_f]
+    if search:         items_df = items_df[items_df["menu_item"].str.contains(search, case=False, na=False)]
 
     on_count  = int(rec_df.drop_duplicates("menu_item")["on_menu"].sum()) if "on_menu" in rec_df.columns else 0
     off_count = len(rec_df.drop_duplicates("menu_item")) - on_count
@@ -183,22 +214,145 @@ def tab_setup(supabase: Client, client_id: int, client_name: str):
                     .eq("client_id", client_id).eq("menu_item", row["menu_item"]).execute()
                 clear_cache(); st.rerun()
 
-    st.divider()
 
-    with st.expander("View unit costs", expanded=False):
-        if uc_df.empty:
-            st.info("No unit costs loaded.")
-        else:
-            s = st.text_input("Search", key="uc_view_s")
-            view = uc_df[uc_df["product_description"].str.contains(s, case=False, na=False)] if s else uc_df
-            st.dataframe(
-                view[["category", "group_name", "product_description", "unit", "usage_cost_usd"]].rename(columns={
-                    "category": "Category", "group_name": "Group",
-                    "product_description": "Ingredient", "unit": "Unit",
-                    "usage_cost_usd": "Usage Cost $",
-                }),
-                use_container_width=True, hide_index=True,
+def _tab_bottle_glass(supabase: Client, client_id: int, rec_df: pd.DataFrame):
+    st.markdown("**Bottle / Glass configuration**")
+    st.caption("Set the number of glasses per bottle. Glass price = Bottle price ÷ glasses count.")
+
+    from modules.dpos_simulation import detect_btl_gls
+
+    items_df = rec_df.drop_duplicates("menu_item")[
+        ["menu_item", "category", "group_name", "glasses_count"]
+    ].copy()
+
+    # Filter to btl/gls items only
+    items_df["item_type"] = items_df["menu_item"].apply(detect_btl_gls)
+    btl_gls = items_df[items_df["item_type"].isin(["btl", "gls"])].copy()
+
+    if btl_gls.empty:
+        st.info("No Btl/Gls items detected. Items need 'Btl' or 'Gls' in their name.")
+        return
+
+    # Filter
+    f1, f2 = st.columns(2)
+    with f1:
+        cats  = ["All"] + sorted(btl_gls["category"].dropna().unique().tolist())
+        cat_f = st.selectbox("Category", cats, key="bg_cat")
+    with f2:
+        type_f = st.selectbox("Type", ["All", "Bottle", "Glass"], key="bg_type")
+
+    view = btl_gls.copy()
+    if cat_f != "All":  view = view[view["category"] == cat_f]
+    if type_f == "Bottle": view = view[view["item_type"] == "btl"]
+    if type_f == "Glass":  view = view[view["item_type"] == "gls"]
+
+    st.caption(f"Showing {len(view)} items")
+
+    # Bulk set glasses count for all btl items
+    with st.expander("Bulk set glasses count", expanded=False):
+        with st.form("bulk_glasses_form"):
+            bulk_glasses = st.number_input("Glasses per bottle (all items)", value=10.0, min_value=1.0, step=0.5)
+            if st.form_submit_button("Apply to all bottles", type="primary"):
+                btl_items = btl_gls[btl_gls["item_type"] == "btl"]["menu_item"].tolist()
+                for item in btl_items:
+                    supabase.table("dpos_recipes").update({"glasses_count": bulk_glasses}) \
+                        .eq("client_id", client_id).eq("menu_item", item).execute()
+                clear_cache()
+                st.success(f"Set {bulk_glasses} glasses for {len(btl_items)} bottle items.")
+                st.rerun()
+
+    # Per-item glasses count
+    for _, row in view.iterrows():
+        col_name, col_type, col_glasses = st.columns([4, 1, 2])
+        with col_name:
+            st.markdown(f"**{row['menu_item']}**")
+        with col_type:
+            badge_color = "#1B4F72" if row["item_type"] == "btl" else "#1B6B3A"
+            st.markdown(
+                f"<span style='background:{badge_color};color:white;padding:2px 8px;border-radius:4px;font-size:11px'>"
+                f"{'BTL' if row['item_type'] == 'btl' else 'GLS'}</span>",
+                unsafe_allow_html=True,
             )
+        with col_glasses:
+            if row["item_type"] == "btl":
+                current_glasses = float(row.get("glasses_count") or 10.0)
+                new_glasses = st.number_input(
+                    "Glasses",
+                    value=current_glasses,
+                    min_value=1.0,
+                    step=0.5,
+                    key=f"gl_{row['menu_item']}",
+                    label_visibility="collapsed",
+                )
+                if new_glasses != current_glasses:
+                    supabase.table("dpos_recipes").update({"glasses_count": new_glasses}) \
+                        .eq("client_id", client_id).eq("menu_item", row["menu_item"]).execute()
+                    clear_cache()
+            else:
+                st.caption("Derived from Btl")
+
+
+def _tab_tier_tagging(supabase: Client, client_id: int, rec_df: pd.DataFrame):
+    st.markdown("**Sub-category & Tier tagging**")
+    st.caption("Tag spirits with sub-category (Gin, Whisky…) and tier (Regular/Premium/Ultra Premium) for hierarchy validation.")
+
+    from modules.dpos_simulation import detect_btl_gls
+
+    items_df = rec_df.drop_duplicates("menu_item")[
+        ["menu_item", "category", "group_name", "sub_category", "tier"]
+    ].copy()
+
+    # Filter
+    f1, f2, f3 = st.columns([2, 2, 2])
+    with f1:
+        cats  = ["All"] + sorted(items_df["category"].dropna().unique().tolist())
+        cat_f = st.selectbox("Category", cats, key="tt_cat")
+    with f2:
+        grps  = ["All"] + sorted(items_df["group_name"].dropna().unique().tolist())
+        grp_f = st.selectbox("Group", grps, key="tt_grp")
+    with f3:
+        search = st.text_input("Search", key="tt_search")
+
+    view = items_df.copy()
+    if cat_f != "All": view = view[view["category"]   == cat_f]
+    if grp_f != "All": view = view[view["group_name"] == grp_f]
+    if search:         view = view[view["menu_item"].str.contains(search, case=False, na=False)]
+
+    tagged_count = int(items_df["tier"].notna().sum())
+    st.caption(f"{tagged_count} items tagged · showing {len(view)}")
+
+    for _, row in view.iterrows():
+        col_name, col_subcat, col_tier = st.columns([3, 2, 2])
+        with col_name:
+            st.markdown(f"**{row['menu_item']}**")
+        with col_subcat:
+            current_sc = str(row.get("sub_category") or "")
+            idx_sc = SPIRITS_OPTIONS.index(current_sc) if current_sc in SPIRITS_OPTIONS else 0
+            new_sc = st.selectbox(
+                "Sub-category",
+                SPIRITS_OPTIONS,
+                index=idx_sc,
+                key=f"sc_{row['menu_item']}",
+                label_visibility="collapsed",
+            )
+            if new_sc != current_sc:
+                supabase.table("dpos_recipes").update({"sub_category": new_sc or None}) \
+                    .eq("client_id", client_id).eq("menu_item", row["menu_item"]).execute()
+                clear_cache()
+        with col_tier:
+            current_tier = str(row.get("tier") or "")
+            idx_t = TIER_OPTIONS.index(current_tier) if current_tier in TIER_OPTIONS else 0
+            new_tier = st.selectbox(
+                "Tier",
+                TIER_OPTIONS,
+                index=idx_t,
+                key=f"tier_{row['menu_item']}",
+                label_visibility="collapsed",
+            )
+            if new_tier != current_tier:
+                supabase.table("dpos_recipes").update({"tier": new_tier or None}) \
+                    .eq("client_id", client_id).eq("menu_item", row["menu_item"]).execute()
+                clear_cache()
 
 
 # ─────────────────────────────────────────────
@@ -208,10 +362,10 @@ def tab_setup(supabase: Client, client_id: int, client_name: str):
 def _run_full_sync(supabase: Client, client_id: int, client_name: str):
     with st.spinner("Syncing from Auto Calc…"):
         try:
-            uc_date  = _most_recent_date(supabase, "ac_unit_cost",      client_id)
-            rec_date = _most_recent_date(supabase, "ac_recipes",         client_id)
-            sr_date  = _most_recent_date(supabase, "ac_sub_recipes",     client_id)
-            sp_date  = _most_recent_date(supabase, "ac_selling_prices",  client_id)
+            uc_date  = _most_recent_date(supabase, "ac_unit_cost",     client_id)
+            rec_date = _most_recent_date(supabase, "ac_recipes",        client_id)
+            sr_date  = _most_recent_date(supabase, "ac_sub_recipes",    client_id)
+            sp_date  = _most_recent_date(supabase, "ac_selling_prices", client_id)
 
             if not rec_date:
                 st.error("No Auto Calc recipe data found. Upload Auto Calc first.")
@@ -219,19 +373,31 @@ def _run_full_sync(supabase: Client, client_id: int, client_name: str):
 
             st.caption(f"Using: recipes {rec_date} · unit costs {uc_date} · selling prices {sp_date}")
 
-            # Preserve existing on_menu flags and selling prices
+            # Preserve existing flags
             existing = supabase.table("dpos_recipes") \
-                .select("menu_item, on_menu, current_selling_price") \
+                .select("menu_item, on_menu, current_selling_price, glasses_count, sub_category, tier") \
                 .eq("client_id", client_id).execute()
-            on_menu_map = {}
-            sp_map      = {}
+
+            on_menu_map   = {}
+            sp_map        = {}
+            glasses_map   = {}
+            sub_cat_map   = {}
+            tier_map      = {}
+
             if existing.data:
                 for r in existing.data:
-                    on_menu_map[r["menu_item"]] = r.get("on_menu", True)
+                    item = r["menu_item"]
+                    on_menu_map[item] = r.get("on_menu", True)
                     if r.get("current_selling_price"):
-                        sp_map[r["menu_item"]] = float(r["current_selling_price"])
+                        sp_map[item] = float(r["current_selling_price"])
+                    if r.get("glasses_count"):
+                        glasses_map[item] = float(r["glasses_count"])
+                    if r.get("sub_category"):
+                        sub_cat_map[item] = r["sub_category"]
+                    if r.get("tier"):
+                        tier_map[item] = r["tier"]
 
-            # Pull selling prices from ac_selling_prices
+            # Pull selling prices
             if sp_date:
                 sp_res = supabase.table("ac_selling_prices") \
                     .select("menu_items, sp_exc_vat") \
@@ -258,8 +424,7 @@ def _run_full_sync(supabase: Client, client_id: int, client_name: str):
                     item = row.get("menu_items", "")
                     if not item:
                         continue
-                    gw = float(row.get("qty") or 0)
-                    # avgpurusacost = usage cost in USD per unit
+                    gw  = float(row.get("qty") or 0)
                     avg = float(row.get("avgpurusacost") or row.get("avg_cost") or 0)
                     records.append({
                         "client_id":              client_id,
@@ -273,6 +438,9 @@ def _run_full_sync(supabase: Client, client_id: int, client_name: str):
                         "avg_cost":               avg,
                         "on_menu":                on_menu_map.get(item, True),
                         "current_selling_price":  sp_map.get(item),
+                        "glasses_count":          glasses_map.get(item),
+                        "sub_category":           sub_cat_map.get(item),
+                        "tier":                   tier_map.get(item),
                     })
                 for i in range(0, len(records), 500):
                     supabase.table("dpos_recipes").insert(records[i:i+500]).execute()
@@ -372,21 +540,21 @@ def _run_unit_cost_sync(supabase: Client, client_id: int):
 def tab_sessions(supabase: Client, client_id: int):
     st.markdown("#### Pricing Sessions")
 
-    df = load_sessions(supabase, client_id)
+    rec_df = load_dpos_recipes(supabase, client_id)
+    df     = load_sessions(supabase, client_id)
 
     with st.expander("Create new session", expanded=df.empty):
         with st.form("sess_form", clear_on_submit=True):
             s1, s2, s3, s4 = st.columns(4)
             with s1: sess_name  = st.text_input("Session name *", placeholder="e.g. April 2026")
-            with s2: vat_rate   = st.number_input("VAT %",            min_value=0.0,  max_value=30.0, value=11.0, step=0.5)
-            with s3: target_pct = st.number_input("Target food cost %", min_value=5.0, max_value=80.0, value=30.0, step=1.0)
+            with s2: vat_rate   = st.number_input("VAT %",             min_value=0.0,  max_value=30.0, value=11.0, step=0.5)
+            with s3: target_pct = st.number_input("Global target cost %", min_value=5.0, max_value=80.0, value=30.0, step=1.0)
             with s4: rounding   = st.selectbox("Price rounding $", [0.25, 0.50, 1.00], index=1)
-            notes = st.text_area("Notes (optional)", height=60)
+            notes = st.text_area("Notes (optional)", height=50)
             if st.form_submit_button("Create session", type="primary"):
                 if not sess_name.strip():
                     st.error("Session name required.")
                 else:
-                    st.write(f"Trying to insert: {sess_name}")
                     supabase.table("dpos_sessions").insert({
                         "client_id":       client_id,
                         "session_name":    sess_name.strip(),
@@ -412,45 +580,151 @@ def tab_sessions(supabase: Client, client_id: int):
             expanded=False,
         ):
             sc1, sc2, sc3, sc4 = st.columns(4)
-            sc1.metric("VAT",           f"{float(sess.get('vat_rate',0))*100:.1f}%")
-            sc2.metric("Target cost %", f"{float(sess.get('target_cost_pct',0.3))*100:.1f}%")
-            sc3.metric("Rounding",      f"${float(sess.get('rounding',0.5)):.2f}")
-            sc4.metric("Status",        status.upper())
+            sc1.metric("VAT",             f"{float(sess.get('vat_rate',0))*100:.1f}%")
+            sc2.metric("Global target %", f"{float(sess.get('target_cost_pct',0.3))*100:.1f}%")
+            sc3.metric("Rounding",        f"${float(sess.get('rounding',0.5)):.2f}")
+            sc4.metric("Status",          status.upper())
 
             if sess.get("notes"):
                 st.caption(f"Notes: {sess['notes']}")
 
-            a1, a2, a3 = st.columns(3)
-            with a1:
-                if status == "draft" and st.button("Mark approved", key=f"approve_{sess['id']}"):
-                    supabase.table("dpos_sessions").update({"status": "approved"}).eq("id", sess["id"]).execute()
-                    load_sessions.clear(); st.rerun()
-            with a2:
-                if status != "archived" and st.button("Archive", key=f"archive_{sess['id']}"):
-                    supabase.table("dpos_sessions").update({"status": "archived"}).eq("id", sess["id"]).execute()
-                    load_sessions.clear(); st.rerun()
-            with a3:
-                if st.button("Delete", key=f"del_{sess['id']}", type="secondary"):
-                    supabase.table("dpos_sessions").delete().eq("id", sess["id"]).execute()
-                    load_sessions.clear(); st.rerun()
+            sess_id = int(sess["id"])
 
-            # Cost overrides
-            ov_res = supabase.table("dpos_cost_overrides").select("*").eq("session_id", int(sess["id"])).execute()
-            if ov_res.data:
-                st.markdown("**Cost overrides**")
-                ov_df = pd.DataFrame(ov_res.data)
-                ov_df["change %"] = ((ov_df["predicted_cost"] - ov_df["original_cost"]) / ov_df["original_cost"] * 100).round(1)
-                st.dataframe(
-                    ov_df[["product_description", "original_cost", "predicted_cost", "change %", "notes"]].rename(columns={
-                        "product_description": "Ingredient",
-                        "original_cost": "Current LBP",
-                        "predicted_cost": "Predicted LBP",
-                    }),
-                    use_container_width=True, hide_index=True,
+            # Session sub-tabs
+            st1, st2, st3 = st.tabs(["Actions", "Per-category targets", "Cost tranches"])
+
+            with st1:
+                a1, a2, a3 = st.columns(3)
+                with a1:
+                    if status == "draft" and st.button("Mark approved", key=f"approve_{sess_id}"):
+                        supabase.table("dpos_sessions").update({"status": "approved"}).eq("id", sess_id).execute()
+                        load_sessions.clear(); st.rerun()
+                with a2:
+                    if status != "archived" and st.button("Archive", key=f"archive_{sess_id}"):
+                        supabase.table("dpos_sessions").update({"status": "archived"}).eq("id", sess_id).execute()
+                        load_sessions.clear(); st.rerun()
+                with a3:
+                    if st.button("Delete", key=f"del_{sess_id}", type="secondary"):
+                        supabase.table("dpos_sessions").delete().eq("id", sess_id).execute()
+                        load_sessions.clear(); st.rerun()
+
+                # Cost overrides
+                ov_res = supabase.table("dpos_cost_overrides").select("*").eq("session_id", sess_id).execute()
+                if ov_res.data:
+                    st.markdown("**Cost overrides**")
+                    ov_df = pd.DataFrame(ov_res.data)
+                    ov_df["change %"] = ((ov_df["predicted_cost"] - ov_df["original_cost"]) / ov_df["original_cost"] * 100).round(1)
+                    st.dataframe(
+                        ov_df[["product_description", "original_cost", "predicted_cost", "change %", "notes"]].rename(columns={
+                            "product_description": "Ingredient",
+                            "original_cost": "Current LBP",
+                            "predicted_cost": "Predicted LBP",
+                        }),
+                        use_container_width=True, hide_index=True,
+                    )
+
+                with st.expander("Add cost override", expanded=False):
+                    _add_override_form(supabase, sess_id, client_id)
+
+            with st2:
+                _tab_category_targets(supabase, sess_id, rec_df, float(sess.get("target_cost_pct", 0.30)))
+
+            with st3:
+                _tab_tranches(supabase, sess_id)
+
+
+def _tab_category_targets(supabase: Client, session_id: int, rec_df: pd.DataFrame, global_target: float):
+    st.markdown("**Per-category target cost %**")
+    st.caption("Override the global target for specific categories. Leave blank to use global target.")
+
+    categories = sorted(rec_df["category"].dropna().unique().tolist()) if not rec_df.empty else []
+
+    # Load existing targets
+    existing = supabase.table("dpos_session_targets") \
+        .select("*").eq("session_id", session_id).execute()
+    existing_map = {}
+    if existing.data:
+        for r in existing.data:
+            existing_map[r["category"]] = float(r["target_cost_pct"])
+
+    if not categories:
+        st.info("No categories found. Run full sync first.")
+        return
+
+    with st.form(f"cat_targets_{session_id}", clear_on_submit=False):
+        st.markdown("Set target % per category (0 = use global):")
+        rows_per_col = max(1, len(categories) // 3 + 1)
+        cols = st.columns(3)
+        new_targets = {}
+
+        for idx, cat in enumerate(categories):
+            with cols[idx % 3]:
+                current = existing_map.get(cat, 0.0)
+                val = st.number_input(
+                    cat,
+                    value=float(current * 100) if current else 0.0,
+                    min_value=0.0,
+                    max_value=80.0,
+                    step=1.0,
+                    key=f"ct_{session_id}_{cat}",
                 )
+                new_targets[cat] = val / 100 if val > 0 else None
 
-            with st.expander("Add cost override", expanded=False):
-                _add_override_form(supabase, int(sess["id"]), client_id)
+        if st.form_submit_button("Save category targets", type="primary"):
+            # Delete existing and reinsert
+            supabase.table("dpos_session_targets").delete().eq("session_id", session_id).execute()
+            records = []
+            for cat, tgt in new_targets.items():
+                if tgt:
+                    records.append({
+                        "session_id":    session_id,
+                        "category":      cat,
+                        "target_cost_pct": tgt,
+                    })
+            if records:
+                supabase.table("dpos_session_targets").insert(records).execute()
+            st.success("Category targets saved.")
+
+
+def _tab_tranches(supabase: Client, session_id: int):
+    st.markdown("**Cost tranches**")
+    st.caption("Define cost brackets with specific target %. Overrides category target. Example: cost $0–$5 → 25%, $5–$15 → 20%.")
+
+    # Load existing tranches from notes/overrides — store in session state
+    tranche_key = f"tranches_{session_id}"
+    if tranche_key not in st.session_state:
+        st.session_state[tranche_key] = []
+
+    tranches = st.session_state[tranche_key]
+
+    # Display existing
+    if tranches:
+        t_df = pd.DataFrame(tranches)
+        t_df.columns = ["Min cost $", "Max cost $", "Target %"]
+        t_df["Target %"] = t_df["Target %"].apply(lambda x: f"{x*100:.1f}%")
+        st.dataframe(t_df, use_container_width=True, hide_index=True)
+        if st.button("Clear all tranches", key=f"clear_tranches_{session_id}"):
+            st.session_state[tranche_key] = []
+            st.rerun()
+
+    # Add new tranche
+    with st.form(f"tranche_form_{session_id}", clear_on_submit=True):
+        tc1, tc2, tc3 = st.columns(3)
+        with tc1: min_c  = st.number_input("Min cost $", value=0.0,  min_value=0.0,  step=0.5, key=f"tr_min_{session_id}")
+        with tc2: max_c  = st.number_input("Max cost $", value=10.0, min_value=0.01, step=0.5, key=f"tr_max_{session_id}")
+        with tc3: tgt    = st.number_input("Target %",   value=25.0, min_value=1.0,  max_value=80.0, step=1.0, key=f"tr_tgt_{session_id}")
+
+        if st.form_submit_button("Add tranche", type="primary"):
+            if min_c >= max_c:
+                st.error("Min cost must be less than max cost.")
+            else:
+                st.session_state[tranche_key].append({
+                    "min_cost":   min_c,
+                    "max_cost":   max_c,
+                    "target_pct": tgt / 100,
+                })
+                st.success(f"Tranche added: ${min_c}–${max_c} → {tgt}%")
+                st.rerun()
 
 
 def _add_override_form(supabase: Client, session_id: int, client_id: int):
@@ -476,7 +750,7 @@ def _add_override_form(supabase: Client, session_id: int, client_id: int):
 
         if orig > 0 and pred > 0:
             chg = ((pred - orig) / orig) * 100
-            st.caption(f"Change: {'+' if chg>0 else ''}{chg:.1f}%")
+            st.caption(f"Change: {'+' if chg > 0 else ''}{chg:.1f}%")
 
         if st.form_submit_button("Add override", type="primary"):
             if not str(ing).strip():
@@ -518,10 +792,10 @@ def tab_final_report(supabase: Client, client_id: int):
     rounding = float(session.get("rounding", 0.50))
 
     sc1, sc2, sc3, sc4 = st.columns(4)
-    sc1.metric("VAT",           f"{vat*100:.1f}%")
-    sc2.metric("Target cost %", f"{target*100:.1f}%")
-    sc3.metric("Rounding",      f"${rounding:.2f}")
-    sc4.metric("Status",        session.get("status", "draft").upper())
+    sc1.metric("VAT",             f"{vat*100:.1f}%")
+    sc2.metric("Global target %", f"{target*100:.1f}%")
+    sc3.metric("Rounding",        f"${rounding:.2f}")
+    sc4.metric("Status",          session.get("status", "draft").upper())
 
     st.divider()
 
@@ -531,6 +805,7 @@ def tab_final_report(supabase: Client, client_id: int):
         rec_df = load_dpos_recipes(supabase, client_id)
         ov_res = supabase.table("dpos_cost_overrides").select("*").eq("session_id", session_id).execute()
         ap_res = supabase.table("dpos_approved_prices").select("*").eq("session_id", session_id).execute()
+        tgt_res = supabase.table("dpos_session_targets").select("*").eq("session_id", session_id).execute()
 
     if rec_df.empty:
         st.warning("No recipes. Run Setup → Full sync first.")
@@ -539,16 +814,26 @@ def tab_final_report(supabase: Client, client_id: int):
         st.warning("No unit costs. Run Setup → Full sync first.")
         return
 
-    ap_df     = pd.DataFrame(ap_res.data) if ap_res.data else pd.DataFrame()
+    ap_df = pd.DataFrame(ap_res.data) if ap_res.data else pd.DataFrame()
+
+    # Build overrides dict
     overrides = {}
     if ov_res.data:
         for ov in ov_res.data:
             overrides[str(ov.get("product_description","")).lower().strip()] = float(ov.get("predicted_cost", 0))
 
+    # Build category targets dict
+    category_targets = {}
+    if tgt_res.data:
+        for t in tgt_res.data:
+            category_targets[t["category"].lower().strip()] = float(t["target_cost_pct"])
+
+    # Build tranches from session state
+    tranche_key = f"tranches_{session_id}"
+    tranches = st.session_state.get(tranche_key, [])
+
     # ── Item selection ──
     st.markdown("**Item selection**")
-    st.caption("Select items to include. Defaults to on-menu items only.")
-
     all_items     = sorted(rec_df["menu_item"].dropna().unique().tolist())
     on_menu_items = rec_df[rec_df["on_menu"] == True]["menu_item"].unique().tolist() \
         if "on_menu" in rec_df.columns else all_items
@@ -573,19 +858,19 @@ def tab_final_report(supabase: Client, client_id: int):
     if not show_off and "on_menu" in filt.columns:
         filt = filt[filt["on_menu"] == True]
 
-    visible = sorted(filt["menu_item"].dropna().unique().tolist())
+    visible  = sorted(filt["menu_item"].dropna().unique().tolist())
+    selected = list(st.session_state[sel_key])
 
     sb1, sb2 = st.columns(2)
     with sb1:
         if st.button("Select all visible", key="sel_all"):
-            st.session_state[sel_key] = list(set(st.session_state[sel_key]) | set(visible))
+            st.session_state[sel_key] = list(set(selected) | set(visible))
             st.rerun()
     with sb2:
         if st.button("Deselect all visible", key="desel_all"):
-            st.session_state[sel_key] = [i for i in st.session_state[sel_key] if i not in visible]
+            st.session_state[sel_key] = [i for i in selected if i not in visible]
             st.rerun()
 
-    selected = list(st.session_state[sel_key])
     cols = st.columns(3)
     for idx, item in enumerate(visible):
         with cols[idx % 3]:
@@ -612,16 +897,17 @@ def tab_final_report(supabase: Client, client_id: int):
     if run:
         sim_rec = rec_df[rec_df["menu_item"].isin(selected)].copy()
         with st.spinner("Calculating…"):
-            raw, usage_lookup, sr_lookup = compute_simulation(sim_rec, uc_df, sr_df, overrides, session)
+            raw, usage_lookup, _ = compute_simulation(
+                sim_rec, uc_df, sr_df, overrides, session,
+                category_targets=category_targets,
+                tranches=tranches,
+                item_config=rec_df.drop_duplicates("menu_item"),
+            )
             old_costs = {}
             if not ap_df.empty and "new_cost" in ap_df.columns:
                 old_costs = dict(zip(ap_df["menu_item"], ap_df["new_cost"].astype(float)))
             sim_df = enrich_with_prices(raw, old_costs, session)
-            st.session_state[sim_key] = {
-                "df": sim_df,
-                "usage_lookup": usage_lookup,
-                "sr_lookup": sr_lookup,
-            }
+            st.session_state[sim_key] = {"df": sim_df, "usage_lookup": usage_lookup}
 
     cached = st.session_state.get(sim_key)
     if cached is None:
@@ -630,43 +916,62 @@ def tab_final_report(supabase: Client, client_id: int):
 
     sim_df       = cached["df"]
     usage_lookup = cached["usage_lookup"]
-    sr_lookup    = cached["sr_lookup"]
 
     if sim_df.empty:
         st.warning("Simulation returned no results.")
         return
 
     # ── Summary ──
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Items",           len(sim_df))
-    m2.metric("Cost affected",   int(sim_df["affected"].sum()) if "affected" in sim_df.columns else 0)
-    m3.metric("Above target %",  int((sim_df["current_cost_pct"].dropna() > target*100).sum()) if "current_cost_pct" in sim_df.columns else 0)
-    m4.metric("Avg margin",      fmt_pct(sim_df["profit_margin"].dropna().mean()) if "profit_margin" in sim_df.columns else "—")
+    total_items  = len(sim_df)
+    affected     = int(sim_df["affected"].sum()) if "affected" in sim_df.columns else 0
+    above_target = int((sim_df["current_cost_pct"].dropna() > target*100).sum()) if "current_cost_pct" in sim_df.columns else 0
+    avg_margin   = sim_df["profit_margin"].dropna().mean() if "profit_margin" in sim_df.columns else None
+    violations   = int(sim_df["tier_violation"].sum()) if "tier_violation" in sim_df.columns else 0
+
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Items",           total_items)
+    m2.metric("Cost affected",   affected)
+    m3.metric("Above target %",  above_target)
+    m4.metric("Avg margin",      fmt_pct(avg_margin))
+    m5.metric("Tier violations", violations)
 
     st.divider()
+
+    # ── Tier violations alert ──
+    if violations > 0 and "tier_violation" in sim_df.columns:
+        viol_df = sim_df[sim_df["tier_violation"] == True]
+        with st.expander(f"⚠️ {violations} tier hierarchy violation(s)", expanded=True):
+            for _, row in viol_df.iterrows():
+                st.warning(f"**{row['menu_item']}** — {row.get('tier_violation_msg','')}")
 
     # ── Results table ──
     rows = []
     for _, row in sim_df.iterrows():
         sp_ex  = row.get("current_selling_price_ex")
         sp_inc = row.get("current_sp_inc_vat")
+        eff_tgt = row.get("effective_target_pct", target)
+        gls_flag = "✓" if row.get("gls_derived_from_btl") else ""
+        tier_flag = "⚠️" if row.get("tier_violation") else ""
+
         rows.append({
-            "":                   "⚡" if row.get("affected") else "—",
-            "Category":           row.get("category",""),
-            "Group":              row.get("group_name",""),
-            "Menu item":          row.get("menu_item",""),
-            "Recipe cost $":      fmt_usd(row.get("new_cost"), 4),
+            "":                    "⚡" if row.get("affected") else "—",
+            "Category":            row.get("category",""),
+            "Group":               row.get("group_name",""),
+            "Menu item":           row.get("menu_item",""),
+            "Type":                row.get("item_type","other").upper() if row.get("item_type","other") != "other" else "—",
+            "Sub-cat":             row.get("sub_category","") or "—",
+            "Tier":                (row.get("tier","") or "—") + tier_flag,
+            "Recipe cost $":       fmt_usd(row.get("new_cost"), 4),
+            "Target %":            fmt_pct(eff_tgt * 100),
             "Current SP (ex VAT)": fmt_usd(sp_ex, 2) if sp_ex else "—",
             "Current SP (inc VAT)": fmt_usd(sp_inc, 2) if sp_inc else "—",
-            "Current cost %":     fmt_pct(row.get("current_cost_pct")),
-            "Curr. margin %":     fmt_pct(row.get("current_profit_margin")),
-            "Cost var. $":        fmt_variance(row.get("cost_variance")),
-            "Cost var. %":        fmt_variance_pct(row.get("cost_variance_pct")),
-            "Suggestive (ex VAT)": fmt_usd(row.get("suggestive_ex_vat"), 2),
+            "Current cost %":      fmt_pct(row.get("current_cost_pct")),
+            "Curr. margin %":      fmt_pct(row.get("current_profit_margin")),
+            "Cost var. $":         fmt_variance(row.get("cost_variance")),
             "Suggestive (inc VAT)": fmt_usd(row.get("suggestive_price"), 2),
-            "Rounded SP $":       fmt_usd(row.get("psychological_price"), 2),
-            "New cost %":         fmt_pct(row.get("new_cost_pct")),
-            "New margin %":       fmt_pct(row.get("profit_margin")),
+            "Rounded SP $":        fmt_usd(row.get("psychological_price"), 2) + gls_flag,
+            "New cost %":          fmt_pct(row.get("new_cost_pct")),
+            "New margin %":        fmt_pct(row.get("profit_margin")),
         })
 
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
@@ -679,24 +984,22 @@ def tab_final_report(supabase: Client, client_id: int):
     if drill and drill != "— select —":
         lines = rec_df[rec_df["menu_item"] == drill].copy()
         if not lines.empty:
-            drows = []
-            total = 0.0
+            drows  = []
+            total  = 0.0
             for _, ln in lines.iterrows():
-                ing   = str(ln.get("ingredient_description",""))
-                key   = ing.lower().strip()
-                gw    = float(ln.get("gross_w") or ln.get("net_w") or 0)
-                nw    = float(ln.get("net_w") or gw)
-                yp    = ln.get("yield_pct")
-                uc    = sr_lookup.get(key, usage_lookup.get(key, float(ln.get("avg_cost") or 0)))
-                src   = "sub recipe" if key in sr_lookup else "unit cost"
-                lc    = gw * uc
+                ing  = str(ln.get("ingredient_description",""))
+                key  = ing.lower().strip()
+                gw   = float(ln.get("gross_w") or ln.get("net_w") or 0)
+                nw   = float(ln.get("net_w") or gw)
+                yp   = ln.get("yield_pct")
+                uc   = usage_lookup.get(key, float(ln.get("avg_cost") or 0))
+                lc   = gw * uc
                 total += lc
                 drows.append({
                     "Ingredient":     ing + ("  ← substitution" if gw < 0 else ""),
                     "Net W":          f"{nw:g}",
                     "Gross W":        f"{gw:g}",
                     "Yield %":        f"{yp:.1f}%" if yp else "—",
-                    "Source":         src,
                     "Usage cost $/u": fmt_usd(uc, 6),
                     "Line cost $":    fmt_usd(lc, 4),
                     "Override":       "✓" if key in overrides else "",
