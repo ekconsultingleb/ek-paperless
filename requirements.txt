@@ -1,6 +1,6 @@
 streamlit
 st-gsheets-connection
-pandas==2.1.0
+pandas
 supabase
 fpdf2
 plotly
