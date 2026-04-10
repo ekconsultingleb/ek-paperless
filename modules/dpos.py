@@ -285,7 +285,7 @@ def _tab_bottle_glass(supabase: Client, client_id: int, rec_df: pd.DataFrame):
                     label_visibility="collapsed",
                 )
                 if new_glasses != current_glasses:
-                    supabase.table("dpos_recipes").update({"glasses_count": new_glasses}) \
+                    supabase.table("dpos_recipes").update({"glasses_count": float(new_glasses)}) \
                         .eq("client_id", client_id).eq("menu_item", row["menu_item"]).execute()
                     clear_cache()
             else:
