@@ -385,6 +385,7 @@ def tab_sessions(supabase: Client, client_id: int):
                 if not sess_name.strip():
                     st.error("Session name required.")
                 else:
+                    st.write(f"Trying to insert: {sess_name}")
                     supabase.table("dpos_sessions").insert({
                         "client_id":       client_id,
                         "session_name":    sess_name.strip(),
