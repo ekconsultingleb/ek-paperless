@@ -224,7 +224,7 @@ def enrich_with_prices(
         lambda r: round((r["cost_variance"] / float(r["old_cost"])) * 100, 2)
         if r["old_cost"] and r["cost_variance"] is not None else None, axis=1
     )
-    df["affected"] = df["cost_variance"].notna() & (df["cost_variance"].abs() > 0.000001)
+    df["affected"] = df["cost_variance"].notna() & (pd.to_numeric(df["cost_variance"], errors="coerce").abs() > 0.000001)
 
     # Current cost % — new_cost vs current SP ex-VAT
     df["current_cost_pct"] = df.apply(
