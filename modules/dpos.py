@@ -187,15 +187,19 @@ def _tab_menu_visibility(supabase: Client, client_id: int, rec_df: pd.DataFrame)
     b1, b2, _ = st.columns([1, 1, 4])
     with b1:
         if st.button("All on menu", key="bulk_on"):
-            for item in rec_df["menu_item"].unique():
-                supabase.table("dpos_recipes").update({"on_menu": True}) \
-                    .eq("client_id", client_id).eq("menu_item", item).execute()
+            supabase.table("dpos_recipes") \
+                .update({"on_menu": True}) \
+                .eq("client_id", client_id) \
+                .in_("menu_item", rec_df["menu_item"].dropna().unique().tolist()) \
+                .execute()
             clear_cache(); st.rerun()
     with b2:
         if st.button("All off menu", key="bulk_off"):
-            for item in rec_df["menu_item"].unique():
-                supabase.table("dpos_recipes").update({"on_menu": False}) \
-                    .eq("client_id", client_id).eq("menu_item", item).execute()
+            supabase.table("dpos_recipes") \
+                .update({"on_menu": False}) \
+                .eq("client_id", client_id) \
+                .in_("menu_item", rec_df["menu_item"].dropna().unique().tolist()) \
+                .execute()
             clear_cache(); st.rerun()
 
     for _, row in items_df.iterrows():
@@ -253,12 +257,13 @@ def _tab_bottle_glass(supabase: Client, client_id: int, rec_df: pd.DataFrame):
         with st.form("bulk_glasses_form"):
             bulk_glasses = st.number_input("Glasses per bottle (all items)", value=10.0, min_value=1.0, step=0.5)
             if st.form_submit_button("Apply to all bottles", type="primary"):
-                btl_items = btl_gls[btl_gls["item_type"] == "btl"]["menu_item"].tolist()
-                for item in btl_items:
-                    supabase.table("dpos_recipes").update({"glasses_count": bulk_glasses}) \
-                        .eq("client_id", client_id).eq("menu_item", item).execute()
+                supabase.table("dpos_recipes") \
+                    .update({"glasses_count": float(bulk_glasses)}) \
+                    .eq("client_id", client_id) \
+                    .in_("menu_item", btl_gls[btl_gls["item_type"] == "btl"]["menu_item"].tolist()) \
+                    .execute()
                 clear_cache()
-                st.success(f"Set {bulk_glasses} glasses for {len(btl_items)} bottle items.")
+                st.success(f"Set {bulk_glasses:.0f} glasses for all bottle items.")
                 st.rerun()
 
     # Per-item glasses count
@@ -310,7 +315,7 @@ def _tab_bottle_glass(supabase: Client, client_id: int, rec_df: pd.DataFrame):
 
 def _tab_tier_tagging(supabase: Client, client_id: int, rec_df: pd.DataFrame):
     st.markdown("**Sub-category & Tier tagging**")
-    st.caption("Tag spirits with sub-category (Gin, Whisky…) and tier (Regular/Premium/Ultra Premium) for hierarchy validation.")
+    st.caption("Tag spirits with sub-category and tier. Changes are saved when you click Save.")
 
     from modules.dpos_simulation import detect_btl_gls
 
@@ -318,7 +323,7 @@ def _tab_tier_tagging(supabase: Client, client_id: int, rec_df: pd.DataFrame):
         ["menu_item", "category", "group_name", "sub_category", "tier"]
     ].copy()
 
-    # Filter
+    # Filters
     f1, f2, f3 = st.columns([2, 2, 2])
     with f1:
         cats  = ["All"] + sorted(items_df["category"].dropna().unique().tolist())
@@ -337,38 +342,86 @@ def _tab_tier_tagging(supabase: Client, client_id: int, rec_df: pd.DataFrame):
     tagged_count = int(items_df["tier"].notna().sum())
     st.caption(f"{tagged_count} items tagged · showing {len(view)}")
 
+    if view.empty:
+        st.info("No items match the filter.")
+        return
+
+    # Auto-fill sub-category from group name
+    def auto_sub_cat(group_name: str, current: str) -> str:
+        if current:
+            return current
+        if not group_name:
+            return ""
+        g = group_name.strip()
+        for opt in SPIRITS_OPTIONS[1:]:  # skip empty
+            if opt.lower() in g.lower() or g.lower() in opt.lower():
+                return opt
+        return ""
+
+    # Render inputs — no live save
     for _, row in view.iterrows():
+        item_name   = str(row.get("menu_item") or "")
+        group_name  = str(row.get("group_name") or "")
+        current_sc  = str(row.get("sub_category") or "")
+        current_tier = str(row.get("tier") or "")
+
+        # Auto-suggest sub-category from group
+        suggested_sc = auto_sub_cat(group_name, current_sc)
+
         col_name, col_subcat, col_tier = st.columns([3, 2, 2])
         with col_name:
-            st.markdown(f"**{row['menu_item']}**")
+            st.markdown(f"**{item_name}**  <span style='opacity:0.4;font-size:11px'>{group_name}</span>", unsafe_allow_html=True)
         with col_subcat:
-            current_sc = str(row.get("sub_category") or "")
-            idx_sc = SPIRITS_OPTIONS.index(current_sc) if current_sc in SPIRITS_OPTIONS else 0
-            new_sc = st.selectbox(
+            idx_sc = SPIRITS_OPTIONS.index(suggested_sc) if suggested_sc in SPIRITS_OPTIONS else 0
+            st.selectbox(
                 "Sub-category",
                 SPIRITS_OPTIONS,
                 index=idx_sc,
-                key=f"sc_{row['menu_item']}",
+                key=f"sc_{item_name}",
                 label_visibility="collapsed",
             )
-            if new_sc != current_sc:
-                supabase.table("dpos_recipes").update({"sub_category": new_sc or None}) \
-                    .eq("client_id", client_id).eq("menu_item", row["menu_item"]).execute()
-                clear_cache()
         with col_tier:
-            current_tier = str(row.get("tier") or "")
             idx_t = TIER_OPTIONS.index(current_tier) if current_tier in TIER_OPTIONS else 0
-            new_tier = st.selectbox(
+            st.selectbox(
                 "Tier",
                 TIER_OPTIONS,
                 index=idx_t,
-                key=f"tier_{row['menu_item']}",
+                key=f"tier_{item_name}",
                 label_visibility="collapsed",
             )
-            if new_tier != current_tier:
-                supabase.table("dpos_recipes").update({"tier": new_tier or None}) \
-                    .eq("client_id", client_id).eq("menu_item", row["menu_item"]).execute()
-                clear_cache()
+
+    # Bulk set tier
+    b1, b2 = st.columns(2)
+    with b1:
+        if st.button("Set all visible to Regular", key="bulk_regular"):
+            for _, row in view.iterrows():
+                item_name = str(row.get("menu_item") or "")
+                st.session_state[f"tier_{item_name}"] = "Regular"
+            st.rerun()
+    with b2:
+        if st.button("Clear all tiers", key="bulk_clear_tier"):
+            for _, row in view.iterrows():
+                item_name = str(row.get("menu_item") or "")
+                st.session_state[f"tier_{item_name}"] = ""
+            st.rerun()
+
+    # Single save button
+    if st.button("Save sub-category & tier", type="primary", key="save_tier"):
+        updated = 0
+        for _, row in view.iterrows():
+            item_name = str(row.get("menu_item") or "")
+            sc_key    = f"sc_{item_name}"
+            tier_key  = f"tier_{item_name}"
+            new_sc    = st.session_state.get(sc_key, "")
+            new_tier  = st.session_state.get(tier_key, "")
+            supabase.table("dpos_recipes").update({
+                "sub_category": new_sc or None,
+                "tier":         new_tier or None,
+            }).eq("client_id", client_id).eq("menu_item", item_name).execute()
+            updated += 1
+        clear_cache()
+        st.success(f"Saved {updated} items.")
+        st.rerun()
 
 
 # ─────────────────────────────────────────────
