@@ -198,11 +198,6 @@ def enrich_with_prices(
     old_costs: dict,
     session: dict,
 ) -> pd.DataFrame:
-    """
-    Add cost % metrics using current selling prices already in sim_df.
-
-    old_costs: {menu_item: previous_new_cost_usd} from last approved session
-    """
     if sim_df.empty:
         return sim_df
 
@@ -215,42 +210,36 @@ def enrich_with_prices(
     def ex_vat(p):
         return p / (1 + vat) if vat > 0 and p else p
 
-    # Cost variance vs previous session
+    # Cost variance — force numeric
     df["cost_variance"] = df.apply(
-        lambda r: round(r["new_cost"] - float(r["old_cost"]), 6)
+        lambda r: round(float(r["new_cost"]) - float(r["old_cost"]), 6)
         if r["old_cost"] is not None else None, axis=1
     )
     df["cost_variance_pct"] = df.apply(
-        lambda r: round((r["cost_variance"] / float(r["old_cost"])) * 100, 2)
+        lambda r: round((float(r["cost_variance"]) / float(r["old_cost"])) * 100, 2)
         if r["old_cost"] and r["cost_variance"] is not None else None, axis=1
     )
-    df["affected"] = df["cost_variance"].notna() & (pd.to_numeric(df["cost_variance"], errors="coerce").abs() > 0.000001)
 
-    # Current cost % — new_cost vs current SP ex-VAT
+    # Force numeric before abs()
+    cv = pd.to_numeric(df["cost_variance"], errors="coerce")
+    df["affected"] = cv.notna() & (cv.abs() > 0.000001)
+
     df["current_cost_pct"] = df.apply(
         lambda r: round((r["new_cost"] / r["current_selling_price_ex"]) * 100, 2)
-        if r.get("current_selling_price_ex") and r["current_selling_price_ex"] > 0 else None, axis=1
+        if r.get("current_selling_price_ex") and float(r["current_selling_price_ex"]) > 0 else None, axis=1
     )
-
-    # Current profit margin
     df["current_profit_margin"] = df.apply(
         lambda r: round((1 - r["new_cost"] / r["current_selling_price_ex"]) * 100, 2)
-        if r.get("current_selling_price_ex") and r["current_selling_price_ex"] > 0 else None, axis=1
+        if r.get("current_selling_price_ex") and float(r["current_selling_price_ex"]) > 0 else None, axis=1
     )
-
-    # New cost % — new_cost vs suggestive ex-VAT
     df["new_cost_pct"] = df.apply(
         lambda r: round((r["new_cost"] / r["suggestive_ex_vat"]) * 100, 2)
-        if r.get("suggestive_ex_vat") and r["suggestive_ex_vat"] > 0 else None, axis=1
+        if r.get("suggestive_ex_vat") and float(r["suggestive_ex_vat"]) > 0 else None, axis=1
     )
-
-    # New profit margin
     df["profit_margin"] = df.apply(
         lambda r: round((1 - r["new_cost"] / r["suggestive_ex_vat"]) * 100, 2)
-        if r.get("suggestive_ex_vat") and r["suggestive_ex_vat"] > 0 else None, axis=1
+        if r.get("suggestive_ex_vat") and float(r["suggestive_ex_vat"]) > 0 else None, axis=1
     )
-
-    # Cost position flag
     df["cost_position"] = df["current_cost_pct"].apply(
         lambda v: f"Higher > {target:.0f}%" if v and v > target
         else (f"Lower ≤ {target:.0f}%" if v else "—")
