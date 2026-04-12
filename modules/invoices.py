@@ -127,7 +127,7 @@ def _render_invoice_card(supabase, row: dict, user: str, user_role: str, key_pre
                     )
                     new_notes = st.text_area("Data Entry Notes", value=row.get('data_entry_notes', '') or "")
 
-                    if st.form_submit_button("💾 Save & Update", type="primary", use_container_width=True):
+                    if st.form_submit_button("💾 Save & Update", type="primary", width="stretch"):
                         if user_role == "viewer":
                             st.error("🚫 Viewers cannot modify records.")
                         else:
@@ -147,17 +147,17 @@ def _render_invoice_card(supabase, row: dict, user: str, user_role: str, key_pre
                         st.warning("Are you sure? This cannot be undone.")
                         col_yes, col_no = st.columns(2)
                         with col_yes:
-                            if st.button("🗑️ Yes, delete", key=f"yes_{key_prefix}_{inv_id}", use_container_width=True, type="primary"):
+                            if st.button("🗑️ Yes, delete", key=f"yes_{key_prefix}_{inv_id}", width="stretch", type="primary"):
                                 supabase.table("invoices_log").delete().eq("id", inv_id).execute()
                                 st.session_state.pop(confirm_key, None)
                                 st.success("Deleted.")
                                 st.rerun()
                         with col_no:
-                            if st.button("Cancel", key=f"no_{key_prefix}_{inv_id}", use_container_width=True):
+                            if st.button("Cancel", key=f"no_{key_prefix}_{inv_id}", width="stretch"):
                                 st.session_state.pop(confirm_key, None)
                                 st.rerun()
                     else:
-                        if st.button("🗑️ Delete Invoice", key=f"del_{key_prefix}_{inv_id}", use_container_width=True):
+                        if st.button("🗑️ Delete Invoice", key=f"del_{key_prefix}_{inv_id}", width="stretch"):
                             st.session_state[confirm_key] = True
                             st.rerun()
 
@@ -277,7 +277,7 @@ def render_invoices(conn, sheet_link, user, role):
                         # Open / Close toggle
                         is_open = st.session_state.get(open_key, False)
                         btn_label = "📂 Close" if is_open else "📂 Open"
-                        if rc[7].button(btn_label, key=f"btn_open_{cname}", use_container_width=True):
+                        if rc[7].button(btn_label, key=f"btn_open_{cname}", width="stretch"):
                             st.session_state[open_key] = not is_open
                             st.rerun()
 
@@ -460,17 +460,17 @@ def render_invoices(conn, sheet_link, user, role):
                                                     st.warning("Are you sure? This cannot be undone.")
                                                     col_yes, col_no = st.columns(2)
                                                     with col_yes:
-                                                        if st.button("🗑️ Yes, delete", key=f"yes_arch_{arch_inv_id}", use_container_width=True, type="primary"):
+                                                        if st.button("🗑️ Yes, delete", key=f"yes_arch_{arch_inv_id}", width="stretch", type="primary"):
                                                             supabase.table("invoices_log").delete().eq("id", arch_inv_id).execute()
                                                             st.session_state.pop(confirm_key, None)
                                                             st.success("Deleted.")
                                                             st.rerun()
                                                     with col_no:
-                                                        if st.button("Cancel", key=f"no_arch_{arch_inv_id}", use_container_width=True):
+                                                        if st.button("Cancel", key=f"no_arch_{arch_inv_id}", width="stretch"):
                                                             st.session_state.pop(confirm_key, None)
                                                             st.rerun()
                                                 else:
-                                                    if st.button("🗑️ Delete Invoice", key=f"del_arch_{arch_inv_id}", use_container_width=True):
+                                                    if st.button("🗑️ Delete Invoice", key=f"del_arch_{arch_inv_id}", width="stretch"):
                                                         st.session_state[confirm_key] = True
                                                         st.rerun()
 
@@ -612,7 +612,7 @@ def render_invoices(conn, sheet_link, user, role):
 
         already_submitted = st.session_state.get('invoice_submitted', False)
 
-        if st.button("🚀 Submit Invoice to Accounting", type="primary", use_container_width=True, disabled=already_submitted):
+        if st.button("🚀 Submit Invoice to Accounting", type="primary", width="stretch", disabled=already_submitted):
             if not uploaded_file:
                 st.error("❌ Please upload or take a photo.")
             elif not final_supplier_name:
