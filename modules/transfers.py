@@ -5,7 +5,7 @@ import zoneinfo
 import uuid
 from supabase import create_client, Client
 from modules.nav_helper import build_outlet_location_sidebar, get_nav_data
-import google.generativeai as genai
+from google import genai as google_genai
 import json
 
 # --- SAFELY INITIALIZE SUPABASE ---
@@ -13,11 +13,10 @@ import json
 def get_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
-# Configure Gemini once per app session, not on every call
+# Configure Gemini client once per app session
 @st.cache_resource
-def _get_gemini_model():
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    return genai.GenerativeModel('gemini-2.5-flash')
+def _get_gemini_client():
+    return google_genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 
 # --- AI HELPER FUNCTION ---
 def analyze_chef_request(user_text):
@@ -29,8 +28,11 @@ def analyze_chef_request(user_text):
     Return ONLY a valid JSON array. Do not return markdown, do not return explanations.
     Format exactly like this: [{"item_name": "Shrimp", "qty": "5kg"}, {"item_name": "Potato", "qty": "2 box"}]
     """
-    model = _get_gemini_model()
-    response = model.generate_content(f"{system_prompt}\n\nChef's request: {user_text}")
+    client = _get_gemini_client()
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=f"{system_prompt}\n\nChef's request: {user_text}"
+    )
     clean_text = response.text.replace("```json", "").replace("```", "").strip()
     try:
         return json.loads(clean_text)

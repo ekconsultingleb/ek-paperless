@@ -1,12 +1,11 @@
 import streamlit as st
 import pandas as pd
 import uuid
-import base64
 import json
 from datetime import datetime, timedelta
 import zoneinfo
 from supabase import create_client, Client
-import google.generativeai as genai
+from google import genai as google_genai
 
 # --- SAFELY INITIALIZE SUPABASE ---
 @st.cache_resource
@@ -15,13 +14,12 @@ def get_supabase() -> Client:
 
 @st.cache_resource
 def _get_gemini():
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    return genai.GenerativeModel('gemini-2.5-flash')
+    return google_genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 
 def _extract_invoice_data(file_bytes: bytes, mime_type: str) -> dict:
     """Use Gemini to extract supplier, total, and currency from invoice image/PDF."""
     try:
-        model = _get_gemini()
+        client = _get_gemini()
         prompt = """Analyze this invoice and extract:
 1. Supplier / vendor name (the company selling, not the buyer)
 2. Total amount to pay (the final total, grand total, or amount due)
@@ -33,10 +31,13 @@ Return ONLY valid JSON in this exact format, no explanation:
 If currency is unclear but amounts look like Lebanese Pounds (large numbers like 500000+), use "LBP".
 If amounts are small (under 10000), likely USD.
 If supplier name is not found, return null for supplier."""
-        response = model.generate_content([
-            {"mime_type": mime_type, "data": base64.b64encode(file_bytes).decode()},
-            prompt
-        ])
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                google_genai.types.Part.from_bytes(data=file_bytes, mime_type=mime_type),
+                prompt
+            ]
+        )
         clean = response.text.replace("```json", "").replace("```", "").strip()
         return json.loads(clean)
     except Exception:
