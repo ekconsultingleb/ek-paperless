@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import time
 from supabase import create_client, Client
-import streamlit.components.v1 as components
+
 
 # --- IMPORT YOUR MODULES ---
 from modules.overview import render_overview
@@ -32,26 +32,32 @@ st.set_page_config(page_title="Paperless", layout="wide")
 
 # --- BULLETPROOF MOBILE BACK BUTTON PROTECTION ---
 def inject_back_button_protection():
-    components.html(
+    st.markdown(
         """
         <script>
-        window.parent.addEventListener('beforeunload', function (e) {
-            e.preventDefault();
-            e.returnValue = '';
-        });
-        window.parent.history.pushState('fake-route', null, '');
-        window.parent.addEventListener('popstate', function (e) {
-            var stay = window.parent.confirm("⚠️ Warning: Leaving this page will erase unsaved work! Do you want to stay?");
-            if (stay) {
-                window.parent.history.pushState('fake-route', null, '');
-            } else {
-                window.parent.history.back();
-            }
-        });
+        (function() {
+            // Push a fake state so the back button has somewhere to go
+            window.parent.history.pushState('fake-route', null, '');
+
+            // Back button / swipe back / Android < button
+            window.parent.addEventListener('popstate', function (e) {
+                var stay = window.parent.confirm("⚠️ Unsaved work may be lost!\\nAre you sure you want to leave?");
+                if (stay) {
+                    window.parent.history.pushState('fake-route', null, '');
+                } else {
+                    window.parent.history.back();
+                }
+            });
+
+            // Desktop tab close / browser X — shows browser's generic "Leave site?" dialog
+            window.parent.addEventListener('beforeunload', function (e) {
+                e.preventDefault();
+                e.returnValue = '';
+            });
+        })();
         </script>
         """,
-        height=0,
-        width=0,
+        unsafe_allow_html=True,
     )
 
 if not st.session_state.get('_back_protection_injected'):
