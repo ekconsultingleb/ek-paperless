@@ -240,69 +240,63 @@ def render_invoices(conn, sheet_link, user, role):
 
                     summary = sorted(summary, key=lambda x: x['pending'], reverse=True)
 
-                    # Header row
-                    hc = st.columns([3, 1, 1, 1, 1, 1, 1, 1])
-                    for col, label in zip(hc, ["Client", "Total", "Pending", "On Hold", "Posted", "Acctg", "% Done", ""]):
-                        col.markdown(f"<span style='font-size:12px;font-weight:600;color:#8a9eaa;text-transform:uppercase;letter-spacing:0.05em;'>{label}</span>", unsafe_allow_html=True)
+                    # ── Summary table — responsive dataframe ──────────────────
+                    df_summary = pd.DataFrame([{
+                        "Client":   r["client_name"],
+                        "Total":    r["total"],
+                        "Pending":  r["pending"],
+                        "On Hold":  r["on_hold"],
+                        "Posted":   r["posted"],
+                        "Acctg":    r["accounting"],
+                        "% Done":   f"{r['pct_done']}%",
+                    } for r in summary])
+
+                    st.dataframe(
+                        df_summary,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "Pending": st.column_config.NumberColumn("Pending", help="Needs processing"),
+                            "% Done":  st.column_config.TextColumn("% Done"),
+                        }
+                    )
+
                     st.divider()
 
-                    for row in summary:
-                        cname = row['client_name']
-                        open_key = f"dash_open_{cname}"
-
-                        rc = st.columns([3, 1, 1, 1, 1, 1, 1, 1])
-                        rc[0].markdown(f"**{cname}**")
-                        rc[1].markdown(str(row['total']))
-
-                        # Pending in orange if > 0
-                        pend_color = "#854F0B" if row['pending'] > 0 else "#3B6D11"
-                        rc[2].markdown(f"<span style='color:{pend_color};font-weight:600;'>{row['pending']}</span>", unsafe_allow_html=True)
-
-                        rc[3].markdown(f"<span style='color:{'#A32D2D' if row['on_hold'] > 0 else 'inherit'};'>{row['on_hold']}</span>", unsafe_allow_html=True)
-                        rc[4].markdown(str(row['posted']))
-                        rc[5].markdown(str(row['accounting']))
-
-                        # Progress bar
-                        pct = row['pct_done']
-                        bar_color = "#3B6D11" if pct == 100 else "#854F0B" if pct < 50 else "#E3C5AD"
-                        rc[6].markdown(
-                            f"<div style='background:#2E3D47;border-radius:6px;height:18px;margin-top:4px;'>"
-                            f"<div style='width:{pct}%;background:{bar_color};border-radius:6px;height:18px;"
-                            f"display:flex;align-items:center;justify-content:center;"
-                            f"font-size:10px;color:#fff;font-weight:600;'>"
-                            f"{'100%' if pct == 100 else f'{pct}%' if pct > 15 else ''}</div></div>",
-                            unsafe_allow_html=True
+                    # ── Client selector + inline invoice feed ─────────────────
+                    client_options = [r["client_name"] for r in summary]
+                    if client_options:
+                        selected_client = st.selectbox(
+                            "🎯 Open a client's queue",
+                            client_options,
+                            key="dash_client_select"
                         )
 
-                        # Open / Close toggle
-                        is_open = st.session_state.get(open_key, False)
-                        btn_label = "📂 Close" if is_open else "📂 Open"
-                        if rc[7].button(btn_label, key=f"btn_open_{cname}", width="stretch"):
-                            st.session_state[open_key] = not is_open
-                            st.rerun()
+                        # Show stats for selected client
+                        sel = next(r for r in summary if r["client_name"] == selected_client)
+                        mc1, mc2, mc3, mc4 = st.columns(4)
+                        mc1.metric("Total", sel["total"])
+                        mc2.metric("⏳ Pending", sel["pending"])
+                        mc3.metric("✅ Posted", sel["posted"])
+                        mc4.metric("% Done", f"{sel['pct_done']}%")
 
-                        # Inline invoice feed for this client
-                        if st.session_state.get(open_key, False):
-                            with st.container(border=True):
-                                st.markdown(f"##### 📥 {cname} — Pending & On Hold")
-                                try:
-                                    inv_res = (supabase.table("invoices_log").select("*")
-                                               .eq("client_name", cname)
-                                               .in_("status", ["Pending", "On Hold"])
-                                               .gte("created_at", f"{dash_start}T00:00:00")
-                                               .lte("created_at", f"{dash_end}T23:59:59")
-                                               .order("created_at", desc=False)
-                                               .execute())
-                                    if not inv_res.data:
-                                        st.success("🎉 All invoices for this client are cleared!")
-                                    else:
-                                        st.caption(f"{len(inv_res.data)} invoice(s) need attention")
-                                        for inv_row in inv_res.data:
-                                            _render_invoice_card(supabase, inv_row, user, user_role, f"dash_{cname}")
-                                except Exception as e:
-                                    st.error(f"Could not load invoices: {e}")
-
-                        st.divider()
+                        st.markdown(f"##### 📥 {selected_client} — Pending & On Hold")
+                        try:
+                            inv_res = (supabase.table("invoices_log").select("*")
+                                       .eq("client_name", selected_client)
+                                       .in_("status", ["Pending", "On Hold"])
+                                       .gte("created_at", f"{dash_start}T00:00:00")
+                                       .lte("created_at", f"{dash_end}T23:59:59")
+                                       .order("created_at", desc=False)
+                                       .execute())
+                            if not inv_res.data:
+                                st.success("🎉 All invoices for this client are cleared!")
+                            else:
+                                st.caption(f"{len(inv_res.data)} invoice(s) need attention")
+                                for inv_row in inv_res.data:
+                                    _render_invoice_card(supabase, inv_row, user, user_role, f"dash_{selected_client}")
+                        except Exception as e:
+                            st.error(f"Could not load invoices: {e}")
 
             except Exception as e:
                 st.error(f"❌ Dashboard error: {e}")
