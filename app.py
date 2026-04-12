@@ -54,7 +54,9 @@ def inject_back_button_protection():
         width=0,
     )
 
-inject_back_button_protection()
+if not st.session_state.get('_back_protection_injected'):
+    inject_back_button_protection()
+    st.session_state['_back_protection_injected'] = True
 
 # --- BRANDING & LOGO ---
 st.sidebar.image("https://hgvubaohmgvesblfvdps.supabase.co/storage/v1/object/public/assets/EK-Logo.png", width=240)
@@ -417,91 +419,43 @@ else:
             </div>
         """, unsafe_allow_html=True)
 
-        col_a, col_b, col_c, col_d = st.columns(4)
+        # --- DYNAMIC HOME GRID ---
+        # All possible modules in display order: (module_key, emoji+label, page_key)
+        # "transfers" keeps its legacy typo fallback via the check below.
+        _all_buttons = [
+            ("cash",           "🏦\nDaily Cash",     "cash"),
+            ("inventory",      "📦\nInventory",       "inventory"),
+            ("waste",          "🗑️\nWaste",           "waste"),
+            ("invoices",       "📸\nInvoices",        "invoices"),
+            ("transfers",      "🔄\nTransfers",       "transfers"),
+            ("dashboard",      "📊\nDashboard",       "dashboard"),
+            ("ledger",         "💸\nDebt Control",    "ledger"),
+            ("overview",       "📈\nOverview",        "overview"),
+            ("recipes",        "🍳\nRecipes",         "recipes"),
+            ("recipes report", "📋\nRecipe Report",   "recipes report"),
+            ("pricing studio", "💲\nPricing Studio",  "pricing studio"),
+        ]
 
-        if "cash" in allowed_modules:
-            with col_a:
-                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("🏦\nDaily Cash", width="stretch", key="btn_cash"):
-                    st.session_state['current_page'] = 'cash'; st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
+        # Filter to only modules this user can access
+        # "transfers" retains legacy fallback: accept both "transfers" and "transfer"
+        _visible = [
+            (mod, label, page) for mod, label, page in _all_buttons
+            if mod in allowed_modules or (mod == "transfers" and "transfer" in allowed_modules)
+        ]
 
-        if "inventory" in allowed_modules:
-            with col_b:
-                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("📦\nInventory", width="stretch", key="btn_inventory"):
-                    st.session_state['current_page'] = 'inventory'; st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-
-        if "waste" in allowed_modules:
-            with col_c:
-                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("🗑️\nWaste", width="stretch", key="btn_waste"):
-                    st.session_state['current_page'] = 'waste'; st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-
-        if "invoices" in allowed_modules:
-            with col_d:
-                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("📸\nInvoices", width="stretch", key="btn_invoices"):
-                    st.session_state['current_page'] = 'invoices'; st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-
-        st.write("")
-        col_e, col_f, col_g, col_h = st.columns(4)
-
-        if "transfers" in allowed_modules or "transfer" in allowed_modules:
-            with col_e:
-                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("🔄\nTransfers", width="stretch", key="btn_transfers"):
-                    st.session_state['current_page'] = 'transfers'; st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-
-        if "dashboard" in allowed_modules:
-            with col_f:
-                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("📊\nDashboard", width="stretch", key="btn_dashboard"):
-                    st.session_state['current_page'] = 'dashboard'; st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-
-        if "ledger" in allowed_modules:
-            with col_g:
-                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("💸\nDebt Control", width="stretch", key="btn_ledger"):
-                    st.session_state['current_page'] = 'ledger'; st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-
-        if "overview" in allowed_modules:
-            with col_h:
-                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("📊\nOverview", width="stretch", key="btn_overview"):
-                    st.session_state['current_page'] = 'overview'; st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-        
-        # --- ROW 3 ---
-        st.write("")
-        col_i, col_j, col_k, col_l = st.columns(4)
-
-        if "recipes" in allowed_modules:
-            with col_i:
-                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("🍳\nRecipes", width="stretch", key="btn_recipes"):
-                    st.session_state['current_page'] = 'recipes'; st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-
-        if "recipes report" in allowed_modules:
-            with col_j:
-                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("📋\nRecipe Report", width="stretch", key="btn_recipe_report"):
-                    st.session_state['current_page'] = 'recipes report'; st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-
-        if "pricing studio" in allowed_modules:
-            with col_k:
-                st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
-                if st.button("💲\nPricing Studio", width="stretch", key="btn_pricing_studio"):
-                    st.session_state['current_page'] = 'pricing studio'; st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
+        # Render in rows of 4, no gaps
+        _cols_per_row = 4
+        for _row_start in range(0, len(_visible), _cols_per_row):
+            _row_items = _visible[_row_start:_row_start + _cols_per_row]
+            _grid_cols = st.columns(_cols_per_row)
+            for _col, (mod, label, page) in zip(_grid_cols, _row_items):
+                with _col:
+                    st.markdown('<div class="ek-home-btn">', unsafe_allow_html=True)
+                    if st.button(label, width="stretch", key=f"btn_{mod.replace(' ', '_')}"):
+                        st.session_state['current_page'] = page
+                        st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+            st.write("")
 
 
     # ==========================================
