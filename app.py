@@ -60,7 +60,7 @@ def inject_back_button_protection():
         unsafe_allow_html=True,
     )
 
-if not st.session_state.get('_back_protection_injected'):
+if st.session_state.get('logged_in') and not st.session_state.get('_back_protection_injected'):
     inject_back_button_protection()
     st.session_state['_back_protection_injected'] = True
 
