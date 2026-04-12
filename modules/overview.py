@@ -879,7 +879,7 @@ def render_overview(supabase, conn, user, role, client_arg, outlet, location):
     st.markdown("<br>", unsafe_allow_html=True)
     col_exp, col_info = st.columns([1, 3])
     with col_exp:
-        if st.button("📄 Export PDF", type="primary", use_container_width=True, key="ov_pdf"):
+        if st.button("📄 Export PDF", type="primary", width="stretch", key="ov_pdf"):
             with st.spinner("Generating PDF..."):
                 try:
                     pdf_buf = build_financial_overview_pdf(
@@ -1772,7 +1772,7 @@ def render_overview(supabase, conn, user, role, client_arg, outlet, location):
     st.markdown("<br>", unsafe_allow_html=True)
     col_exp, col_info = st.columns([1, 3])
     with col_exp:
-        if st.button("📄 Export PDF", type="primary", use_container_width=True, key="ov_pdf"):
+        if st.button("📄 Export PDF", type="primary", width="stretch", key="ov_pdf"):
             with st.spinner("Generating PDF..."):
                 try:
                     pdf_buf = build_financial_overview_pdf(

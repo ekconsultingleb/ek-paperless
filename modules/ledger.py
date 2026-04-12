@@ -96,7 +96,7 @@ def render_ledger(conn, sheet_link, user, role):
                 with c3: t_credit = st.number_input("🔴 CREDIT", min_value=0.0, step=1.0, key="t_credit")
                 with c4: t_debit = st.number_input("🟢 DEBIT", min_value=0.0, step=1.0, key="t_debit")
 
-                if st.button("💾 Save Transaction", type="primary", use_container_width=True, disabled=st.session_state.ledger_is_saving):
+                if st.button("💾 Save Transaction", type="primary", width="stretch", disabled=st.session_state.ledger_is_saving):
                     st.session_state.ledger_is_saving = True
                     try:
                         clean_cat, clean_ent = fin_cat.strip().title(), fin_ent.strip().title()
@@ -153,7 +153,7 @@ def render_ledger(conn, sheet_link, user, role):
                 # ── Editable table ────────────────────────────────────────
                 edited_data = st.data_editor(
                     df_view[cols],
-                    use_container_width=True,
+                    width="stretch",
                     disabled=["id"],
                     hide_index=True,
                     key="ledger_history_editor"
@@ -230,7 +230,7 @@ def render_ledger(conn, sheet_link, user, role):
                             cd1, cd2 = st.columns(2)
                             with cd1:
                                 if st.button(
-                                    "Cancel", use_container_width=True,
+                                    "Cancel", width="stretch",
                                     key="del_cancel"
                                 ):
                                     st.session_state[confirm_key] = False
@@ -238,7 +238,7 @@ def render_ledger(conn, sheet_link, user, role):
                             with cd2:
                                 if st.button(
                                     "Yes, delete", type="primary",
-                                    use_container_width=True,
+                                    width="stretch",
                                     key="del_confirm"
                                 ):
                                     try:
@@ -253,7 +253,7 @@ def render_ledger(conn, sheet_link, user, role):
                         else:
                             if st.button(
                                 "🗑️ Delete this record",
-                                use_container_width=True,
+                                width="stretch",
                                 key="del_trigger"
                             ):
                                 st.session_state[confirm_key] = True

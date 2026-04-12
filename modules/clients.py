@@ -104,7 +104,7 @@ def _client_form(supabase, existing: dict = None):
                 existing.get("status", "active") if is_edit else "active"))
 
         if st.form_submit_button("💾 Update Client" if is_edit else "➕ Add Client",
-                                  use_container_width=True):
+                                  width="stretch"):
             if not client_name.strip():
                 st.error("Client Name is required.")
                 return
@@ -146,7 +146,7 @@ def _branch_form(supabase, clients: list, existing: dict = None):
                 placeholder="e.g. Badaro Street, Beirut")
 
         if st.form_submit_button("💾 Update Branch" if is_edit else "➕ Add Branch",
-                                  use_container_width=True):
+                                  width="stretch"):
             if not outlet.strip():
                 st.error("Outlet Code is required.")
                 return
@@ -187,7 +187,7 @@ def _area_form(supabase, branches: list, existing: dict = None):
                 help="Must exactly match master_items.location and users.location")
 
         if st.form_submit_button("💾 Update Area" if is_edit else "➕ Add Area",
-                                  use_container_width=True):
+                                  width="stretch"):
             if not area_name.strip():
                 st.error("Area Name is required.")
                 return
@@ -230,7 +230,7 @@ def _render_client_card(client, all_branches, supabase):
         with col_meta:
             st.caption(f"{STATUS_EMOJI.get(status, '⚫')} {status.title()}   ·   {br_count} branch{'es' if br_count != 1 else ''}")
         with col_btn:
-            if st.button("✏️", key=f"cl_edit_btn_{cid}", use_container_width=True):
+            if st.button("✏️", key=f"cl_edit_btn_{cid}", width="stretch"):
                 st.session_state[edit_key] = not st.session_state.get(edit_key, False)
 
     if st.session_state.get(edit_key, False):
@@ -253,7 +253,7 @@ def _render_branch_card(branch, all_areas, all_clients, supabase):
         with col_meta:
             st.caption(f"🏠 {ar_count} area{'s' if ar_count != 1 else ''}")
         with col_btn:
-            if st.button("✏️", key=f"br_edit_btn_{bid}", use_container_width=True):
+            if st.button("✏️", key=f"br_edit_btn_{bid}", width="stretch"):
                 st.session_state[edit_key] = not st.session_state.get(edit_key, False)
 
     if st.session_state.get(edit_key, False):
@@ -270,7 +270,7 @@ def _render_area_row(area, all_branches, supabase):
     with col_name:
         st.markdown(f"📍 {aname}")
     with col_btn:
-        if st.button("✏️", key=f"ar_edit_btn_{aid}", use_container_width=True):
+        if st.button("✏️", key=f"ar_edit_btn_{aid}", width="stretch"):
             st.session_state[edit_key] = not st.session_state.get(edit_key, False)
 
     if st.session_state.get(edit_key, False):
@@ -308,7 +308,7 @@ def render_clients(supabase=None):
         with col_h:
             st.markdown("##### Client List")
         with col_btn:
-            if st.button("＋ Add", key="cl_open_add", use_container_width=True):
+            if st.button("＋ Add", key="cl_open_add", width="stretch"):
                 st.session_state["cl_add_open"] = not st.session_state.get("cl_add_open", False)
 
         if st.session_state.get("cl_add_open", False):
@@ -346,7 +346,7 @@ def render_clients(supabase=None):
         with col_h:
             st.markdown("##### Branch List")
         with col_btn:
-            if st.button("＋ Add", key="br_open_add", use_container_width=True):
+            if st.button("＋ Add", key="br_open_add", width="stretch"):
                 st.session_state["br_add_open"] = not st.session_state.get("br_add_open", False)
 
         if st.session_state.get("br_add_open", False):
@@ -373,7 +373,7 @@ def render_clients(supabase=None):
         with col_h:
             st.markdown("##### Area List")
         with col_btn:
-            if st.button("＋ Add", key="ar_open_add", use_container_width=True):
+            if st.button("＋ Add", key="ar_open_add", width="stretch"):
                 st.session_state["ar_add_open"] = not st.session_state.get("ar_add_open", False)
 
         if st.session_state.get("ar_add_open", False):

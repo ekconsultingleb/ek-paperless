@@ -603,7 +603,7 @@ def render_main(conn, sheet_link, user, role):
                                 f"({len(df_inv)} inventory + {len(df_menu)} menu items)")
                     
                     if st.button("🚀 Push to Supabase", type="primary", 
-                                  use_container_width=True, key="omega_push"):
+                                  width="stretch", key="omega_push"):
                         with st.spinner("Pushing to Supabase..."):
                             try:
                                 combined = combined.fillna("")
@@ -633,7 +633,7 @@ def render_main(conn, sheet_link, user, role):
                     st.dataframe(df.head(5), use_container_width=True)
                     required_cols = ['client_name', 'outlet', 'location', 'item_type', 'product_code', 'item_name']
                     if all(c in df.columns for c in required_cols):
-                        if st.button("🚀 Run Smart Sync", type="primary", use_container_width=True):
+                        if st.button("🚀 Run Smart Sync", type="primary", width="stretch"):
                             with st.spinner("Syncing..."):
                                 df = df.fillna('')
                                 records = df.to_dict(orient='records')
@@ -682,7 +682,7 @@ def render_main(conn, sheet_link, user, role):
                 areas_for_create = get_areas_for_outlet(new_outlet if new_outlet != "All" else None)
                 new_locations = st.multiselect("📍 Select Area(s)", ["All"] + areas_for_create, default=["All"], key="c_loc")
 
-            if st.button("🚀 CREATE USER", type="primary", use_container_width=True):
+            if st.button("🚀 CREATE USER", type="primary", width="stretch"):
                 if not new_username.strip() or not new_password.strip():
                     st.error("❌ Username and password are required.")
                 else:
@@ -762,7 +762,7 @@ def render_main(conn, sheet_link, user, role):
                         e_locations  = st.multiselect("📍 Select Area(s)", l_list, default=valid_locs, key="e_loc_box")
 
                     st.write("")
-                    if st.button("💾 Save User Changes", type="primary", use_container_width=True):
+                    if st.button("💾 Save User Changes", type="primary", width="stretch"):
                         update_payload = {
                             "password": hash_password(e_pass.strip()) if e_pass.strip() else u_data.get('password'),
                             "full_name": e_fullname,
@@ -807,7 +807,7 @@ def render_main(conn, sheet_link, user, role):
                                 st.rerun()
                 with c2:
                     st.write("**Current List:**")
-                    st.dataframe(existing_s[['supplier_name']].sort_values('supplier_name'), hide_index=True, use_container_width=True)
+                    st.dataframe(existing_s[['supplier_name']].sort_values('supplier_name'), hide_index=True, width="stretch")
                     s_del = st.selectbox("Delete Supplier", existing_s['supplier_name'].tolist(), index=None)
                     if st.button("🗑️ Delete"):
                         supabase.table("suppliers").delete().eq("supplier_name", s_del).execute()
@@ -833,14 +833,14 @@ def render_main(conn, sheet_link, user, role):
                     
                     edited_df = st.data_editor(
                         df_edit,
-                        use_container_width=True,
+                        width="stretch",
                         disabled=["id", "created_at"],
                         hide_index=True,
                         key=f"editor_{table_to_edit}"
                     )
                     
                     st.write("")
-                    if st.button(f"💾 Save Changes to {table_to_edit}", type="primary", use_container_width=True):
+                    if st.button(f"💾 Save Changes to {table_to_edit}", type="primary", width="stretch"):
                         with st.spinner("Scanning for changes and updating cloud..."):
                             updates_made = 0
                             
@@ -952,7 +952,7 @@ def render_main(conn, sheet_link, user, role):
                                     st.markdown(f"**{table}** — {len(rows)} rows")
                                     st.dataframe(
                                         pd.DataFrame(rows).head(5),
-                                        use_container_width=True, hide_index=True
+                                        width="stretch", hide_index=True
                                     )
 
                             st.divider()
@@ -964,7 +964,7 @@ def render_main(conn, sheet_link, user, role):
 
                             if st.button(
                                 "🚀 Push to Supabase", type="primary",
-                                use_container_width=True, key="ac_push_btn"
+                                width="stretch", key="ac_push_btn"
                             ):
                                 with st.spinner("Pushing to Supabase…"):
                                     pushed_total = 0

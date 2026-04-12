@@ -288,12 +288,12 @@ def _photo_dialog(supabase: Client, recipe_id: str, recipe_name: str):
 
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("Skip for now", use_container_width=True):
+        if st.button("Skip for now", width="stretch"):
             st.session_state["form_photo_done"] = True
             st.session_state["form_show_photo"] = False
             st.rerun()
     with c2:
-        if st.button("Save with photo", type="primary", use_container_width=True, disabled=not uploaded):
+        if st.button("Save with photo", type="primary", width="stretch", disabled=not uploaded):
             if uploaded:
                 url = _upload_recipe_photo(supabase, recipe_id, uploaded.getvalue(), uploaded.type)
                 if url:
@@ -347,7 +347,7 @@ def _render_library(supabase: Client, client_name: str, show_cost: bool):
             with st.container(border=True):
                 photo_url = recipe.get("photo_url", "")
                 if photo_url:
-                    st.image(photo_url, use_container_width=True)
+                    st.image(photo_url, width="stretch")
                 else:
                     st.markdown(
                         "<div style='height:80px;display:flex;"
@@ -368,12 +368,12 @@ def _render_library(supabase: Client, client_name: str, show_cost: bool):
 
                 c1, c2, c3 = st.columns(3)
                 with c1:
-                    if st.button("View", key="view_" + recipe["id"], use_container_width=True):
+                    if st.button("View", key="view_" + recipe["id"], width="stretch"):
                         st.session_state["viewing_recipe"] = recipe["id"]
                         st.session_state["confirm_delete"] = None
                         st.rerun()
                 with c2:
-                    if st.button("PDF", key="pdf_btn_" + recipe["id"], use_container_width=True):
+                    if st.button("PDF", key="pdf_btn_" + recipe["id"], width="stretch"):
                         st.session_state["gen_pdf_id"] = recipe["id"]
                         st.rerun()
                     if st.session_state.get("gen_pdf_id") == recipe["id"]:
@@ -386,17 +386,17 @@ def _render_library(supabase: Client, client_name: str, show_cost: bool):
                                 file_name=recipe["name"].replace(" ", "_") + ".pdf",
                                 mime="application/pdf",
                                 key="pdf_dl_" + recipe["id"],
-                                use_container_width=True,
+                                width="stretch",
                             )
                 with c3:
                     if st.session_state["confirm_delete"] == recipe["id"]:
-                        if st.button("Confirm", key="conf_" + recipe["id"], use_container_width=True, type="primary"):
+                        if st.button("Confirm", key="conf_" + recipe["id"], width="stretch", type="primary"):
                             if _delete_recipe(supabase, recipe["id"]):
                                 st.session_state["confirm_delete"] = None
                                 st.success("Deleted.")
                                 st.rerun()
                     else:
-                        if st.button("Delete", key="del_" + recipe["id"], use_container_width=True):
+                        if st.button("Delete", key="del_" + recipe["id"], width="stretch"):
                             st.session_state["confirm_delete"] = recipe["id"]
                             st.rerun()
 
@@ -553,7 +553,7 @@ def _render_sub_builder(default_unit: str):
                 key="mat_unit_" + str(ctr), label_visibility="collapsed"
             )
         with col_btn:
-            add_mat = st.button("Add", key="mat_add_" + str(ctr), type="primary", use_container_width=True)
+            add_mat = st.button("Add", key="mat_add_" + str(ctr), type="primary", width="stretch")
 
         if add_mat:
             if mat_name.strip():
@@ -570,7 +570,7 @@ def _render_sub_builder(default_unit: str):
         st.markdown("---")
         c_cancel, c_save = st.columns(2)
         with c_cancel:
-            if st.button("Cancel", key="sub_cancel", use_container_width=True):
+            if st.button("Cancel", key="sub_cancel", width="stretch"):
                 st.session_state["sub_building"]    = False
                 st.session_state["sub_editing_idx"] = None
                 st.session_state["sub_lines"]       = []
@@ -581,7 +581,7 @@ def _render_sub_builder(default_unit: str):
 
         with c_save:
             save_label = "Update sub-recipe" if is_edit else "Save sub-recipe"
-            if st.button(save_label, key="sub_save", type="primary", use_container_width=True):
+            if st.button(save_label, key="sub_save", type="primary", width="stretch"):
                 prep_qty  = st.session_state.get("sub_prep_qty", 1.0)
                 prep_unit = st.session_state.get("sub_prep_unit", default_unit)
                 now       = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).isoformat()
@@ -735,11 +735,11 @@ def _render_new_recipe(
         st.success("**" + st.session_state.get("form_saved_name", "") + "** saved!")
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("New recipe", use_container_width=True, key="btn_new_recipe"):
+            if st.button("New recipe", width="stretch", key="btn_new_recipe"):
                 _reset_form()
                 st.rerun()
         with c2:
-            if st.button("Go to library", type="primary", use_container_width=True, key="btn_go_library"):
+            if st.button("Go to library", type="primary", width="stretch", key="btn_go_library"):
                 _reset_form()
                 st.session_state["go_to_library"] = True
                 st.rerun()
@@ -780,7 +780,7 @@ def _render_new_recipe(
             )
             c1, c2 = st.columns(2)
             with c1:
-                if st.button("Use existing", type="primary", use_container_width=True):
+                if st.button("Use existing", type="primary", width="stretch"):
                     st.session_state["form_lines"].append({
                         "chef_input":    st.session_state["sub_ing_name"],
                         "qty":           st.session_state["sub_ing_qty"],
@@ -797,7 +797,7 @@ def _render_new_recipe(
                     st.session_state["ing_counter"]      += 1
                     st.rerun()
             with c2:
-                if st.button("Create new", use_container_width=True):
+                if st.button("Create new", width="stretch"):
                     st.session_state["sub_match_pending"] = False
                     st.rerun()
         else:
@@ -827,7 +827,7 @@ def _render_new_recipe(
                 key="ing_type_" + str(ctr), label_visibility="collapsed"
             )
         add_clicked = st.button(
-            "Add", use_container_width=True,
+            "Add", width="stretch",
             type="primary", key="ing_add_" + str(ctr)
         )
 
@@ -894,11 +894,11 @@ def _render_new_recipe(
                 if line["is_production"] and line.get("batch_qty"):
                     st.caption("prepare " + str(line["batch_qty"]) + " " + str(line.get("batch_unit", "")))
             with col_del:
-                if st.button("×", key="del_line_" + str(idx), use_container_width=True):
+                if st.button("×", key="del_line_" + str(idx), width="stretch"):
                     to_delete = idx
 
             if line["is_production"]:
-                if st.button("✏️ Edit sub-recipe", key="edit_line_" + str(idx), use_container_width=True):
+                if st.button("✏️ Edit sub-recipe", key="edit_line_" + str(idx), width="stretch"):
                     edit_idx = idx
 
             if edit_idx == idx:
@@ -944,7 +944,7 @@ def _render_new_recipe(
 
     if st.button(
         "Save recipe", type="primary",
-        use_container_width=True, disabled=not name
+        width="stretch", disabled=not name
     ):
         cat    = st.session_state.get("form_category", "Food")
         method = st.session_state.get("form_method", "") or None

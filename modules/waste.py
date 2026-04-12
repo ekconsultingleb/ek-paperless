@@ -119,7 +119,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         if 'last_waste_receipt' in st.session_state:
             st.success("✅ **Success!** Waste ticket has been logged.")
             st.download_button(label="🖨️ Download Waste Ticket (PDF)", data=st.session_state['last_waste_receipt']['bytes'], file_name=st.session_state['last_waste_receipt']['filename'], mime="application/pdf", type="primary")
-            if st.button("Log More Waste", use_container_width=True):
+            if st.button("Log More Waste", width="stretch"):
                 del st.session_state['last_waste_receipt']
                 st.rerun()
             return
@@ -175,7 +175,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                 with col_nr:
                     new_remark = st.text_input("New Remark", placeholder="e.g. DJ, John...", label_visibility="collapsed", key="new_remark_input")
                 with col_nb:
-                    if st.button("➕ Add", use_container_width=True, key="add_remark_btn"):
+                    if st.button("➕ Add", width="stretch", key="add_remark_btn"):
                         nr = new_remark.strip().upper()
                         if nr and nr not in _SYSTEM_REMARKS and nr not in _custom_remarks:
                             try:
@@ -340,7 +340,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                 else:
                     confirm_huge = True # Auto-approve normal amounts
 
-                if st.button("🚀 SUBMIT TICKET TO CLOUD", type="primary", use_container_width=True):
+                if st.button("🚀 SUBMIT TICKET TO CLOUD", type="primary", width="stretch"):
                     if ticket_type == "Event" and not event_name_val.strip():
                         st.error("❌ Please provide an Event Name before submitting.")
                     elif not confirm_huge:

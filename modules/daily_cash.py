@@ -102,7 +102,7 @@ def render_daily_cash(conn, sheet_link, user, role, assigned_client, assigned_ou
             st.warning(f"⚠️ A cash report already exists for **{final_outlet}** on **{entry_date}**. Submit anyway?")
             col_yes, col_no = st.columns(2)
             with col_yes:
-                if st.button("Yes, Submit Anyway", type="primary", use_container_width=True):
+                if st.button("Yes, Submit Anyway", type="primary", width="stretch"):
                     st.session_state['cash_confirm_dup'] = False
                     submission_data = {
                         "date": str(entry_date), "client_name": final_client, "outlet": final_outlet,
@@ -116,11 +116,11 @@ def render_daily_cash(conn, sheet_link, user, role, assigned_client, assigned_ou
                     except Exception as e:
                         st.error(f"❌ Database Error: {e}")
             with col_no:
-                if st.button("Cancel", use_container_width=True):
+                if st.button("Cancel", width="stretch"):
                     st.session_state['cash_confirm_dup'] = False
                     st.rerun()
         else:
-            if st.button("🚀 SUBMIT DAILY REPORT", type="primary", use_container_width=True):
+            if st.button("🚀 SUBMIT DAILY REPORT", type="primary", width="stretch"):
                 if final_outlet == "None" or final_client == "Select Branch":
                     st.error("❌ Cannot submit without a valid Branch and Outlet.")
                 else:
