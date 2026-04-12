@@ -245,7 +245,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
 
                         edited_raw = st.data_editor(
                             df_archive,
-                            use_container_width=True,
+                            width="stretch",
                             hide_index=True,
                             disabled=lock_cols,
                             column_config={
@@ -254,7 +254,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                             key="raw_log_editor"
                         )
 
-                        if st.button("💾 Save Corrections", type="primary", use_container_width=True, key="save_raw_edits"):
+                        if st.button("💾 Save Corrections", type="primary", width="stretch", key="save_raw_edits"):
                             orig = df_archive.copy()
                             orig["quantity"] = pd.to_numeric(orig["quantity"], errors="coerce")
                             edited_raw["quantity"] = pd.to_numeric(edited_raw["quantity"], errors="coerce")
@@ -273,7 +273,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                                 except Exception as e:
                                     st.error(f"❌ Failed to save: {e}")
                     else:
-                        st.dataframe(df_archive, use_container_width=True, hide_index=True)
+                        st.dataframe(df_archive, width="stretch", hide_index=True)
                     
                 with tab_total:
                     st.write("### Total Inventory by Item")
@@ -288,7 +288,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                     )['quantity'].sum().reset_index()
                     
                     df_totals = df_totals.sort_values(by=['category', 'item_name'])
-                    st.dataframe(df_totals, use_container_width=True, hide_index=True)
+                    st.dataframe(df_totals, width="stretch", hide_index=True)
                     
                     csv_totals = df_totals.to_csv(index=False).encode('utf-8')
                     st.download_button(
@@ -318,7 +318,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                 type="primary",
                 key="receipt_btn"
             )
-            if st.button("Start New Count", use_container_width=True, key="new_count_btn"):
+            if st.button("Start New Count", width="stretch", key="new_count_btn"):
                 del st.session_state['last_inv_receipt']
                 st.session_state['submit_lock'] = False
                 delete_draft(supabase, user, final_client, final_outlet)
@@ -343,13 +343,13 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
             st.warning(f"📋 **Unsaved count found** from {saved_time} — {len(saved_counts)} item(s) were counted.")
             col_r1, col_r2 = st.columns(2)
             with col_r1:
-                if st.button("✅ Resume Previous Count", type="primary", use_container_width=True, key="resume_draft"):
+                if st.button("✅ Resume Previous Count", type="primary", width="stretch", key="resume_draft"):
                     st.session_state['mobile_counts'] = saved_counts
                     st.session_state['_pending_draft'] = {}
                     st.session_state['_draft_dirty'] = False
                     st.rerun()
             with col_r2:
-                if st.button("🗑️ Discard & Start Fresh", use_container_width=True, key="discard_draft"):
+                if st.button("🗑️ Discard & Start Fresh", width="stretch", key="discard_draft"):
                     delete_draft(supabase, user, final_client, final_outlet)
                     st.session_state['_pending_draft'] = {}
                     st.rerun()
@@ -416,7 +416,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
             with col_qty:
                 flag_qty = st.number_input("Qty", min_value=0.0, step=1.0, format="%g", key="flag_item_qty", label_visibility="collapsed")
             with col_btn:
-                if st.button("Add", use_container_width=True, key="flag_item_btn"):
+                if st.button("Add", width="stretch", key="flag_item_btn"):
                     name = flag_name.strip()
                     existing_names = [x['name'] for x in st.session_state['missing_items']]
                     if name and name not in existing_names:
@@ -515,13 +515,13 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
             st.success(f"🛒 **{cart_size} items** ready to submit.")
             with st.expander("👀 Review & Submit Count", expanded=True):
                 preview_list = [{"Item": v['row_data'].get('item_name', k), "Total Counted": v['qty'], "Unit": v['row_data'].get('count_unit', '')} for k, v in st.session_state['mobile_counts'].items()]
-                st.dataframe(pd.DataFrame(preview_list), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(preview_list), width="stretch", hide_index=True)
 
                 if st.session_state['missing_items']:
                     _mi_summary = ', '.join(f"{x['name']} ({x['qty']})" for x in st.session_state['missing_items'])
                     st.warning(f"⚠️ **{len(st.session_state['missing_items'])} item(s) added manually** — will appear on the PDF report: {_mi_summary}")
 
-                if st.button("🚀 SUBMIT ALL COUNTS TO CLOUD", type="primary", use_container_width=True, key="submit_cloud_btn", on_click=lock_submit, disabled=st.session_state['submit_lock']):
+                if st.button("🚀 SUBMIT ALL COUNTS TO CLOUD", type="primary", width="stretch", key="submit_cloud_btn", on_click=lock_submit, disabled=st.session_state['submit_lock']):
                     with st.spinner("Saving to database... Please wait! Do not refresh."):
                         logs = []
                         for i_name, data in st.session_state['mobile_counts'].items():

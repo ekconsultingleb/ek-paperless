@@ -71,7 +71,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                     ]
 
                 if not df_archive.empty:
-                    st.dataframe(df_archive, use_container_width=True, hide_index=True)
+                    st.dataframe(df_archive, width="stretch", hide_index=True)
                 else:
                     st.warning(f"No transfers found between {start_date} and {end_date}.")
             else:
@@ -200,7 +200,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                     st.info("💡 **Type exactly how you speak!** I will understand Arabizi and translate it to stock items.")
                     ai_text = st.text_area("What do you need?", placeholder="e.g. Bade 5kg batata w 2 box arak...", height=100)
                     
-                    if st.button("✨ Analyze & Send Request", type="primary", use_container_width=True):
+                    if st.button("✨ Analyze & Send Request", type="primary", width="stretch"):
                         if ai_text.strip():
                             with st.spinner("🤖 AI is reading your request..."):
                                 try:
@@ -234,7 +234,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                 elif req_style == "📝 Quick Note":
                     with st.form("text_req_form", clear_on_submit=True):
                         text_request = st.text_area("What do you need?", placeholder="e.g. 5kg Chicken, 2 boxes Arak...", height=100)
-                        if st.form_submit_button("🚀 Send Request", type="primary", use_container_width=True):
+                        if st.form_submit_button("🚀 Send Request", type="primary", width="stretch"):
                             if text_request.strip():
                                 new_req = {
                                     "transfer_id": str(uuid.uuid4())[:8],
@@ -263,7 +263,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                                 c1.markdown(f"**{row['item_name']}** ({row.get('count_unit', 'pcs')})")
                                 req_quants[idx] = c2.number_input("Qty", value=0.0, min_value=0.0, step=1.0, key=f"q_{idx}", label_visibility="collapsed")
                         
-                        if st.form_submit_button("🚀 Send Itemized Request", type="primary", use_container_width=True):
+                        if st.form_submit_button("🚀 Send Itemized Request", type="primary", width="stretch"):
                             details_list = [f"{qty}x {df_local_items.loc[i, 'item_name']}" for i, qty in req_quants.items() if qty > 0]
                             if details_list:
                                 new_req = {
@@ -306,7 +306,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                     with st.container(border=True):
                         st.write(f"**From:** {row['from_location']} | **ID:** {row['transfer_id']}")
                         st.info(row['details'])
-                        if st.button("✅ Confirm Receipt", key=f"r_{row['transfer_id']}", type="primary", use_container_width=True):
+                        if st.button("✅ Confirm Receipt", key=f"r_{row['transfer_id']}", type="primary", width="stretch"):
                             supabase.table("transfers").update({
                                 "status": "Received", "action_by": f"Received by {user}"
                             }).eq("transfer_id", row['transfer_id']).execute()

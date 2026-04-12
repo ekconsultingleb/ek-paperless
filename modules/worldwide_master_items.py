@@ -395,7 +395,7 @@ def render_worldwide_admin(supabase: Client, role: str):
 
                 col_save, col_del = st.columns([3, 1])
                 with col_save:
-                    if st.button("Save changes", key=f"wmi_save_{item['id']}", use_container_width=True):
+                    if st.button("Save changes", key=f"wmi_save_{item['id']}", width="stretch"):
                         try:
                             supabase.table("worldwide_master_items").update({
                                 "item_name":            new_name,
@@ -414,7 +414,7 @@ def render_worldwide_admin(supabase: Client, role: str):
                         except Exception as e:
                             st.error(f"Save failed: {e}")
                 with col_del:
-                    if st.button("Delete", key=f"wmi_del_{item['id']}", use_container_width=True):
+                    if st.button("Delete", key=f"wmi_del_{item['id']}", width="stretch"):
                         try:
                             supabase.table("worldwide_master_items").delete().eq(
                                 "id", item["id"]
@@ -497,7 +497,7 @@ def render_worldwide_admin(supabase: Client, role: str):
             df[["item_name", "region", "latest_cost_lebanon",
                 "latest_cost_dubai", "latest_cost_cameroon",
                 "last_synced_from", "last_synced_at", "locked"]],
-            use_container_width=True,
+            width="stretch",
             hide_index=True
         )
 
