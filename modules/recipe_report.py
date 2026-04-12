@@ -342,7 +342,7 @@ def render_recipe_report(supabase: Client, user: str, role: str):
             if REPORTLAB_OK:
                 st.divider()
                 if st.button("📄 Export Productions PDF", type="primary",
-                             use_container_width=True, key="exp_prod"):
+                             width="stretch", key="exp_prod"):
                     with st.spinner("Building PDF…"):
                         pdf = _build_productions_pdf(
                             selected_prods, client_name, selected_date, show_cost
@@ -373,7 +373,7 @@ def render_recipe_report(supabase: Client, user: str, role: str):
             if REPORTLAB_OK:
                 st.divider()
                 if st.button("📄 Export Menu Items PDF", type="primary",
-                             use_container_width=True, key="exp_menu"):
+                             width="stretch", key="exp_menu"):
                     with st.spinner("Building PDF…"):
                         pdf = _build_menu_pdf(
                             selected_menu, client_name, selected_date, show_cost
@@ -390,7 +390,7 @@ def render_recipe_report(supabase: Client, user: str, role: str):
     if REPORTLAB_OK:
         st.divider()
         if st.button("📦 Export All (Productions + Menu Items)", type="secondary",
-                     use_container_width=True, key="exp_all"):
+                     width="stretch", key="exp_all"):
             # Use whatever is selected in each tab's editor — fall back to all non-excluded
             sel_p = [i for i in productions if not i.get("auto_exclude", False)]
             sel_m = [i for i in menu_items  if not i.get("auto_exclude", False)]

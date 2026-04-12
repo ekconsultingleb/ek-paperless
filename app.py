@@ -18,6 +18,12 @@ from modules.invoices import render_invoices
 from modules.recipes import render_recipes
 from modules.nav_helper import hash_password, verify_password
 from modules.dpos import show_dpos
+from modules.constants import (
+    PAGE_HOME, PAGE_CASH, PAGE_INVENTORY, PAGE_WASTE, PAGE_INVOICES,
+    PAGE_TRANSFERS, PAGE_DASHBOARD, PAGE_LEDGER, PAGE_OVERVIEW,
+    PAGE_RECIPES, PAGE_RECIPES_REPORT, PAGE_PRICING_STUDIO, PAGE_MAIN,
+    MOD_TRANSFERS, ALL_MODULES, LOGO_URL, APP_VERSION,
+)
 
 # --- INITIALIZE SUPABASE ---
 @st.cache_resource
@@ -65,10 +71,10 @@ if st.session_state.get('logged_in') and not st.session_state.get('_back_protect
     st.session_state['_back_protection_injected'] = True
 
 # --- BRANDING & LOGO ---
-st.sidebar.image("https://hgvubaohmgvesblfvdps.supabase.co/storage/v1/object/public/assets/EK-Logo.png", width=240)
+st.sidebar.image(LOGO_URL, width=240)
 st.sidebar.divider()
 st.sidebar.markdown(
-    "<div style='color:#8a9eaa; font-size:11px; text-align:center; padding:4px 0; letter-spacing:0.06em;'>PAPERLESS v2.0</div>",
+    "<div style='color:#8a9eaa; font-size:11px; text-align:center; padding:4px 0; letter-spacing:0.06em;'>PAPERLESS " + APP_VERSION + "</div>",
     unsafe_allow_html=True
 )
 
@@ -334,7 +340,7 @@ if not st.session_state.get('logged_in', False):
                             'assigned_outlet':   str(match.get('outlet',      'All')).strip(),
                             'assigned_location': str(match.get('location',    'All')).strip(),
                             'client_name':       str(match.get('client_name', 'All')).strip(),
-                            'current_page': 'home'
+                            'current_page': PAGE_HOME
                         })
                         st.rerun()
                     else:
@@ -378,36 +384,36 @@ else:
     # Parse allowed modules
     raw_modules = str(st.session_state.get('module', '')).lower().strip()
     if raw_modules == "all_modules" or role in ["admin", "admin_all"]:
-        allowed_modules = ["dashboard", "cash", "inventory", "waste", "transfers", "invoices", "ledger", "overview", "recipes", "recipes report", "pricing studio"]
+        allowed_modules = ALL_MODULES
     else:
         allowed_modules = [m.strip() for m in raw_modules.split(",") if m.strip()]
 
     # ── Sidebar back button (visible on every module page) ───────────────────
-    if st.session_state.get('current_page', 'home') != 'home':
+    if st.session_state.get('current_page', PAGE_HOME) != PAGE_HOME:
         st.sidebar.divider()
         if st.sidebar.button("⬅️ Back to Menu", width="stretch", key="sidebar_back_btn"):
-            st.session_state['current_page'] = 'home'
+            st.session_state['current_page'] = PAGE_HOME
             st.rerun()
 
     # Control Panel button (admin only)
     if role in ["admin", "admin_all"] or (role == "manager" and st.session_state['client_name'].lower() == 'all'):
-        if st.session_state.get('current_page', 'home') == 'home':
+        if st.session_state.get('current_page', PAGE_HOME) == PAGE_HOME:
             st.sidebar.divider()
         if st.sidebar.button("⚙️ Control Panel", type="primary"):
-            st.session_state['current_page'] = "main"
+            st.session_state['current_page'] = PAGE_MAIN
             st.rerun()
 
     # Pricing Studio button (ek_team / admin only)
     if role in ["admin", "admin_all", "ek_team"]:
-        if st.session_state.get('current_page', 'home') == 'home':
+        if st.session_state.get('current_page', PAGE_HOME) == PAGE_HOME:
             st.sidebar.divider()
         if st.sidebar.button("💲 Pricing Studio", type="primary"):
-            st.session_state['current_page'] = "pricing studio"
+            st.session_state['current_page'] = PAGE_PRICING_STUDIO
             st.rerun()
     # ==========================================
     # PAGE: HOME MENU
     # ==========================================
-    if st.session_state['current_page'] == 'home':
+    if st.session_state['current_page'] == PAGE_HOME:
 
         client_label = f" · {st.session_state['client_name']}" if st.session_state['client_name'].lower() != 'all' else ""
         st.markdown(f"""
@@ -429,24 +435,24 @@ else:
         # All possible modules in display order: (module_key, emoji+label, page_key)
         # "transfers" keeps its legacy typo fallback via the check below.
         _all_buttons = [
-            ("cash",           "🏦\nDaily Cash",     "cash"),
-            ("inventory",      "📦\nInventory",       "inventory"),
-            ("waste",          "🗑️\nWaste",           "waste"),
-            ("invoices",       "📸\nInvoices",        "invoices"),
-            ("transfers",      "🔄\nTransfers",       "transfers"),
-            ("dashboard",      "📊\nDashboard",       "dashboard"),
-            ("ledger",         "💸\nDebt Control",    "ledger"),
-            ("overview",       "📈\nOverview",        "overview"),
-            ("recipes",        "🍳\nRecipes",         "recipes"),
-            ("recipes report", "📋\nRecipe Report",   "recipes report"),
-            ("pricing studio", "💲\nPricing Studio",  "pricing studio"),
+            (MOD_CASH,           "🏦\nDaily Cash",    PAGE_CASH),
+            (MOD_INVENTORY,      "📦\nInventory",      PAGE_INVENTORY),
+            (MOD_WASTE,          "🗑️\nWaste",          PAGE_WASTE),
+            (MOD_INVOICES,       "📸\nInvoices",       PAGE_INVOICES),
+            (MOD_TRANSFERS,      "🔄\nTransfers",      PAGE_TRANSFERS),
+            (MOD_DASHBOARD,      "📊\nDashboard",      PAGE_DASHBOARD),
+            (MOD_LEDGER,         "💸\nDebt Control",   PAGE_LEDGER),
+            (MOD_OVERVIEW,       "📈\nOverview",       PAGE_OVERVIEW),
+            (MOD_RECIPES,        "🍳\nRecipes",        PAGE_RECIPES),
+            (MOD_RECIPES_REPORT, "📋\nRecipe Report",  PAGE_RECIPES_REPORT),
+            (MOD_PRICING_STUDIO, "💲\nPricing Studio", PAGE_PRICING_STUDIO),
         ]
 
         # Filter to only modules this user can access
         # "transfers" retains legacy fallback: accept both "transfers" and "transfer"
         _visible = [
             (mod, label, page) for mod, label, page in _all_buttons
-            if mod in allowed_modules or (mod == "transfers" and "transfer" in allowed_modules)
+            if mod in allowed_modules or (mod == MOD_TRANSFERS and "transfer" in allowed_modules)
         ]
 
         # Render in rows of 4, no gaps
@@ -469,27 +475,27 @@ else:
     # ==========================================
     else:
 
-        if st.session_state['current_page'] == 'dashboard':
+        if st.session_state['current_page'] == PAGE_DASHBOARD:
             render_dashboard(None, None, user, role, client, outlet, location)
-        elif st.session_state['current_page'] == 'cash':
+        elif st.session_state['current_page'] == PAGE_CASH:
             render_daily_cash(None, None, user, role, client, outlet, location)
-        elif st.session_state['current_page'] == 'inventory':
+        elif st.session_state['current_page'] == PAGE_INVENTORY:
             render_inventory(None, None, user, role, client, outlet, location)
-        elif st.session_state['current_page'] == 'waste':
+        elif st.session_state['current_page'] == PAGE_WASTE:
             render_waste(None, None, user, role, client, outlet, location)
-        elif st.session_state['current_page'] == 'transfers':
+        elif st.session_state['current_page'] == PAGE_TRANSFERS:
             render_transfers(None, None, user, role, client, outlet, location)
-        elif st.session_state['current_page'] == 'invoices':
+        elif st.session_state['current_page'] == PAGE_INVOICES:
             render_invoices(None, None, user, role)
-        elif st.session_state['current_page'] == 'ledger':
+        elif st.session_state['current_page'] == PAGE_LEDGER:
             render_ledger(None, None, user, role)
-        elif st.session_state['current_page'] == 'main':
+        elif st.session_state['current_page'] == PAGE_MAIN:
             render_main(None, None, user, role)
-        elif st.session_state['current_page'] == 'overview':
+        elif st.session_state['current_page'] == PAGE_OVERVIEW:
             render_overview(None, None, user, role, client, outlet, location)
-        elif st.session_state['current_page'] == 'recipes':
+        elif st.session_state['current_page'] == PAGE_RECIPES:
             render_recipes(supabase, user, role)
-        elif st.session_state['current_page'] == 'recipes report':
+        elif st.session_state['current_page'] == PAGE_RECIPES_REPORT:
             render_recipe_report(supabase, user, role)
-        elif st.session_state['current_page'] == 'pricing studio':
+        elif st.session_state['current_page'] == PAGE_PRICING_STUDIO:
             show_dpos(supabase)
