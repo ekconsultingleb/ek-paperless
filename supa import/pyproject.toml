@@ -1,0 +1,32 @@
+[project]
+name = "supa-import"
+version = "0.1.0"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "dotenv>=0.9.9",
+    "openpyxl>=3.1.5",
+    "pandas>=2.0,<3.0",
+    "psycopg2>=2.9.11",
+    "psycopg2-binary>=2.9.11",
+    "psycopg[binary]>=3.3.3",
+    "streamlit>=1.55.0",
+    "supabase>=2.28.3",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools] 
+package-dir = {"" = "src"} 
+
+[tool.setuptools.packages.find] 
+where = ["src"]
+
+[theme]
+base="dark"
+primaryColor="#ff4b4b"
+
+[layout]
+wideMode=true

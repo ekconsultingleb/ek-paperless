@@ -9,6 +9,7 @@ from supabase import create_client, Client
 from modules.clients import render_clients
 from modules.nav_helper import hash_password
 from modules.worldwide_master_items import render_worldwide_admin, bulk_sync_from_autocalc
+from modules.push_to_database import render_push_to_database
 
 # ── Auto Calc helpers (ported from auto_calc_reader/reader.py) ─────────────────
 
@@ -157,17 +158,17 @@ def render_main(conn, sheet_link, user, role):
     # ==========================================
     if is_super_admin:
         st.info("👑 Super Admin Mode: Full access to all database and user controls.")
-        tabs = st.tabs(["📤 Master Sync", "➕ Create User", "👥 Manage Users", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients", "📊 Auto Calc", "🌍 Global Registry"])
-        t_sync, t_create, t_view, t_supp, t_edit, t_clients, t_ac, t_global = tabs
+        tabs = st.tabs(["📤 Master Sync", "🗄️ Push to Database", "➕ Create User", "👥 Manage Users", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients", "📊 Auto Calc", "🌍 Global Registry"])
+        t_sync, t_push_db, t_create, t_view, t_supp, t_edit, t_clients, t_ac, t_global = tabs
     elif is_normal_admin:
         st.info("🛡️ Admin Mode: Access to sync and onboard users/suppliers.")
-        tabs = st.tabs(["📤 Master Sync", "➕ Create User", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients", "📊 Auto Calc"])
-        t_sync, t_create, t_supp, t_edit, t_clients, t_ac = tabs[0], tabs[1], tabs[2], tabs[3], tabs[4], tabs[5]
+        tabs = st.tabs(["📤 Master Sync", "🗄️ Push to Database", "➕ Create User", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients", "📊 Auto Calc"])
+        t_sync, t_push_db, t_create, t_supp, t_edit, t_clients, t_ac = tabs[0], tabs[1], tabs[2], tabs[3], tabs[4], tabs[5], tabs[6]
         t_view = t_global = None
     else:
         st.info("🏢 HQ Manager Mode: Access to sync the Master Items database.")
-        tabs = st.tabs(["📤 Master Sync"])
-        t_sync = tabs[0]
+        tabs = st.tabs(["📤 Master Sync", "🗄️ Push to Database"])
+        t_sync, t_push_db = tabs[0], tabs[1]
         t_create = t_view = t_supp = t_edit = t_clients = t_ac = t_global = None
 
     # ==========================================
@@ -648,6 +649,10 @@ def render_main(conn, sheet_link, user, role):
     # ==========================================
     # TAB: CREATE USER
     # ==========================================
+    if t_push_db:
+        with t_push_db:
+            render_push_to_database(user)
+
     if t_create:
         with t_create:
             st.subheader("Account Details")
