@@ -21,14 +21,15 @@ def _bootstrap_supa_import() -> bool:
 
 def _ensure_supa_env_from_secrets():
     # Bridge app secrets to the legacy env-based supa_import package.
+    # secret_key = key name in secrets.toml, env_key = what db.py reads via os.getenv()
     mapping = {
         "SUPABASE_URL": "url",
         "SUPABASE_KEY": "key",
-        "DB_HOST": "host",
-        "DB_NAME": "dbname",
-        "DB_USER": "user",
-        "DB_PASSWORD": "password",
-        "DB_PORT": "port",
+        "host":         "host",
+        "name":         "dbname",   # secrets uses "name", psycopg2 expects "dbname"
+        "user":         "user",
+        "password":     "password",
+        "port":         "port",
     }
     for secret_key, env_key in mapping.items():
         if os.getenv(env_key):
@@ -151,7 +152,7 @@ def render_push_to_database(user: str):
         try:
             conn = get_pg_connection()
         except Exception as e:
-            st.error(f"❌ Could not connect to the database. Check that DB_HOST, DB_NAME, DB_USER, DB_PASSWORD and DB_PORT are set in Streamlit secrets.\n\n`{e}`")
+            st.error(f"❌ Could not connect to the database. Check that `host`, `name`, `user`, `password`, and `port` are set in Streamlit secrets.\n\n`{e}`")
             val_st.update(label="Validating Client and Date", state="error", expanded=True)
             return
         conn.autocommit = False
