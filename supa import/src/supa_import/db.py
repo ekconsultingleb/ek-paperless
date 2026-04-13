@@ -1,9 +1,6 @@
 import os
-from dotenv import load_dotenv
 from supabase import create_client as supabase_init
 import psycopg2
-
-load_dotenv()
 
 def get_pg_connection():
     return psycopg2.connect(

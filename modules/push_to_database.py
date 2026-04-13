@@ -148,7 +148,12 @@ def render_push_to_database(user: str):
             return
         st.write(date_res["message"])
 
-        conn = get_pg_connection()
+        try:
+            conn = get_pg_connection()
+        except Exception as e:
+            st.error(f"❌ Could not connect to the database. Check that DB_HOST, DB_NAME, DB_USER, DB_PASSWORD and DB_PORT are set in Streamlit secrets.\n\n`{e}`")
+            val_st.update(label="Validating Client and Date", state="error", expanded=True)
+            return
         conn.autocommit = False
         chk_res = find_existing_data(conn, SHEET_CONFIG, client_id, selected_period)
 
