@@ -265,8 +265,9 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             st.info("No items found. Check if the Location spelling matches the database.")
         else:
             for index, row in df_display.iterrows():
-                item_name = row['item_name']
-                cart_data = st.session_state['waste_cart'].get(item_name)
+                item_name    = row['item_name']
+                product_code = str(row.get('product_code', '') or index)  # fallback to index if no product_code
+                cart_data    = st.session_state['waste_cart'].get(product_code)
                 current_total = cart_data['qty'] if cart_data else 0.0
                 
                 with st.container(border=True):
@@ -275,7 +276,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                     else:
                         st.markdown(f"⚪ **{item_name}** &nbsp;|&nbsp; 📦 {row.get('count_unit', 'Unit')}")
                         
-                    input_key = f"waste_add_{index}_{item_name}"
+                    input_key = f"waste_add_{product_code}"
                     if input_key not in st.session_state:
                         st.session_state[input_key] = 0.0
 
@@ -287,37 +288,37 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                         _auto_remark = "SM"
                     else:
                         _auto_remark = "WF"
-                    _rem_key = f"waste_rem_{item_name}"
-                    _rem_default = st.session_state['waste_remarks'].get(item_name, _auto_remark)
+                    _rem_key     = f"waste_rem_{product_code}"
+                    _rem_default = st.session_state['waste_remarks'].get(product_code, _auto_remark)
                     _rem_index = _REMARK_OPTIONS.index(_rem_default) if _rem_default in _REMARK_OPTIONS else len(_REMARK_OPTIONS) - 1
 
                     col_add, col_rem, col_btn = st.columns([2, 2, 1], vertical_alignment="center")
                     with col_add:
                         st.caption("Qty")
-                        st.number_input("+ Add Qty", min_value=0.0, step=1.0, format="%g", key=input_key, on_change=add_waste_qty, args=(item_name, row.to_dict(), input_key), label_visibility="collapsed")
+                        st.number_input("+ Add Qty", min_value=0.0, step=1.0, format="%g", key=input_key, on_change=add_waste_qty, args=(product_code, row.to_dict(), input_key), label_visibility="collapsed")
                     with col_rem:
                         st.caption("Remark")
                         if ticket_type == "Staff Meal":
                             st.markdown("**SM**")
-                            st.session_state['waste_remarks'][item_name] = "SM"
+                            st.session_state['waste_remarks'][product_code] = "SM"
                         elif ticket_type == "Event":
                             _ev_label = event_name_val.strip() if event_name_val.strip() else "Event"
                             st.markdown(f"**{_ev_label}**")
-                            st.session_state['waste_remarks'][item_name] = _ev_label
+                            st.session_state['waste_remarks'][product_code] = _ev_label
                         else:
                             _daily_options = [r for r in _REMARK_OPTIONS if r not in ["SM"]]
                             _rem_index = _daily_options.index(_rem_default) if _rem_default in _daily_options else 0
                             _sel_remark = st.selectbox("Remark", _daily_options, index=_rem_index, key=_rem_key, label_visibility="collapsed")
                             if _sel_remark == "+ Add New...":
                                 st.info("Use ⚙️ Manage Remark Options above to add new remarks.")
-                                st.session_state['waste_remarks'][item_name] = _auto_remark
+                                st.session_state['waste_remarks'][product_code] = _auto_remark
                             else:
-                                st.session_state['waste_remarks'][item_name] = _sel_remark
+                                st.session_state['waste_remarks'][product_code] = _sel_remark
                     with col_btn:
                         st.caption(" ")
                         if current_total > 0:
-                            if st.button("♻️ Undo", key=f"undo_{index}_{item_name}"):
-                                undo_waste_count(item_name)
+                            if st.button("♻️ Undo", key=f"undo_{product_code}"):
+                                undo_waste_count(product_code)
                                 st.rerun()
 
         st.divider()
@@ -347,7 +348,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                         st.error("❌ Please check the red confirmation box above to verify the massive quantities!")
                     else:
                         logs = []
-                        for i_name, data in st.session_state['waste_cart'].items():
+                        for pcode, data in st.session_state['waste_cart'].items():
                             r_data = data['row_data']
                             _cat_lower = str(r_data.get('category', '')).lower()
                             if ticket_type == "Daily Waste":
@@ -358,12 +359,12 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                                 _auto = f"Event: {event_name_val}"
                             else:
                                 _auto = ""
-                            reason_code = st.session_state['waste_remarks'].get(i_name, _auto)
+                            reason_code = st.session_state['waste_remarks'].get(pcode, _auto)
                             
                             logs.append({
                                 "date": str(waste_date), "client_name": final_client, "outlet": final_outlet,
                                 "location": str(assigned_location), "reported_by": user,
-                                "item_name": i_name, "item_type": r_data.get('item_type', 'inventory'),
+                                "item_name": r_data.get('item_name', pcode), "item_type": r_data.get('item_type', 'inventory'),
                                 "category": r_data.get('category', ''),
                                 "sub_category": r_data.get('sub_category', ''),
                                 "product_code": r_data.get('product_code', ''),
