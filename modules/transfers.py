@@ -368,8 +368,9 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                 st.info("No shipments to receive at your location.")
             else:
                 for _, row in my_incoming.iterrows():
+                    tid = row['transfer_id']
                     with st.container(border=True):
-                        st.write(f"**From:** {row['from_location']}  ·  **ID:** {row['transfer_id']}  ·  {str(row.get('date',''))[:16]}")
+                        st.write(f"**From:** {row['from_location']}  ·  **ID:** {tid}  ·  {str(row.get('date',''))[:16]}")
 
                         try:
                             items = json.loads(row['details'])
@@ -379,23 +380,84 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                             is_structured = False
 
                         if is_structured:
-                            for item in items:
-                                ful  = item.get('fulfilled_qty')
-                                funit = item.get('fulfilled_unit', item.get('db_unit', ''))
-                                req_display = f"{item.get('requested_qty')} {item.get('requested_unit','')}"
-                                if ful is not None:
-                                    st.markdown(f"• **{item['item_name']}** — requested `{req_display}` · dispatched `{ful} {funit}`")
-                                else:
-                                    st.markdown(f"• **{item['item_name']}** — requested `{req_display}`")
-                        else:
-                            st.info(row['details'])
+                            received_qtys = {}
+                            for idx, item in enumerate(items):
+                                ful       = item.get('fulfilled_qty')
+                                funit     = item.get('fulfilled_unit', item.get('db_unit', ''))
+                                req_disp  = f"{item.get('requested_qty')} {item.get('requested_unit','')}"
 
-                        if st.button("✅ Confirm Receipt", key=f"r_{row['transfer_id']}", type="primary", width="stretch"):
-                            supabase.table("transfers").update({
-                                "status":    "Received",
-                                "action_by": f"Received by {user}"
-                            }).eq("transfer_id", row['transfer_id']).execute()
-                            st.rerun()
+                                col_info, col_rcv = st.columns([3, 2], vertical_alignment="bottom")
+                                if ful is not None:
+                                    col_info.markdown(
+                                        f"**{item['item_name']}**  ·  requested `{req_disp}`  ·  dispatched `{ful} {funit}`"
+                                    )
+                                    received_qtys[idx] = col_rcv.number_input(
+                                        f"Actually received ({funit})",
+                                        min_value=0.0, step=0.01, format="%.2f",
+                                        value=float(ful),
+                                        key=f"rcv_{tid}_{idx}"
+                                    )
+                                else:
+                                    col_info.markdown(f"**{item['item_name']}**  ·  requested `{req_disp}`")
+                                    received_qtys[idx] = col_rcv.number_input(
+                                        "Actually received",
+                                        min_value=0.0, step=0.01, format="%.2f",
+                                        value=0.0,
+                                        key=f"rcv_{tid}_{idx}"
+                                    )
+
+                            issue_note = st.text_input(
+                                "⚠️ Issue note (optional — fill only if something is wrong)",
+                                placeholder="e.g. 1 bottle missing, box damaged…",
+                                key=f"note_{tid}"
+                            )
+
+                            col_ok, col_issue = st.columns(2)
+                            with col_ok:
+                                if st.button("✅ Confirm Receipt", key=f"r_{tid}", type="primary", use_container_width=True):
+                                    for idx, item in enumerate(items):
+                                        item['received_qty'] = received_qtys.get(idx, item.get('fulfilled_qty'))
+                                    supabase.table("transfers").update({
+                                        "details":   json.dumps(items),
+                                        "status":    "Received",
+                                        "action_by": f"Received by {user}"
+                                    }).eq("transfer_id", tid).execute()
+                                    st.rerun()
+                            with col_issue:
+                                if st.button("⚠️ Receive with Issue", key=f"ri_{tid}", use_container_width=True):
+                                    for idx, item in enumerate(items):
+                                        item['received_qty']  = received_qtys.get(idx, item.get('fulfilled_qty'))
+                                        item['issue_note']    = issue_note.strip()
+                                    supabase.table("transfers").update({
+                                        "details":   json.dumps(items),
+                                        "status":    "Received with Issue",
+                                        "action_by": f"Received by {user} — ISSUE: {issue_note.strip() or 'qty mismatch'}"
+                                    }).eq("transfer_id", tid).execute()
+                                    st.rerun()
+
+                        else:
+                            # Legacy plain-text
+                            st.info(row['details'])
+                            issue_note = st.text_input(
+                                "⚠️ Issue note (optional)",
+                                placeholder="e.g. 1 bottle missing…",
+                                key=f"note_{tid}"
+                            )
+                            col_ok, col_issue = st.columns(2)
+                            with col_ok:
+                                if st.button("✅ Confirm Receipt", key=f"r_{tid}", type="primary", use_container_width=True):
+                                    supabase.table("transfers").update({
+                                        "status":    "Received",
+                                        "action_by": f"Received by {user}"
+                                    }).eq("transfer_id", tid).execute()
+                                    st.rerun()
+                            with col_issue:
+                                if st.button("⚠️ Receive with Issue", key=f"ri_{tid}", use_container_width=True):
+                                    supabase.table("transfers").update({
+                                        "status":    "Received with Issue",
+                                        "action_by": f"Received by {user} — ISSUE: {issue_note.strip() or 'reported'}"
+                                    }).eq("transfer_id", tid).execute()
+                                    st.rerun()
 
     except Exception as e:
         st.error(f"❌ System Error in Transfers: {e}")
