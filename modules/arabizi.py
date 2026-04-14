@@ -47,7 +47,7 @@ ARABIZI: dict[str, str] = {
     "samak":        "fish",
     "samake":       "fish",
     "kreydes":      "shrimp",
-    "kraydes":      "shrimp"
+    "kraydes":      "shrimp",
     "kreydess":     "shrimp",
     "kafta":        "kafta",
     "kefta":        "kefta",
@@ -60,7 +60,7 @@ ARABIZI: dict[str, str] = {
     "mkanak":       "makanek",
     "sujuk":        "soujouk",
     "soujok":       "soujouk",
-    "sojok":        "soujouk"
+    "sojok":        "soujouk",
     "awarma":       "kawarma",
 
     # ── Vegetables ───────────────────────────────────────────
