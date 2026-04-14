@@ -169,7 +169,7 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         _REMARK_OPTIONS = _SYSTEM_REMARKS + [r for r in _custom_remarks if r not in _SYSTEM_REMARKS] + ["+ Add New..."]
 
         # ── Manage Remarks (managers+) ────────────────────────────────────────
-        if role.lower() in ["manager", "admin", "admin_all"]:
+        if role.lower() in ["manager", "admin", "admin_all", "chef", "bar manager"]:
             with st.expander("⚙️ Manage Remark Options"):
                 col_nr, col_nb = st.columns([4, 1])
                 with col_nr:
