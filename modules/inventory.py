@@ -571,7 +571,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
         if user_role == "viewer":
             show_reports()
             
-        elif user_role in ["staff", "chef", "manager", "admin", "admin_all"]:
+        elif user_role in ["staff", "chef", "bar manager", "manager", "admin", "admin_all"]:
             tab_c, tab_r = st.tabs(["✍️ Count Inventory", "📊 View Reports & Totals"])
             with tab_c:
                 show_counting()
