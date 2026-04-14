@@ -135,16 +135,36 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
             df_transfers = pd.DataFrame(columns=['transfer_id', 'date', 'status', 'requester', 'from_outlet', 'from_location', 'to_outlet', 'to_location', 'request_type', 'details', 'action_by'])
 
         user_locs_lower = [loc.lower() for loc in active_locations]
-        can_dispatch = (raw_loc.lower() == 'all' or any('warehouse' in loc for loc in user_locs_lower))
+        user_locs_title = [l.title() for l in active_locations]
 
-        if can_dispatch:
-            my_pending = df_transfers[(df_transfers['status'] == 'Pending') & (df_transfers['from_outlet'].str.title() == final_outlet)]
-            my_incoming = df_transfers[(df_transfers['status'] == 'In Transit') & (df_transfers['to_outlet'].str.title() == final_outlet)]
+        # Roles that manage a specific location can dispatch requests directed at them
+        _location_roles = ['chef', 'bar manager', 'manager', 'admin', 'admin_all']
+        _is_warehouse    = (raw_loc.lower() == 'all' or any('warehouse' in loc for loc in user_locs_lower))
+        _is_location_mgr = role.lower() in _location_roles
+
+        can_dispatch = _is_warehouse or _is_location_mgr
+
+        if _is_warehouse:
+            # Warehouse / all-access: see every pending request for this outlet
+            my_pending = df_transfers[
+                (df_transfers['status'] == 'Pending') &
+                (df_transfers['from_outlet'].str.title() == final_outlet)
+            ]
+        elif _is_location_mgr:
+            # Location-specific role: only see requests directed AT their location
+            my_pending = df_transfers[
+                (df_transfers['status'] == 'Pending') &
+                (df_transfers['from_outlet'].str.title() == final_outlet) &
+                (df_transfers['from_location'].astype(str).str.title().isin(user_locs_title))
+            ]
         else:
-            my_pending = pd.DataFrame() 
-            my_incoming = df_transfers[(df_transfers['status'] == 'In Transit') & 
-                                       (df_transfers['to_outlet'].str.title() == final_outlet) &
-                                       (df_transfers['to_location'].astype(str).str.title().isin([l.title() for l in active_locations]))]
+            my_pending = pd.DataFrame()
+
+        my_incoming = df_transfers[
+            (df_transfers['status'] == 'In Transit') &
+            (df_transfers['to_outlet'].str.title() == final_outlet) &
+            (df_transfers['to_location'].astype(str).str.title().isin(user_locs_title))
+        ]
 
         if can_dispatch and not my_pending.empty:
             st.warning(f"🔔 **Alert:** {len(my_pending)} pending requests to dispatch!")
@@ -289,10 +309,10 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                     st.info("No pending requests to dispatch from your location.")
                 else:
                     for _, row in my_pending.iterrows():
-                        with st.expander(f"📦 Order for {row['to_location']} ({row['requester']})"):
-                            # This is where the Warehouse will see the AI's translation!
+                        with st.expander(f"📦 Request from {row['to_location']} → {row['from_location']} · {row['requester']} · {str(row.get('date',''))[:16]}"):
+                            st.caption(f"🔁 **{row['to_location']}** is requesting from **{row['from_location']}** | Requested by: **{row['requester']}**")
                             edited_details = st.text_area("Fulfillment Details:", value=row['details'], key=f"e_{row['transfer_id']}", height=150)
-                            if st.button("Approve & Dispatch", key=f"d_{row['transfer_id']}", type="primary"):
+                            if st.button("✅ Approve & Dispatch", key=f"d_{row['transfer_id']}", type="primary"):
                                 supabase.table("transfers").update({
                                     "details": edited_details, "status": "In Transit", "action_by": f"Sent by {user}"
                                 }).eq("transfer_id", row['transfer_id']).execute()
