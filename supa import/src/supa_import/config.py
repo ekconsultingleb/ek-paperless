@@ -404,7 +404,11 @@ SHEET_CONFIG = {
             'avg_cost',
             'total_cost',
             'month',
-            'original_remarks'
+            'original_remarks',
+            'date',
+            'sales_revenue',
+            'invoice_number',
+            'customer'
         ],
 
         "date_column": "month",
