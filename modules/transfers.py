@@ -195,7 +195,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                 st.divider()
 
                 # --- Item search (supports Arabizi: "meleh" → Salt, "batata" → Potato …) ---
-                search_q = st.text_input("🔍 Search item to add", placeholder="e.g. meleh, batata, al…", key="tr_search")
+                search_q = st.text_input("🔍 Search item to add", placeholder="e.g. mayo, glen, meleh ", key="tr_search")
 
                 df_filtered = pd.DataFrame()
                 if search_q.strip() and not df_source_items.empty:
