@@ -6,6 +6,7 @@ import uuid
 import json
 from supabase import create_client, Client
 from modules.nav_helper import build_outlet_location_sidebar, get_nav_data
+from modules.arabizi import arabizi_translate
 
 # --- SAFELY INITIALIZE SUPABASE ---
 @st.cache_resource
@@ -14,6 +15,7 @@ def get_supabase() -> Client:
 
 # Default units available to every requester
 _DEFAULT_UNITS = ["Kg", "G", "L", "ml", "Pcs", "Box", "Bottle", "Can", "Bag", "Tray", "Crate", "Pack", "Dozen", "Jar"]
+
 
 def _init_transfer_session():
     if 'tr_cart' not in st.session_state:
@@ -192,14 +194,20 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
 
                 st.divider()
 
-                # --- Item search ---
-                search_q = st.text_input("🔍 Search item to add", placeholder="e.g. al → Almaza, Albernour…", key="tr_search")
+                # --- Item search (supports Arabizi: "meleh" → Salt, "batata" → Potato …) ---
+                search_q = st.text_input("🔍 Search item to add", placeholder="e.g. meleh, batata, al…", key="tr_search")
 
                 df_filtered = pd.DataFrame()
                 if search_q.strip() and not df_source_items.empty:
+                    translations = arabizi_translate(search_q.strip())
+                    # Build a combined regex: original term OR any translation
+                    all_terms = [search_q.strip()] + translations
+                    pattern = "|".join(all_terms)
                     df_filtered = df_source_items[
-                        df_source_items['item_name'].str.contains(search_q.strip(), case=False, na=False)
+                        df_source_items['item_name'].str.contains(pattern, case=False, na=False, regex=True)
                     ].drop_duplicates(subset=['item_name']).head(12)
+                    if translations:
+                        st.caption(f"🔤 Arabizi detected — also searching: {', '.join(translations)}")
 
                 if not df_filtered.empty:
                     st.caption(f"{len(df_filtered)} result(s) — click an item to select it:")
