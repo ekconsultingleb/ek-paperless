@@ -98,9 +98,8 @@ def _upload_recipe_photo(
         try:
             from PIL import Image
             import io as _io
-            # Convert bytes to PIL — handles JPEG, PNG, WEBP, HEIC if pillow-heif installed
             img = Image.open(_io.BytesIO(file_bytes))
-            img = img.convert("RGB")   # strips alpha + normalises HEIC/HEIF colour space
+            img = img.convert("RGB")
             img.thumbnail((800, 800))
             out = _io.BytesIO()
             img.save(out, format="JPEG", quality=75)
@@ -313,7 +312,7 @@ def _photo_dialog(supabase: Client, recipe_id: str, recipe_name: str):
 def _render_library(supabase: Client, client_name: str, show_cost: bool):
     recipes = _get_recipes(supabase, client_name)
     if not recipes:
-        st.info("No recipes yet. Go to New Recipe to create your first one.")
+        st.info("No recipes yet. Go to ✨ New recipe to create your first one.")
         return
 
     col_search, col_cat = st.columns([2, 1])
@@ -324,7 +323,7 @@ def _render_library(supabase: Client, client_name: str, show_cost: bool):
         )
     with col_cat:
         cat_filter = st.selectbox(
-            "Category", ["All", "Food", "Beverage", "Sub-recipe"],
+            "Category", ["All", "🫕 Food", "🥂 Beverage", "🔄 Sub-recipe"],
             label_visibility="collapsed", key="lib_cat"
         )
 
@@ -332,7 +331,9 @@ def _render_library(supabase: Client, client_name: str, show_cost: bool):
     if search:
         filtered = [r for r in filtered if search.lower() in r.get("name", "").lower()]
     if cat_filter != "All":
-        filtered = [r for r in filtered if r.get("category") == cat_filter]
+        # Strip emoji for DB comparison
+        cat_map = {"🫕 Food": "Food", "🥂 Beverage": "Beverage", "🔄 Sub-recipe": "Sub-recipe"}
+        filtered = [r for r in filtered if r.get("category") == cat_map.get(cat_filter, cat_filter)]
 
     if not filtered:
         st.warning("No recipes match your filter.")
@@ -425,7 +426,7 @@ def _render_library(supabase: Client, client_name: str, show_cost: bool):
                     resolved = line.get("ai_resolved", "")
                     qty      = line.get("qty", "")
                     unit     = line.get("unit", "")
-                    type_tag = "Produce" if line.get("is_production") else "Buy"
+                    type_tag = "🥘 Produce" if line.get("is_production") else "🧾 Buy"
                     ai_tag   = " (AI: " + resolved + ")" if resolved and resolved != raw else ""
                     detail   = str(raw) + " - " + str(qty) + " " + str(unit) + " - " + type_tag + ai_tag
                     if line.get("is_production") and line.get("batch_qty"):
@@ -433,7 +434,7 @@ def _render_library(supabase: Client, client_name: str, show_cost: bool):
                     st.write(detail)
 
             if recipe.get("method"):
-                st.markdown("**Method of preparation**")
+                st.markdown("**📋 Method of preparation**")
                 st.write(recipe["method"])
 
             if st.button("Close", key="close_view"):
@@ -493,7 +494,7 @@ def _render_sub_builder(default_unit: str):
     is_edit     = editing_idx is not None
 
     with st.container(border=True):
-        st.markdown("**" + ("Edit" if is_edit else "Sub-recipe") + ": " + ing_name + "**")
+        st.markdown("**" + ("Edit" if is_edit else "🔄 Sub-recipe") + ": " + ing_name + "**")
         st.caption("Define how this is prepared and what goes into it.")
 
         c1, c2 = st.columns(2)
@@ -553,7 +554,7 @@ def _render_sub_builder(default_unit: str):
                 key="mat_unit_" + str(ctr), label_visibility="collapsed"
             )
         with col_btn:
-            add_mat = st.button("Add", key="mat_add_" + str(ctr), type="primary", width="stretch")
+            add_mat = st.button("➕ Add", key="mat_add_" + str(ctr), type="primary", width="stretch")
 
         if add_mat:
             if mat_name.strip():
@@ -580,18 +581,16 @@ def _render_sub_builder(default_unit: str):
                 st.rerun()
 
         with c_save:
-            save_label = "Update sub-recipe" if is_edit else "Save sub-recipe"
+            save_label = "Update sub-recipe" if is_edit else "💾 Save sub-recipe"
             if st.button(save_label, key="sub_save", type="primary", width="stretch"):
                 prep_qty  = st.session_state.get("sub_prep_qty", 1.0)
                 prep_unit = st.session_state.get("sub_prep_unit", default_unit)
                 now       = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).isoformat()
 
                 if is_edit:
-                    # Update existing line in form_lines
                     old_line   = st.session_state["form_lines"][editing_idx]
                     old_temp   = old_line.get("_temp_sub_id")
 
-                    # Update the pending sub-recipe record if it exists
                     if old_temp and old_temp in st.session_state["pending_sub_recipes"]:
                         st.session_state["pending_sub_recipes"][old_temp]["record"]["portions"]   = prep_qty
                         st.session_state["pending_sub_recipes"][old_temp]["record"]["yield_unit"] = prep_unit
@@ -614,7 +613,6 @@ def _render_sub_builder(default_unit: str):
                         st.session_state["pending_sub_recipes"][old_temp]["lines"] = new_sub_lines
                         temp_id = old_temp
                     else:
-                        # Was linked to existing DB sub-recipe — create new pending
                         temp_id    = "pending_" + uuid.uuid4().hex[:8]
                         sub_record = {
                             "id":               str(uuid.uuid4()),
@@ -651,13 +649,11 @@ def _render_sub_builder(default_unit: str):
                             "lines":  new_sub_lines,
                         }
 
-                    # Update the line
                     st.session_state["form_lines"][editing_idx]["batch_qty"]    = prep_qty
                     st.session_state["form_lines"][editing_idx]["batch_unit"]   = prep_unit
                     st.session_state["form_lines"][editing_idx]["_temp_sub_id"] = temp_id
 
                 else:
-                    # New sub-recipe
                     temp_id    = "pending_" + uuid.uuid4().hex[:8]
                     sub_record = {
                         "id":               str(uuid.uuid4()),
@@ -735,11 +731,11 @@ def _render_new_recipe(
         st.success("**" + st.session_state.get("form_saved_name", "") + "** saved!")
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("New recipe", width="stretch", key="btn_new_recipe"):
+            if st.button("✨ New recipe", width="stretch", key="btn_new_recipe"):
                 _reset_form()
                 st.rerun()
         with c2:
-            if st.button("Go to library", type="primary", width="stretch", key="btn_go_library"):
+            if st.button("📖 Go to library", type="primary", width="stretch", key="btn_go_library"):
                 _reset_form()
                 st.session_state["go_to_library"] = True
                 st.rerun()
@@ -747,21 +743,23 @@ def _render_new_recipe(
 
     st.text_input(
         "Recipe name",
-        placeholder="Type here the recipe name",
+        placeholder="✏️ Type here the recipe name",
         key="form_recipe_name",
         label_visibility="collapsed",
     )
 
     category = st.radio(
         "Category",
-        ["Food", "Beverage", "Sub-recipe"],
+        ["🫕 Food", "🥂 Beverage", "🔄 Sub-recipe"],
         horizontal=True,
         key="form_category",
         label_visibility="collapsed",
     )
-    default_unit = "cl" if category == "Beverage" else "g"
+    # Strip emoji for logic that depends on category string
+    category_clean = category.split(" ", 1)[-1] if " " in category else category
+    default_unit = "cl" if category_clean == "Beverage" else "g"
 
-    if category == "Sub-recipe":
+    if category_clean == "Sub-recipe":
         c1, c2 = st.columns(2)
         with c1:
             st.number_input("Batch qty", min_value=0.01, value=1.0, step=0.1, key="form_batch_qty")
@@ -822,19 +820,19 @@ def _render_new_recipe(
             )
         with col_t:
             ing_type = st.radio(
-                "Type", ["Buy", "Produce"],
+                "Type", ["🧾 Buy", "🥘 Produce"],
                 horizontal=True,
                 key="ing_type_" + str(ctr), label_visibility="collapsed"
             )
         add_clicked = st.button(
-            "Add", width="stretch",
+            "➕ Add", width="stretch",
             type="primary", key="ing_add_" + str(ctr)
         )
 
         if add_clicked:
             if not ing_name.strip():
                 st.caption("Enter an ingredient name first.")
-            elif ing_type == "Buy":
+            elif "Buy" in ing_type:
                 st.session_state["form_lines"].append({
                     "chef_input":    ing_name.strip(),
                     "qty":           ing_qty,
@@ -882,7 +880,7 @@ def _render_new_recipe(
         edit_idx   = None
 
         for idx, line in enumerate(lines):
-            type_tag     = "🟢" if line["is_production"] else "🔵"
+            type_tag     = "🥘" if line["is_production"] else "🧾"
             name_display = line["chef_input"] if line["chef_input"] else "(unnamed)"
             qty_str      = str(int(line["qty"])) + " " + line["unit"]
             tag_str      = "Produce" if line["is_production"] else "Buy"
@@ -922,9 +920,10 @@ def _render_new_recipe(
         if to_delete is not None:
             st.session_state["form_lines"].pop(to_delete)
             st.rerun()
+
     # ── Method ──
     st.markdown("---")
-    with st.expander("Method of preparation (optional)"):
+    with st.expander("📋 Method of preparation (optional)"):
         st.text_area(
             "Method",
             placeholder=(
@@ -943,14 +942,16 @@ def _render_new_recipe(
         st.caption("Enter a recipe name to save.")
 
     if st.button(
-        "Save recipe", type="primary",
+        "💾 Save recipe", type="primary",
         width="stretch", disabled=not name
     ):
-        cat    = st.session_state.get("form_category", "Food")
+        cat    = st.session_state.get("form_category", "🫕 Food")
+        # Strip emoji prefix for DB storage
+        cat_clean = cat.split(" ", 1)[-1] if " " in cat else cat
         method = st.session_state.get("form_method", "") or None
         ings   = [l for l in st.session_state["form_lines"] if l["chef_input"].strip()]
 
-        if cat == "Sub-recipe":
+        if cat_clean == "Sub-recipe":
             portions   = st.session_state.get("form_batch_qty", 1.0)
             yield_unit = st.session_state.get("form_batch_unit", "g")
         else:
@@ -965,7 +966,7 @@ def _render_new_recipe(
             "client_name":      client_name,
             "outlet":           outlet,
             "name":             name,
-            "category":         cat,
+            "category":         cat_clean,  # store clean value without emoji
             "portions":         portions,
             "yield_unit":       yield_unit,
             "method":           method,
@@ -1015,18 +1016,18 @@ def render_recipes(supabase: Client, user: str, role: str):
     outlet      = st.session_state.get("assigned_outlet", "Unknown")
     show_cost   = str(role).lower() in ["admin", "admin_all", "manager", "viewer"]
 
-    st.markdown("### Recipes")
+    st.markdown("### 🍽️ Recipes")
 
     # ── Library redirect fix ──
     if st.session_state.pop("go_to_library", False):
-        tab_lib, tab_new = st.tabs(["Recipe library", "New recipe"])
+        tab_lib, tab_new = st.tabs(["📖 Recipe library", "✨ New recipe"])
         with tab_lib:
             _render_library(supabase, client_name, show_cost)
         with tab_new:
             _render_new_recipe(supabase, client_name, outlet, user, show_cost)
         return
 
-    tab_lib, tab_new = st.tabs(["Recipe library", "New recipe"])
+    tab_lib, tab_new = st.tabs(["📖 Recipe library", "✨ New recipe"])
 
     with tab_lib:
         _render_library(supabase, client_name, show_cost)
