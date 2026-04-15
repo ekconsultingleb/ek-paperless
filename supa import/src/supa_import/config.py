@@ -325,7 +325,12 @@ SHEET_CONFIG = {
             'item_group',
             'min',
             'max',
-            'diff'
+            'diff',
+            'previous_unit_cost',
+            'new_unit_cost',
+            'unit_variance_percentage',
+            'procurement_ctrl',
+            'usd'
         ],
 
         "date_column": "month",
@@ -427,7 +432,11 @@ SHEET_CONFIG = {
             'category',
             'remarks',
             'original_remarks',
-            'month'
+            'month',
+            'date',
+            'sales_revenue',
+            'invoice_number',
+            'customer'
         ],
 
         "date_column": "month",

@@ -61,6 +61,7 @@ def render_push_to_database(user: str):
             normalize_string_columns,
         )
         from supa_import.validators import (
+            validate_required_columns,
             validate_client_name,
             validate_report_period,
             find_existing_data,
@@ -104,7 +105,16 @@ def render_push_to_database(user: str):
             extract_st.update(label="Extracting Sheets", state="error", expanded=True)
             return
 
+        sheets_dict = normalize_all_dataframes(sheets_dict)
+        sht_st = validate_required_columns(sheets_dict, SHEET_CONFIG)
+        if sht_st['status'] != 'ok':
+            st.write(sht_st['message'])
+            extract_st.update(label="Extracting Sheets", state="error", expanded=True)
+            return
+        st.write(sht_st['message'])
+
         qr_res = get_client_id(selected_client, supabase)
+
         if qr_res["status"] != "ok":
             st.write(qr_res["message"])
             extract_st.update(label="Extracting Sheets", state="error", expanded=True)
