@@ -204,16 +204,14 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
         event_name_val = st.text_input("📝 Event Name", placeholder="e.g. Wedding Booking") if ticket_type == "Event" else ""
 
         st.markdown("**Item Type:**")
-        item_type_filter = st.radio("Item Type", ["📦 Inventory Items", "🍔 Menu Items", "All Items"], horizontal=True, label_visibility="collapsed")
+        item_type_filter = st.radio("Item Type", ["📦 Inventory Items", "🍔 Menu Items"], horizontal=True, label_visibility="collapsed")
         search_query = st.text_input("🔍 Quick Search")
 
         if not df_items.empty:
             if item_type_filter == "📦 Inventory Items":
                 df_filtered_type = df_items[df_items['item_type'].str.lower().str.contains('inventory', na=False)].copy()
-            elif item_type_filter == "🍔 Menu Items":
-                df_filtered_type = df_items[df_items['item_type'].str.lower().str.contains('menu', na=False)].copy()
             else:
-                df_filtered_type = df_items.copy()
+                df_filtered_type = df_items[df_items['item_type'].str.lower().str.contains('menu', na=False)].copy()
             
             df_filtered_type['category'] = df_filtered_type['category'].replace(['', 'nan', 'None'], 'Uncategorized').fillna('Uncategorized')
             df_filtered_type['sub_category'] = df_filtered_type['sub_category'].replace(['', 'nan', 'None'], 'Uncategorized').fillna('Uncategorized')
