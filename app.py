@@ -400,19 +400,8 @@ else:
             unsafe_allow_html=True,
         )
         if st.sidebar.button("⬆️ Update App", width="stretch", type="primary", key="update_btn"):
-            with st.sidebar:
-                with st.spinner("Pulling latest version…"):
-                    _app_dir = os.path.dirname(os.path.abspath(__file__))
-                    _result = subprocess.run(
-                        ["git", "pull", "--ff-only"],
-                        cwd=_app_dir,
-                        capture_output=True,
-                        text=True,
-                    )
-                if _result.returncode == 0:
-                    st.sidebar.success("Updated! Refresh the page.")
-                else:
-                    st.sidebar.error(f"Update failed:\n{_result.stderr.strip()}")
+            st.cache_data.clear()
+            st.rerun()
 
     # --- NAVIGATION LOGIC ---
     role = st.session_state['role']
