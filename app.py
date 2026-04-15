@@ -1,6 +1,9 @@
 import streamlit as st
 import pandas as pd
 import time
+import subprocess
+import os
+from packaging.version import Version
 from supabase import create_client, Client
 
 
@@ -372,6 +375,44 @@ else:
     if st.sidebar.button("Logout", width="stretch"):
         st.session_state.clear()
         st.rerun()
+
+    # --- UPDATE CHECK ---
+    @st.cache_data(ttl=300)
+    def get_latest_version():
+        try:
+            res = supabase.table("app_config").select("value").eq("key", "latest_version").execute()
+            if res.data:
+                return res.data[0]["value"]
+        except Exception:
+            pass
+        return APP_VERSION
+
+    _latest = get_latest_version()
+    try:
+        _update_available = Version(_latest) > Version(APP_VERSION)
+    except Exception:
+        _update_available = False
+
+    if _update_available:
+        st.sidebar.divider()
+        st.sidebar.markdown(
+            f"<div style='color:#E3C5AD;font-size:12px;text-align:center;padding:2px 0;'>Update available: v{_latest}</div>",
+            unsafe_allow_html=True,
+        )
+        if st.sidebar.button("⬆️ Update App", width="stretch", type="primary", key="update_btn"):
+            with st.sidebar:
+                with st.spinner("Pulling latest version…"):
+                    _app_dir = os.path.dirname(os.path.abspath(__file__))
+                    _result = subprocess.run(
+                        ["git", "pull", "--ff-only"],
+                        cwd=_app_dir,
+                        capture_output=True,
+                        text=True,
+                    )
+                if _result.returncode == 0:
+                    st.sidebar.success("Updated! Refresh the page.")
+                else:
+                    st.sidebar.error(f"Update failed:\n{_result.stderr.strip()}")
 
     # --- NAVIGATION LOGIC ---
     role = st.session_state['role']

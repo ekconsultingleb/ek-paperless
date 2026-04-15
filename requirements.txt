@@ -13,3 +13,4 @@ Pillow
 pillow-heif
 python-dotenv
 psycopg2-binary
+packaging
