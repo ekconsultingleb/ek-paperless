@@ -396,12 +396,21 @@ else:
     if _update_available:
         st.sidebar.divider()
         st.sidebar.markdown(
-            f"<div style='color:#E3C5AD;font-size:12px;text-align:center;padding:2px 0;'>Update available: v{_latest}</div>",
+            f"""
+            <div style='background:#3a2a1a;border:1px solid #E3C5AD;border-radius:8px;padding:8px 10px;text-align:center;'>
+                <div style='color:#E3C5AD;font-size:13px;font-weight:600;'>New version available</div>
+                <div style='color:#aaa;font-size:11px;margin-top:2px;'>v{APP_VERSION} → v{_latest}</div>
+                <div style='color:#888;font-size:10px;margin-top:4px;'>Save your work before updating</div>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
-        if st.sidebar.button("⬆️ Update App", width="stretch", type="primary", key="update_btn"):
+        if st.sidebar.button("⬆️ Update Now", width="stretch", type="primary", key="update_btn"):
             st.cache_data.clear()
-            st.rerun()
+            st.components.v1.html(
+                "<script>window.location.reload(true);</script>",
+                height=0,
+            )
 
     # --- NAVIGATION LOGIC ---
     role = st.session_state['role']
@@ -459,7 +468,7 @@ else:
                     Welcome back, {user.title()} 👋
                 </div>
                 <div style="color:#8a9eaa;font-size:14px;">
-                    {role.title()}{client_label} · Paperless
+                    {role.title()}{client_label}
                 </div>
             </div>
         """, unsafe_allow_html=True)
