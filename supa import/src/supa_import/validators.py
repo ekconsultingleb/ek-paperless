@@ -45,7 +45,7 @@ def validate_required_columns(sheets_dict, sheet_config):
     if message:
         return {
             "status": "error",
-            "message": "  \n".join(message)
+            "message": "  \n  \n".join(message)
         }    
         
     return {

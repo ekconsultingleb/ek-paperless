@@ -87,7 +87,7 @@ def render_push_to_database(user: str):
     with col4:
         mode = st.selectbox("Select Mode", options=["Do not overwrite", "Overwrite"], index=0, key="ptdb_mode")
 
-    if not st.button("Run Push", type="primary", use_container_width=True, key="ptdb_run"):
+    if not st.button("Run", type="primary", use_container_width=True, key="ptdb_run"):
         return
 
     if not uploaded_file or not selected_client or not selected_period:
@@ -192,6 +192,15 @@ def render_push_to_database(user: str):
         val_st.update(label="Validating Client and Date", state="complete", expanded=True)
 
     with st.status("Processing Data...", expanded=True) as pro_st:
+        grp_res = apply_grouping(sheets_dict, SHEET_CONFIG)
+        if grp_res["status"] != "ok":
+            st.write(grp_res["message"])
+            pro_st.update(label="Processing Data", state="error", expanded=True)
+            conn.close()
+            return
+        sheets_dict = grp_res["data"]
+        st.write(grp_res["message"])
+
         meta_res = add_metadata(sheets_dict, client_id, selected_period, currency, rate)
         if meta_res["status"] != "ok":
             st.write(meta_res["message"])
@@ -201,14 +210,6 @@ def render_push_to_database(user: str):
         sheets_dict = meta_res["data"]
         st.write(meta_res["message"])
 
-        grp_res = apply_grouping(sheets_dict, SHEET_CONFIG)
-        if grp_res["status"] != "ok":
-            st.write(grp_res["message"])
-            pro_st.update(label="Processing Data", state="error", expanded=True)
-            conn.close()
-            return
-        sheets_dict = grp_res["data"]
-        st.write(grp_res["message"])
         pro_st.update(label="Processing Data", state="complete", expanded=True)
 
     with st.status("Writing to Database...", expanded=True) as write_st:

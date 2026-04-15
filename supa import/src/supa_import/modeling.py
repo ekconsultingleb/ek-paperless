@@ -137,15 +137,33 @@ def apply_grouping(sheets_dict, sheet_config):
         try:
             grouped_df = df.groupby(group_by, as_index=False).agg(agg)
 
-            meta_cols = ["report_date", "client_id", "currency", "client_rate"]
-            existing_meta = [c for c in meta_cols if c in grouped_df.columns]
-            other_cols = [c for c in grouped_df.columns if c not in existing_meta]
+            # meta_cols = ["report_date", "client_id", "currency", "client_rate"]
+            # existing_meta = [c for c in meta_cols if c in grouped_df.columns]
+            # other_cols = [c for c in grouped_df.columns if c not in existing_meta]
 
-            grouped_df = grouped_df[existing_meta + other_cols]
+            # grouped_df = grouped_df[existing_meta + other_cols]
             updated_sheets[sheet_name] = grouped_df
 
         except Exception as e:
             errors.append(f"⚠️ {sheet_name}: grouping failed ({e})")
+
+        # if sheet_name in ['Beg', 'Ending']:
+        #     try:
+
+        #         grouped_df = df.groupby(['product_description', 'location'], as_index=False).agg({
+        #             'qty': 'sum',
+        #             'unit': 'first',
+        #             'avg_cost': 'first',
+        #             'category': 'first',
+        #             'item_group': 'first',
+        #             'month': 'first'
+        #         })
+        #         grouped_df['total_avg_cost'] = grouped_df['qty'] * grouped_df['avg_cost']
+        #         updated_sheets[sheet_name] = grouped_df
+
+        #     except Exception as e:
+        #         errors.append(f"⚠️ {sheet_name}: grouping failed ({e})")
+            
 
     if errors:
         return {

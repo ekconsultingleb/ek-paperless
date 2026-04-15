@@ -263,10 +263,10 @@ SHEET_CONFIG = {
             "qty": "sum",
             "category": "first",
             "month": "first",
-            "client_id": "first",
-            "report_date": "first",
-            "currency": "first",
-            "client_rate": "first"
+            # "client_id": "first",
+            # "report_date": "first",
+            # "currency": "first",
+            # "client_rate": "first"
         },
 
         "unique_key": [
@@ -294,6 +294,18 @@ SHEET_CONFIG = {
         ],
 
         "date_column": "month",
+
+        "group_before_load": True,
+        "group_by": ["product_description", "location"],
+        "agg": {
+            'qty': 'sum',
+            'unit': 'first',
+            'avg_cost': 'first',
+            'total_cost': 'sum',
+            'category': 'first',
+            'item_group': 'first',
+            'month': 'first'
+        },
 
         "unique_key": [
             "client_id",
@@ -358,10 +370,10 @@ SHEET_CONFIG = {
             "category": "first",
             "month": "first",
             "location": "first",
-            "client_id": "first",
-            "report_date": "first",
-            "currency": "first",
-            "client_rate": "first"
+            # "client_id": "first",
+            # "report_date": "first",
+            # "currency": "first",
+            # "client_rate": "first"
         },
 
         "unique_key": [
@@ -453,13 +465,25 @@ SHEET_CONFIG = {
             'qty',
             'unit',
             'avg_cost',
-            'total_avg_cost',
+            'total_cost',
             'category',
             'item_group',
             'month'
         ],
 
         "date_column": "month",
+
+        "group_before_load": True,
+        "group_by": ["product_description", "location"],
+        "agg": {
+            'qty': 'sum',
+            'unit': 'first',
+            'avg_cost': 'first',
+            'total_cost': 'sum',
+            'category': 'first',
+            'item_group': 'first',
+            'month': 'first'
+        },
 
         "unique_key": [
             "client_id",
