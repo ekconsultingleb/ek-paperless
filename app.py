@@ -408,7 +408,7 @@ else:
         if st.sidebar.button("⬆️ Update Now", width="stretch", type="primary", key="update_btn"):
             st.cache_data.clear()
             st.components.v1.html(
-                "<script>window.location.reload(true);</script>",
+                "<script>window.parent.location.reload(true);</script>",
                 height=0,
             )
 
