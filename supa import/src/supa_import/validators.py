@@ -29,7 +29,9 @@ def validate_client_name(real_client, entered_client):
     return result
 
 
-def validate_required_columns(sheets_dict, sheet_config, log_func=st.write):
+def validate_required_columns(sheets_dict, sheet_config):
+
+    message = []
 
     for sheet_name, df in sheets_dict.items():
         expected_columns = sheet_config[sheet_name]["expected_columns"]
@@ -37,12 +39,14 @@ def validate_required_columns(sheets_dict, sheet_config, log_func=st.write):
 
         if missing_columns:
             missing_str = ", ".join(missing_columns)
-            msg = f"Missing column(s) in sheet '{sheet_name}': {missing_str}"
-            log_func(msg)
-            return {
-                "status": "error",
-                "message": msg
-            }
+            message.append(f"Sheet {sheet_name} is missing column(s): {missing_str}")
+
+
+    if message:
+        return {
+            "status": "error",
+            "message": "  \n".join(message)
+        }    
         
     return {
         "status": "ok",
