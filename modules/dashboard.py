@@ -543,7 +543,7 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
             if is_live:
                 if not df_inv.empty and "item_name" in df_inv.columns:
                     st.caption(f"{len(df_inv):,} count records in selected period.")
-                    show_cols = [c for c in ("date", "outlet", "item_name", "qty") if c in df_inv.columns]
+                    show_cols = [c for c in ("date", "outlet", "item_name", "quantity") if c in df_inv.columns]
                     st.dataframe(df_inv[show_cols].sort_values("date", ascending=False).head(50),
                                  use_container_width=True, hide_index=True, height=350)
                 else:
