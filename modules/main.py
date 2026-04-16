@@ -3,7 +3,6 @@ import pandas as pd
 from supabase import create_client, Client
 from modules.clients import render_clients
 from modules.nav_helper import hash_password
-from modules.worldwide_master_items import render_worldwide_admin
 from modules.push_to_database import render_push_to_database
 
 # — SAFELY INITIALIZE SUPABASE —
@@ -63,19 +62,19 @@ def render_main(conn, sheet_link, user, role):
     # ==========================================
     if is_super_admin:
         st.info("👑 Super Admin Mode: Full access to all database and user controls.")
-        tabs = st.tabs(["📤 Master Sync", "🗄️ Push to Database", "➕ Create User", "👥 Manage Users", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients", "🌍 Global Registry"])
-        t_sync, t_push_db, t_create, t_view, t_supp, t_edit, t_clients, t_global = tabs
+        tabs = st.tabs(["📤 Master Sync", "🗄️ Push to Database", "➕ Create User", "👥 Manage Users", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients"])
+        t_sync, t_push_db, t_create, t_view, t_supp, t_edit, t_clients = tabs
         t_ac = None
     elif is_normal_admin:
         st.info("🛡️ Admin Mode: Access to sync and onboard users/suppliers.")
         tabs = st.tabs(["📤 Master Sync", "🗄️ Push to Database", "➕ Create User", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients"])
         t_sync, t_push_db, t_create, t_supp, t_edit, t_clients = tabs[0], tabs[1], tabs[2], tabs[3], tabs[4], tabs[5]
-        t_view = t_ac = t_global = None
+        t_view = t_ac = None
     else:
         st.info("🏢 HQ Manager Mode: Access to sync the Master Items database.")
         tabs = st.tabs(["📤 Master Sync"])
         t_sync = tabs[0]
-        t_push_db = t_create = t_view = t_supp = t_edit = t_clients = t_ac = t_global = None
+        t_push_db = t_create = t_view = t_supp = t_edit = t_clients = t_ac = None
 
     # ==========================================
     # TAB: MASTER ITEMS SYNC
@@ -628,13 +627,13 @@ def render_main(conn, sheet_link, user, role):
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        e_pass = st.text_input("🔑 New Password (leave blank to keep current)", value="", type="password")
-                        e_fullname = st.text_input("📝 Full Name", value=u_data.get('full_name', ''))
-                        
+                        e_pass = st.text_input("🔑 New Password (leave blank to keep current)", value="", type="password", key=f"e_pass_{u_sel}")
+                        e_fullname = st.text_input("📝 Full Name", value=u_data.get('full_name', ''), key=f"e_fullname_{u_sel}")
+
                         role_options = ["staff", "chef", "bar manager", "bartender", "storekeeper", "manager", "viewer", "admin", "admin_all"]
                         e_role_index = role_options.index(u_data['role']) if u_data['role'] in role_options else 0
-                        e_role = st.selectbox("🛡️ Role", role_options, index=e_role_index)
-                        
+                        e_role = st.selectbox("🛡️ Role", role_options, index=e_role_index, key=f"e_role_{u_sel}")
+
                     with col2:
                         available_modules = ["waste", "cash", "inventory", "transfers", "dashboard", "invoices", "ledger", "recipes", "overview", "recipes report"]
                         raw_mods = u_data.get('module', '') or ''
@@ -642,35 +641,35 @@ def render_main(conn, sheet_link, user, role):
                         if not current_mods:
                             current_mods = ["waste"]
                         valid_mods = [m for m in current_mods if m in available_modules]
-                        e_modules = st.multiselect("📱 App Access", available_modules, default=valid_mods)
+                        e_modules = st.multiselect("📱 App Access", available_modules, default=valid_mods, key=f"e_modules_{u_sel}")
 
                     col_ee1, col_ee2, col_ee3 = st.columns([3, 3, 1])
                     with col_ee1:
-                        e_email = st.text_input("📧 Email", value=u_data.get('email', '') or '', key="e_email")
+                        e_email = st.text_input("📧 Email", value=u_data.get('email', '') or '', key=f"e_email_{u_sel}")
                     with col_ee2:
-                        e_phone = st.text_input("📞 Phone", value=u_data.get('phone', '') or '', key="e_phone")
+                        e_phone = st.text_input("📞 Phone", value=u_data.get('phone', '') or '', key=f"e_phone_{u_sel}")
                     with col_ee3:
                         st.write("")
-                        e_inv_reminder = st.checkbox("📅 Inv. Reminder", value=bool(u_data.get('inv_reminder', False)), key="e_inv_reminder")
-                        e_cost_reminder = st.checkbox("💰 Cost Reminder", value=bool(u_data.get('cost_reminder', False)), key="e_cost_reminder")
+                        e_inv_reminder = st.checkbox("📅 Inv. Reminder", value=bool(u_data.get('inv_reminder', False)), key=f"e_inv_reminder_{u_sel}")
+                        e_cost_reminder = st.checkbox("💰 Cost Reminder", value=bool(u_data.get('cost_reminder', False)), key=f"e_cost_reminder_{u_sel}")
 
                     col3, col4, col5 = st.columns(3)
                     with col3:
                         c_index = (["All"] + clients_list).index(u_data['client_name']) if u_data['client_name'] in (["All"] + clients_list) else 0
-                        e_client = st.selectbox("🏢 Select Client", ["All"] + clients_list, index=c_index, key="e_client_box")
+                        e_client = st.selectbox("🏢 Select Client", ["All"] + clients_list, index=c_index, key=f"e_client_{u_sel}")
 
                     outlets_for_edit = get_outlets_for_client(e_client if e_client != "All" else None)
                     with col4:
                         o_list   = ["All"] + outlets_for_edit
                         o_index  = o_list.index(u_data['outlet']) if u_data['outlet'] in o_list else 0
-                        e_outlet = st.selectbox("🏠 Select Outlet", o_list, index=o_index, key="e_outlet_box")
+                        e_outlet = st.selectbox("🏠 Select Outlet", o_list, index=o_index, key=f"e_outlet_{u_sel}")
 
                     areas_for_edit = get_areas_for_outlet(e_outlet if e_outlet != "All" else None)
                     with col5:
                         l_list       = ["All"] + areas_for_edit
                         current_locs = [l.strip() for l in str(u_data.get('location', '')).split(',') if l.strip()]
                         valid_locs   = [l for l in current_locs if l in l_list] or ["All"]
-                        e_locations  = st.multiselect("📍 Select Area(s)", l_list, default=valid_locs, key="e_loc_box")
+                        e_locations  = st.multiselect("📍 Select Area(s)", l_list, default=valid_locs, key=f"e_loc_{u_sel}")
 
                     st.write("")
                     if st.button("💾 Save User Changes", type="primary", width="stretch"):
@@ -784,9 +783,3 @@ def render_main(conn, sheet_link, user, role):
         with t_clients:
             render_clients(supabase)
 
-    # ==========================================
-    # TAB: GLOBAL REGISTRY
-    # ==========================================
-    if t_global:
-        with t_global:
-            render_worldwide_admin(supabase, role)
