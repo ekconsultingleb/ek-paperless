@@ -146,8 +146,7 @@ SHEET_CONFIG = {
             'chef_prd',
             'auto_prdk',
             'diff',
-            'adjustment',
-            'dont_show'
+            'adjustment'
         ],
 
         "date_column": "month",
