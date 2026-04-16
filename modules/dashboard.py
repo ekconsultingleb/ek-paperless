@@ -337,8 +337,8 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
 
             # AC Ending Inventory value
             inv_value = 0.0
-            if not df_ac_inv.empty and "total_avg_cost" in df_ac_inv.columns:
-                inv_value = _to_num(df_ac_inv["total_avg_cost"]).sum()
+            if not df_ac_inv.empty and "total_cost" in df_ac_inv.columns:
+                inv_value = _to_num(df_ac_inv["total_cost"]).sum()
 
             # AC Purchases
             total_purch = 0.0
@@ -535,20 +535,20 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
                     st.info("No inventory counts logged for this period.")
             else:
                 if not df_ac_inv.empty:
-                    df_ac_inv["total_avg_cost"] = _to_num(df_ac_inv["total_avg_cost"]) if "total_avg_cost" in df_ac_inv.columns else 0.0
+                    df_ac_inv["total_cost"] = _to_num(df_ac_inv["total_cost"]) if "total_cost" in df_ac_inv.columns else 0.0
                     df_ac_inv["qty"]            = _to_num(df_ac_inv["qty"])            if "qty"            in df_ac_inv.columns else 0.0
 
                     # Top 10 by value
                     top_inv = (
-                        df_ac_inv.groupby("product_description")["total_avg_cost"]
+                        df_ac_inv.groupby("product_description")["total_cost"]
                         .sum().reset_index()
-                        .sort_values("total_avg_cost", ascending=False)
+                        .sort_values("total_cost", ascending=False)
                         .head(10)
                     )
                     top_inv.columns = ["Item", "Ending Value"]
                     top_inv["Ending Value"] = top_inv["Ending Value"].map(lambda x: f"{x:,.2f}")
 
-                    total_inv_val = _to_num(df_ac_inv["total_avg_cost"]).sum()
+                    total_inv_val = _to_num(df_ac_inv["total_cost"]).sum()
                     st.caption(f"Total ending inventory value: **{total_inv_val:,.2f}**")
                     st.dataframe(top_inv, use_container_width=True, hide_index=True)
                 else:
