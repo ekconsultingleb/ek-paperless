@@ -537,9 +537,9 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
                     st.info("No inventory counts logged for this period.")
             else:
                 if not df_ac_inv.empty and "product_description" in df_ac_inv.columns:
-                    df_ac_inv["total_avg_cost"] = _to_num(df_ac_inv["total_avg_cost"]) if "total_avg_cost" in df_ac_inv.columns else 0.0
+                    df_ac_inv["total_cost"] = _to_num(df_ac_inv["total_cost"]) if "total_cost" in df_ac_inv.columns else 0.0
                     if multi_period:
-                        inv_trend = df_ac_inv.groupby("period_label")["total_avg_cost"].sum().reset_index()
+                        inv_trend = df_ac_inv.groupby("period_label")["total_cost"].sum().reset_index()
                         inv_trend.columns = ["Period", "Ending Value"]
                         period_order = [date_to_label[d] for d in sorted(selected_dates)]
                         inv_trend["Period"] = pd.Categorical(inv_trend["Period"], categories=period_order, ordered=True)
@@ -550,11 +550,11 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
                         st.plotly_chart(_chart_layout(fig_inv), use_container_width=True)
                     else:
                         top_inv = (
-                            df_ac_inv.groupby("product_description")["total_avg_cost"].sum()
-                            .reset_index().sort_values("total_avg_cost", ascending=False).head(10)
+                            df_ac_inv.groupby("product_description")["total_cost"].sum()
+                            .reset_index().sort_values("total_cost", ascending=False).head(10)
                         )
                         top_inv.columns = ["Item", "Ending Value"]
-                        st.caption(f"Total ending inventory value: **{_fmt(df_ac_inv['total_avg_cost'].sum())}**")
+                        st.caption(f"Total ending inventory value: **{_fmt(df_ac_inv['total_cost'].sum())}**")
                         top_inv["Ending Value"] = top_inv["Ending Value"].map(lambda x: f"{x:,.2f}")
                         st.dataframe(top_inv, use_container_width=True, hide_index=True)
                 else:
