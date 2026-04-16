@@ -19,13 +19,13 @@ def init_supabase():
     return supabase_init(url, key)
 
 
-def get_client_id(client_name, supabase):
+def get_branch_id(client_name, supabase):
 
     try:
         response = (
             supabase
-            .table("clients")
-            .select("id, client_name")
+            .table("branches")
+            .select("id, outlet")
             .eq("client_name", client_name)
             .execute()
         )
@@ -34,7 +34,7 @@ def get_client_id(client_name, supabase):
         return {
             "status": "error",
             "message": msg,
-            "client_id": None
+            "branch_id": None
         }
 
     rows = response.data if response and hasattr(response, "data") else []
@@ -44,7 +44,7 @@ def get_client_id(client_name, supabase):
         return {
             "status": "error",
             "message": msg,
-            "client_id": None
+            "branch_id": None
         }
 
     if len(rows) > 1:
@@ -52,10 +52,10 @@ def get_client_id(client_name, supabase):
         return {
             "status": "error",
             "message": msg,
-            "client_id": None
+            "branch_id": None
         }
 
     return {
             "status": "ok",
-            "client_id": rows[0]["id"]
+            "branch_id": rows[0]["id"]
         }

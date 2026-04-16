@@ -5,8 +5,8 @@ import pandas as pd
 
 def get_client_list(supabase):
     try:
-        response = supabase.table("clients").select("client_name").execute()
-        return [row["client_name"] for row in response.data]
+        response = supabase.table("branches").select("outlet").execute()
+        return [row["outlet"] for row in response.data]
     except Exception as e:
         st.error(f"Error fetching clients: {e}")
         return []

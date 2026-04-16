@@ -66,7 +66,7 @@ def push_sheets(sheets: dict, sheet_config: dict, conn):
                             if c not in cols_to_use:
                                 cols_to_use.append(c)
 
-                    for meta_col in ("client_id", "report_date", "currency", "client_rate"):
+                    for meta_col in ("branch_id", "report_date", "currency", "client_rate"):
                         if meta_col in df.columns and meta_col not in cols_to_use:
                             cols_to_use.append(meta_col)
 

@@ -50,7 +50,7 @@ def render_push_to_database(user: str):
 
     try:
         from supa_import.config import SHEET_CONFIG
-        from supa_import.db import get_pg_connection, init_supabase, get_client_id
+        from supa_import.db import get_pg_connection, init_supabase, get_branch_id
         from supa_import.loaders import extract_sheets_and_client, push_sheets
         from supa_import.streamlit_functions import get_client_list, get_period_options
         from supa_import.modeling import (
@@ -80,7 +80,7 @@ def render_push_to_database(user: str):
         uploaded_file = st.file_uploader("Upload Excel Report", type=["xlsx"], key="ptdb_upload")
     with col2:
         client_options = get_client_list(supabase)
-        selected_client = st.selectbox("Select Client", options=client_options, key="ptdb_client")
+        selected_client = st.selectbox("Select Branch", options=client_options, key="ptdb_client")
     with col3:
         period_options = get_period_options()
         selected_period = st.selectbox("Select Reporting Period", options=period_options, key="ptdb_period")
@@ -113,14 +113,14 @@ def render_push_to_database(user: str):
             return
         st.write(sht_st['message'])
 
-        qr_res = get_client_id(selected_client, supabase)
+        qr_res = get_branch_id(selected_client, supabase)
 
         if qr_res["status"] != "ok":
             st.write(qr_res["message"])
             extract_st.update(label="Extracting Sheets", state="error", expanded=True)
             return
 
-        client_id = qr_res["client_id"]
+        branch_id = qr_res["branch_id"]
         st.write("All sheets are available.")
         extract_st.update(label="Extracting Sheets", state="complete", expanded=True)
 
@@ -166,7 +166,7 @@ def render_push_to_database(user: str):
             val_st.update(label="Validating Client and Date", state="error", expanded=True)
             return
         conn.autocommit = False
-        chk_res = find_existing_data(conn, SHEET_CONFIG, client_id, selected_period)
+        chk_res = find_existing_data(conn, SHEET_CONFIG, branch_id, selected_period)
 
         if chk_res["status"] != "ok":
             st.write(chk_res["msg"])
@@ -178,7 +178,7 @@ def render_push_to_database(user: str):
 
             st.write("Existing data will be replaced.")
             with st.status("Deleting existing data...", expanded=True) as del_st:
-                del_res = delete_existing_data(conn, SHEET_CONFIG, client_id, selected_period)
+                del_res = delete_existing_data(conn, SHEET_CONFIG, branch_id, selected_period)
                 if del_res["status"] != "ok":
                     st.write(del_res["msg"])
                     del_st.update(label="Deleting existing data", state="error", expanded=True)
@@ -201,7 +201,7 @@ def render_push_to_database(user: str):
         sheets_dict = grp_res["data"]
         st.write(grp_res["message"])
 
-        meta_res = add_metadata(sheets_dict, client_id, selected_period, currency, rate)
+        meta_res = add_metadata(sheets_dict, branch_id, selected_period, currency, rate)
         if meta_res["status"] != "ok":
             st.write(meta_res["message"])
             pro_st.update(label="Processing Data", state="error", expanded=True)

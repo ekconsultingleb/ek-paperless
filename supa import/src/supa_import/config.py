@@ -25,7 +25,7 @@ SHEET_CONFIG = {
         "date_column": "month",
 
         "unique_key": [
-            "client_id",
+            "branch_id",
             "report_date",
             "menu_items"
         ],
@@ -53,7 +53,7 @@ SHEET_CONFIG = {
         "date_column": "month",
 
         "unique_key": [
-            "client_id",
+            "branch_id",
             "report_date",
             "menu_items"
         ],
@@ -91,7 +91,7 @@ SHEET_CONFIG = {
         "date_column": "month",
 
         "unique_key": [
-            "client_id",
+            "branch_id",
             "report_date",
             "menu_items"
         ],
@@ -110,7 +110,7 @@ SHEET_CONFIG = {
         ],
 
         "unique_key": [
-            "client_id",
+            "branch_id",
             "report_date",
             "menu_items"
         ],
@@ -153,7 +153,7 @@ SHEET_CONFIG = {
         "date_column": "month",
 
         "unique_key": [
-            "client_id",
+            "branch_id",
             "report_date",
             "location",
             "products"
@@ -178,7 +178,7 @@ SHEET_CONFIG = {
         "date_column": "month",
 
         "unique_key": [
-            "client_id",
+            "branch_id",
             "report_date",
             "description"
         ],
@@ -216,7 +216,7 @@ SHEET_CONFIG = {
         "date_column": "month",
 
         "unique_key": [
-            "client_id",
+            "branch_id",
             "report_date",
             "category"
         ],
@@ -236,7 +236,7 @@ SHEET_CONFIG = {
         "date_column": "month",
 
         "unique_key": [
-            "client_id",
+            "branch_id",
             "report_date",
             "category"
         ],
@@ -262,14 +262,10 @@ SHEET_CONFIG = {
             "qty": "sum",
             "category": "first",
             "month": "first",
-            # "client_id": "first",
-            # "report_date": "first",
-            # "currency": "first",
-            # "client_rate": "first"
         },
 
         "unique_key": [
-            "client_id",
+            "branch_id",
             "report_date",
             "description"
         ],
@@ -307,7 +303,7 @@ SHEET_CONFIG = {
         },
 
         "unique_key": [
-            "client_id",
+            "branch_id",
             "report_date",
             "product_description",
             "location"
@@ -369,14 +365,10 @@ SHEET_CONFIG = {
             "category": "first",
             "month": "first",
             "location": "first",
-            # "client_id": "first",
-            # "report_date": "first",
-            # "currency": "first",
-            # "client_rate": "first"
         },
 
         "unique_key": [
-            "client_id",
+            "branch_id",
             "report_date",
             "production_list"
         ],
@@ -485,7 +477,7 @@ SHEET_CONFIG = {
         },
 
         "unique_key": [
-            "client_id",
+            "branch_id",
             "report_date",
             "product_description",
             "location"
@@ -519,7 +511,7 @@ SHEET_CONFIG = {
         ],
 
         "unique_key": [
-            "client_id",
+            "branch_id",
             "report_date",
             "product_description"
         ],
@@ -552,7 +544,7 @@ SHEET_CONFIG = {
         ],
 
         "unique_key": [
-            "client_id",
+            "branch_id",
             "report_date",
             "product_description"
         ],

@@ -132,7 +132,7 @@ def safe_ident(name):
     return name
 
 
-def find_existing_data(conn, sheet_config, client_id, report_date):
+def find_existing_data(conn, sheet_config, branch_id, report_date):
     conn.rollback()
 
     results = []
@@ -154,11 +154,11 @@ def find_existing_data(conn, sheet_config, client_id, report_date):
                 f"""
                 select count(*)
                 from {table_name}
-                where client_id = %s
+                where branch_id = %s
                   and report_date >= %s
                   and report_date < %s
                 """,
-                (client_id, start_date, end_date)
+                (branch_id, start_date, end_date)
             )
 
             count = cur.fetchone()[0]
@@ -178,7 +178,7 @@ def find_existing_data(conn, sheet_config, client_id, report_date):
         }
 
 
-def delete_existing_data(conn, sheet_config, client_id, report_date):
+def delete_existing_data(conn, sheet_config, branch_id, report_date):
     conn.rollback()
 
     tables = [sht['target_table'] for sht in sheet_config.values()]
@@ -201,11 +201,11 @@ def delete_existing_data(conn, sheet_config, client_id, report_date):
                 cur.execute(
                     f"""
                     delete from {table_name}
-                    where client_id = %s
+                    where branch_id = %s
                       and report_date >= %s
                       and report_date < %s
                     """,
-                    (client_id, start_date, end_date)
+                    (branch_id, start_date, end_date)
                 )
 
                 if cur.rowcount > 0:
