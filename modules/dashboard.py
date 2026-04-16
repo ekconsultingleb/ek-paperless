@@ -250,7 +250,17 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
                 df_cash  = _live_query("daily_cash",     final_client, final_outlet, start_date, end_date)
                 df_waste = _live_query("waste_logs",     final_client, final_outlet, start_date, end_date)
                 df_inv   = _live_query("inventory_logs", final_client, final_outlet, start_date, end_date)
-                df_purch = _live_query("invoices_log",   final_client, final_outlet, start_date, end_date)
+                # invoices_log uses created_at (timestamp) not a date column
+                _iq = (
+                    supabase.table("invoices_log").select("*")
+                    .gte("created_at", str(start_date))
+                    .lte("created_at", str(end_date) + "T23:59:59")
+                )
+                if final_client != "All":
+                    _iq = _iq.ilike("client_name", f"%{final_client}%")
+                if final_outlet != "All":
+                    _iq = _iq.ilike("outlet", f"%{final_outlet}%")
+                df_purch = pd.DataFrame(_iq.limit(5000).execute().data or [])
 
                 df_ac_waste = df_ac_sales = df_ac_cogs = df_ac_inv = df_ac_purch = pd.DataFrame()
 
