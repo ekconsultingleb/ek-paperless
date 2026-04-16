@@ -211,7 +211,6 @@ SHEET_CONFIG = {
             'net_cogs',
             'theoretical_cost',
             'total_variance',
-            'total_month'
         ],
 
         "date_column": "month",
