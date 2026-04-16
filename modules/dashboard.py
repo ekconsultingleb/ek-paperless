@@ -187,6 +187,15 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
             bid = branch_id_map.get(final_outlet)
             active_branch_ids = [bid] if bid else []
 
+        # ── Exchange rate ─────────────────────────────────────────────
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### 💱 Exchange Rate")
+        lbp_rate = st.sidebar.number_input(
+            "LBP / USD", min_value=1000, max_value=500000,
+            value=89500, step=500, key="dash_lbp_rate",
+            help="Used to convert LBP invoices to USD. Default: 89,500"
+        )
+
         # ══════════════════════════════════════════
         # MAIN AREA — DATA SOURCE TOGGLE (inline)
         # ══════════════════════════════════════════
@@ -305,19 +314,23 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
             total_var   = _to_num(df_cash["over_short"]).sum() if (not df_cash.empty  and "over_short" in df_cash.columns)  else 0.0
             waste_qty   = _to_num(df_waste["qty"]).sum()       if (not df_waste.empty and "qty"        in df_waste.columns) else 0.0
             inv_count   = len(df_inv) if not df_inv.empty else 0
-            total_purch = 0.0
-            if not df_purch.empty:
-                for col in ("total_amount", "amount", "total", "net_amount"):
-                    if col in df_purch.columns:
-                        total_purch = _to_num(df_purch[col]).sum()
-                        break
+            total_purch_usd = 0.0
+            if not df_purch.empty and "total_amount" in df_purch.columns:
+                df_purch["total_amount"] = _to_num(df_purch["total_amount"])
+                currency_col = "currency" if "currency" in df_purch.columns else None
+                if currency_col:
+                    usd_rows = df_purch[df_purch[currency_col].str.upper() == "USD"]["total_amount"].sum()
+                    lbp_rows = df_purch[df_purch[currency_col].str.upper() == "LBP"]["total_amount"].sum()
+                    total_purch_usd = usd_rows + (lbp_rows / lbp_rate)
+                else:
+                    total_purch_usd = df_purch["total_amount"].sum()
 
             k1.metric("💵 Revenue",       _fmt(total_rev))
             var_color = "normal" if total_var >= 0 else "inverse"
             k2.metric("⚖️ Cash Variance", _fmt(total_var), delta=_fmt(total_var), delta_color=var_color)
             k3.metric("🗑️ Waste (Qty)",   _fmt(waste_qty, decimals=0))
             k4.metric("📋 Inv. Counts",   f"{inv_count:,}")
-            k5.metric("🛒 Purchases",     _fmt(total_purch) if total_purch else "—")
+            k5.metric("🛒 Purchases",     f"$ {_fmt(total_purch_usd)}" if total_purch_usd else "—")
 
         else:
             gross_sales = _to_num(df_ac_cogs["gross_sales"]).sum() if (not df_ac_cogs.empty and "gross_sales" in df_ac_cogs.columns) else 0.0
@@ -567,11 +580,25 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
                     amt_col = next((c for c in ("total_amount", "amount", "total", "net_amount") if c in df_purch.columns), None)
                     if amt_col:
                         df_purch[amt_col] = _to_num(df_purch[amt_col])
-                        total_p = df_purch[amt_col].sum()
-                        st.caption(f"Total invoices logged: **{_fmt(total_p)}** across {len(df_purch):,} records")
-                        show_cols = [c for c in ("date", "supplier_name", "invoice_number", amt_col, "outlet") if c in df_purch.columns]
-                        st.dataframe(df_purch[show_cols].sort_values("date", ascending=False).head(10),
-                                     use_container_width=True, hide_index=True)
+                        # Convert to USD using sidebar rate
+                        if "currency" in df_purch.columns:
+                            usd_sum = df_purch[df_purch["currency"].str.upper() == "USD"][amt_col].sum()
+                            lbp_sum = df_purch[df_purch["currency"].str.upper() == "LBP"][amt_col].sum()
+                            total_p_usd = usd_sum + (lbp_sum / lbp_rate)
+                            lbp_count   = int((df_purch["currency"].str.upper() == "LBP").sum())
+                            usd_count   = int((df_purch["currency"].str.upper() == "USD").sum())
+                            st.caption(
+                                f"Total: **$ {_fmt(total_p_usd)}** USD equiv. across {len(df_purch):,} invoices "
+                                f"({usd_count} USD · {lbp_count} LBP @ {lbp_rate:,})"
+                            )
+                        else:
+                            total_p_usd = df_purch[amt_col].sum()
+                            st.caption(f"Total invoices logged: **{_fmt(total_p_usd)}** across {len(df_purch):,} records")
+                        # invoices_log uses created_at not date
+                        sort_col = "created_at" if "created_at" in df_purch.columns else (next((c for c in ("date",) if c in df_purch.columns), None))
+                        show_cols = [c for c in ("created_at", "date", "supplier_name", "invoice_number", amt_col, "outlet") if c in df_purch.columns]
+                        df_show = df_purch[show_cols].sort_values(sort_col, ascending=False).head(10) if sort_col else df_purch[show_cols].head(10)
+                        st.dataframe(df_show, use_container_width=True, hide_index=True)
                     else:
                         st.dataframe(df_purch.head(10), use_container_width=True, hide_index=True)
                 else:
