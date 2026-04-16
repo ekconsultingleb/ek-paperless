@@ -50,4 +50,4 @@ ALL_MODULES = [
 
 # ── App config ────────────────────────────────────────────────────────────────
 LOGO_URL    = "https://hgvubaohmgvesblfvdps.supabase.co/storage/v1/object/public/assets/EK-Logo.png"
-APP_VERSION = "2.0.4"
+APP_VERSION = "2.1.0"

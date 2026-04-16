@@ -95,8 +95,8 @@ def _client_form(supabase, existing: dict = None):
                 value=existing.get("client_name", "") if is_edit else "",
                 placeholder="e.g. Lor")
         with c2:
-            company_name = st.text_input("Company Name",
-                value=existing.get("company_name") or "" if is_edit else "",
+            group_company_name = st.text_input("Group / Company Name",
+                value=existing.get("group_company_name") or "" if is_edit else "",
                 placeholder="e.g. Lor SAL")
 
         status = st.selectbox("Status", ["prospect", "active", "churned"],
@@ -109,9 +109,9 @@ def _client_form(supabase, existing: dict = None):
                 st.error("Client Name is required.")
                 return
             payload = {
-                "client_name":  client_name.strip().title(),
-                "company_name": company_name.strip() or None,
-                "status":       status,
+                "client_name":        client_name.strip().title(),
+                "group_company_name": group_company_name.strip() or None,
+                "status":             status,
             }
             try:
                 if is_edit:
@@ -141,6 +141,9 @@ def _branch_form(supabase, clients: list, existing: dict = None):
                 placeholder="e.g. Lor  /  Broumana  /  A",
                 help="Must exactly match master_items.outlet and users.outlet")
         with c2:
+            company_name = st.text_input("Company Name",
+                value=existing.get("company_name") or "" if is_edit else "",
+                placeholder="e.g. Lor SAL")
             address = st.text_input("Address",
                 value=existing.get("address") or "" if is_edit else "",
                 placeholder="e.g. Badaro Street, Beirut")
@@ -152,10 +155,11 @@ def _branch_form(supabase, clients: list, existing: dict = None):
                 return
             client_row = next((c for c in clients if c["client_name"] == sel_client), None)
             payload = {
-                "client_id":   client_row["id"] if client_row else None,
-                "client_name": sel_client,
-                "outlet":      outlet.strip(),
-                "address":     address.strip() or None,
+                "client_id":    client_row["id"] if client_row else None,
+                "client_name":  sel_client,
+                "company_name": company_name.strip() or None,
+                "outlet":       outlet.strip(),
+                "address":      address.strip() or None,
             }
             try:
                 if is_edit:
@@ -218,7 +222,7 @@ STATUS_EMOJI = {"active": "🟢", "prospect": "🟡", "churned": "⚫"}
 def _render_client_card(client, all_branches, supabase):
     cid      = client["id"]
     cname    = client.get("client_name", "—")
-    company  = client.get("company_name") or ""
+    company  = client.get("group_company_name") or ""
     status   = client.get("status", "prospect")
     br_count = sum(1 for b in all_branches if b.get("client_name") == cname)
     edit_key = f"cl_edit_{cid}_open"
@@ -239,17 +243,19 @@ def _render_client_card(client, all_branches, supabase):
 
 
 def _render_branch_card(branch, all_areas, all_clients, supabase):
-    bid      = branch["id"]
-    outlet   = branch.get("outlet", "—")
-    cname    = branch.get("client_name", "—")
-    address  = branch.get("address") or ""
-    ar_count = sum(1 for a in all_areas if a.get("outlet") == outlet)
-    edit_key = f"br_edit_{bid}_open"
+    bid          = branch["id"]
+    outlet       = branch.get("outlet", "—")
+    cname        = branch.get("client_name", "—")
+    company_name = branch.get("company_name") or ""
+    address      = branch.get("address") or ""
+    ar_count     = sum(1 for a in all_areas if a.get("outlet") == outlet)
+    edit_key     = f"br_edit_{bid}_open"
 
     with st.container(border=True):
         col_info, col_meta, col_btn = st.columns([4, 2, 1])
         with col_info:
-            st.markdown(f"**{outlet}**  \n*{cname}*" + (f"  \n{address}" if address else ""))
+            meta = f"*{cname}*" + (f" · {company_name}" if company_name else "")
+            st.markdown(f"**{outlet}**  \n{meta}" + (f"  \n{address}" if address else ""))
         with col_meta:
             st.caption(f"🏠 {ar_count} area{'s' if ar_count != 1 else ''}")
         with col_btn:
@@ -332,7 +338,7 @@ def render_clients(supabase=None):
             q = cl_search.lower()
             clients = [c for c in clients
                        if q in (c.get("client_name") or "").lower()
-                       or q in (c.get("company_name") or "").lower()]
+                       or q in (c.get("group_company_name") or "").lower()]
 
         if not clients:
             st.info("No clients found.")
