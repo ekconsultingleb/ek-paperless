@@ -544,8 +544,8 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
                 if not df_inv.empty and "item_name" in df_inv.columns:
                     st.caption(f"{len(df_inv):,} count records in selected period.")
                     show_cols = [c for c in ("date", "outlet", "item_name", "qty") if c in df_inv.columns]
-                    st.dataframe(df_inv[show_cols].sort_values("date", ascending=False).head(10),
-                                 use_container_width=True, hide_index=True)
+                    st.dataframe(df_inv[show_cols].sort_values("date", ascending=False).head(50),
+                                 use_container_width=True, hide_index=True, height=350)
                 else:
                     st.info("No inventory counts logged for this period.")
             else:
@@ -597,8 +597,8 @@ def render_dashboard(conn, sheet_link, user, role, assigned_client, assigned_out
                         # invoices_log uses created_at not date
                         sort_col = "created_at" if "created_at" in df_purch.columns else (next((c for c in ("date",) if c in df_purch.columns), None))
                         show_cols = [c for c in ("created_at", "date", "supplier_name", "invoice_number", amt_col, "currency", "outlet") if c in df_purch.columns]
-                        df_show = df_purch[show_cols].sort_values(sort_col, ascending=False).head(10) if sort_col else df_purch[show_cols].head(10)
-                        st.dataframe(df_show, use_container_width=True, hide_index=True)
+                        df_show = df_purch[show_cols].sort_values(sort_col, ascending=False).head(50) if sort_col else df_purch[show_cols].head(50)
+                        st.dataframe(df_show, use_container_width=True, hide_index=True, height=350)
                     else:
                         st.dataframe(df_purch.head(10), use_container_width=True, hide_index=True)
                 else:
