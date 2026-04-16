@@ -19,18 +19,18 @@ def init_supabase():
     return supabase_init(url, key)
 
 
-def get_branch_id(client_name, supabase):
+def get_branch_id(branch_name, supabase):
 
     try:
         response = (
             supabase
             .table("branches")
             .select("id, outlet")
-            .eq("client_name", client_name)
+            .eq("outlet", branch_name)
             .execute()
         )
     except Exception as e:
-        msg = f"⚠️ Failed to fetch client '{client_name}' from clients table: {e}"
+        msg = f"⚠️ Failed to fetch client '{branch_name}' from clients table: {e}"
         return {
             "status": "error",
             "message": msg,
@@ -40,7 +40,7 @@ def get_branch_id(client_name, supabase):
     rows = response.data if response and hasattr(response, "data") else []
 
     if not rows:
-        msg = f"⚠️ Client '{client_name}' was not found in the clients table"
+        msg = f"⚠️ Client '{branch_name}' was not found in the clients table"
         return {
             "status": "error",
             "message": msg,
@@ -48,7 +48,7 @@ def get_branch_id(client_name, supabase):
         }
 
     if len(rows) > 1:
-        msg = f"⚠️ Multiple clients found for '{client_name}' in the clients table"
+        msg = f"⚠️ Multiple clients found for '{branch_name}' in the clients table"
         return {
             "status": "error",
             "message": msg,
