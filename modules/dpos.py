@@ -33,10 +33,8 @@ ITEM_TYPE_OPTIONS = ["All types", "BTL", "GLS", "Food", "Soft", "Beer", "Other"]
 #  HELPERS
 # ─────────────────────────────────────────────
 
-_AC_BRANCH_ID_TABLES = {"ac_unit_cost"}
-
 def _most_recent_date(supabase: Client, table: str, client_id: int):
-    id_col = "branch_id" if table in _AC_BRANCH_ID_TABLES else "client_id"
+    id_col = "branch_id" if table.startswith("ac_") else "client_id"
     res = supabase.table(table).select("report_date") \
         .eq(id_col, client_id).order("report_date", desc=True).limit(1).execute()
     return res.data[0]["report_date"] if res.data else None
@@ -484,7 +482,7 @@ def _run_full_sync(supabase: Client, client_id: int, client_name: str):
             if sp_date:
                 sp_res = supabase.table("ac_selling_prices") \
                     .select("menu_items, sp_exc_vat") \
-                    .eq("client_id", client_id).eq("report_date", sp_date).execute()
+                    .eq("branch_id", client_id).eq("report_date", sp_date).execute()
                 if sp_res.data:
                     for row in sp_res.data:
                         if row.get("menu_items") and row.get("sp_exc_vat") is not None:
@@ -494,7 +492,7 @@ def _run_full_sync(supabase: Client, client_id: int, client_name: str):
 
             rec_res = supabase.table("ac_recipes") \
                 .select("category, item_group, menu_items, product_description, qty, unit, avgpurusacost, avg_cost") \
-                .eq("client_id", client_id).eq("report_date", rec_date).execute()
+                .eq("branch_id", client_id).eq("report_date", rec_date).execute()
 
             if rec_res.data:
                 supabase.table("dpos_recipes").delete().eq("client_id", client_id).execute()
@@ -525,7 +523,7 @@ def _run_full_sync(supabase: Client, client_id: int, client_name: str):
 
             sr_res = supabase.table("ac_sub_recipes") \
                 .select("production_name, product_description, qty, unit_name, average_cost, qty_to_prepared, prepared_unit, cost_for_1") \
-                .eq("client_id", client_id).eq("report_date", sr_date).execute()
+                .eq("branch_id", client_id).eq("report_date", sr_date).execute()
 
             if sr_res.data:
                 supabase.table("dpos_sub_recipes").delete().eq("client_id", client_id).execute()
