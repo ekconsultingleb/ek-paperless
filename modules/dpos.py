@@ -33,10 +33,15 @@ ITEM_TYPE_OPTIONS = ["All types", "BTL", "GLS", "Food", "Soft", "Beer", "Other"]
 #  HELPERS
 # ─────────────────────────────────────────────
 
-def _most_recent_date(supabase: Client, table: str, client_id: int):
+def _resolve_branch_id(supabase: Client, client_id: int) -> int | None:
+    res = supabase.table("branches").select("id").eq("client_id", client_id).limit(1).execute()
+    return res.data[0]["id"] if res.data else None
+
+
+def _most_recent_date(supabase: Client, table: str, branch_id: int):
     id_col = "branch_id" if table.startswith("ac_") else "client_id"
     res = supabase.table(table).select("report_date") \
-        .eq(id_col, client_id).order("report_date", desc=True).limit(1).execute()
+        .eq(id_col, branch_id).order("report_date", desc=True).limit(1).execute()
     return res.data[0]["report_date"] if res.data else None
 
 
@@ -448,10 +453,15 @@ def _tab_pricing_rules(supabase: Client, client_id: int, rec_df: pd.DataFrame):
 def _run_full_sync(supabase: Client, client_id: int, client_name: str):
     with st.spinner("Syncing from Auto Calc…"):
         try:
-            uc_date  = _most_recent_date(supabase, "ac_unit_cost",     client_id)
-            rec_date = _most_recent_date(supabase, "ac_recipes",        client_id)
-            sr_date  = _most_recent_date(supabase, "ac_sub_recipes",    client_id)
-            sp_date  = _most_recent_date(supabase, "ac_selling_prices", client_id)
+            branch_id = _resolve_branch_id(supabase, client_id)
+            if not branch_id:
+                st.error("No branch found for this client. Set up a branch first.")
+                return
+
+            uc_date  = _most_recent_date(supabase, "ac_unit_cost",     branch_id)
+            rec_date = _most_recent_date(supabase, "ac_recipes",        branch_id)
+            sr_date  = _most_recent_date(supabase, "ac_sub_recipes",    branch_id)
+            sp_date  = _most_recent_date(supabase, "ac_selling_prices", branch_id)
 
             if not rec_date:
                 st.error("No Auto Calc recipe data found. Upload Auto Calc first.")
@@ -482,17 +492,17 @@ def _run_full_sync(supabase: Client, client_id: int, client_name: str):
             if sp_date:
                 sp_res = supabase.table("ac_selling_prices") \
                     .select("menu_items, sp_exc_vat") \
-                    .eq("branch_id", client_id).eq("report_date", sp_date).execute()
+                    .eq("branch_id", branch_id).eq("report_date", sp_date).execute()
                 if sp_res.data:
                     for row in sp_res.data:
                         if row.get("menu_items") and row.get("sp_exc_vat") is not None:
                             sp_map[row["menu_items"]] = float(row["sp_exc_vat"])
 
-            _sync_unit_costs(supabase, client_id, uc_date)
+            _sync_unit_costs(supabase, client_id, branch_id, uc_date)
 
             rec_res = supabase.table("ac_recipes") \
                 .select("category, item_group, menu_items, product_description, qty, unit, avgpurusacost, avg_cost") \
-                .eq("branch_id", client_id).eq("report_date", rec_date).execute()
+                .eq("branch_id", branch_id).eq("report_date", rec_date).execute()
 
             if rec_res.data:
                 supabase.table("dpos_recipes").delete().eq("client_id", client_id).execute()
@@ -523,7 +533,7 @@ def _run_full_sync(supabase: Client, client_id: int, client_name: str):
 
             sr_res = supabase.table("ac_sub_recipes") \
                 .select("production_name, product_description, qty, unit_name, average_cost, qty_to_prepared, prepared_unit, cost_for_1") \
-                .eq("branch_id", client_id).eq("report_date", sr_date).execute()
+                .eq("branch_id", branch_id).eq("report_date", sr_date).execute()
 
             if sr_res.data:
                 supabase.table("dpos_sub_recipes").delete().eq("client_id", client_id).execute()
@@ -559,12 +569,12 @@ def _run_full_sync(supabase: Client, client_id: int, client_name: str):
             st.error(f"Sync failed: {e}")
 
 
-def _sync_unit_costs(supabase: Client, client_id: int, uc_date):
+def _sync_unit_costs(supabase: Client, client_id: int, branch_id: int, uc_date):
     if not uc_date:
         return
     uc_res = supabase.table("ac_unit_cost") \
         .select("category, item_group, product_description, unit, qty_i_f, qty_pur, lbp, rate, unit_cost, usage_cost") \
-        .eq("branch_id", client_id).eq("report_date", uc_date).execute()
+        .eq("branch_id", branch_id).eq("report_date", uc_date).execute()
 
     if not uc_res.data:
         return
@@ -594,11 +604,15 @@ def _sync_unit_costs(supabase: Client, client_id: int, uc_date):
 def _run_unit_cost_sync(supabase: Client, client_id: int):
     with st.spinner("Syncing unit costs…"):
         try:
-            uc_date = _most_recent_date(supabase, "ac_unit_cost", client_id)
+            branch_id = _resolve_branch_id(supabase, client_id)
+            if not branch_id:
+                st.error("No branch found for this client. Set up a branch first.")
+                return
+            uc_date = _most_recent_date(supabase, "ac_unit_cost", branch_id)
             if not uc_date:
                 st.error("No unit cost data found.")
                 return
-            _sync_unit_costs(supabase, client_id, uc_date)
+            _sync_unit_costs(supabase, client_id, branch_id, uc_date)
             clear_cache()
             st.success(f"Unit costs synced from {uc_date}.")
             st.rerun()
