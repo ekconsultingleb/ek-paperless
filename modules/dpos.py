@@ -33,9 +33,12 @@ ITEM_TYPE_OPTIONS = ["All types", "BTL", "GLS", "Food", "Soft", "Beer", "Other"]
 #  HELPERS
 # ─────────────────────────────────────────────
 
+_AC_BRANCH_ID_TABLES = {"ac_unit_cost"}
+
 def _most_recent_date(supabase: Client, table: str, client_id: int):
+    id_col = "branch_id" if table in _AC_BRANCH_ID_TABLES else "client_id"
     res = supabase.table(table).select("report_date") \
-        .eq("client_id", client_id).order("report_date", desc=True).limit(1).execute()
+        .eq(id_col, client_id).order("report_date", desc=True).limit(1).execute()
     return res.data[0]["report_date"] if res.data else None
 
 
@@ -563,7 +566,7 @@ def _sync_unit_costs(supabase: Client, client_id: int, uc_date):
         return
     uc_res = supabase.table("ac_unit_cost") \
         .select("category, item_group, product_description, unit, qty_i_f, qty_pur, lbp, rate, unit_cost, usage_cost") \
-        .eq("client_id", client_id).eq("report_date", uc_date).execute()
+        .eq("branch_id", client_id).eq("report_date", uc_date).execute()
 
     if not uc_res.data:
         return
