@@ -101,6 +101,7 @@ def render_push_to_database(user: str):
         sheets_dict, file_client_name, currency, rate, info = extract_sheets_and_client(
             uploaded_file, SHEET_CONFIG
         )
+        rate = rate.strip().lower()
         if info.get("missing_in_workbook"):
             st.error(f"Missing sheets: {info.get('missing_str', '')}")
             extract_st.update(label="Extracting Sheets", state="error", expanded=True)
