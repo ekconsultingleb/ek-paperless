@@ -23,7 +23,7 @@ def extract_sheets_and_client(file_path, sheet_config):
 
         info_df = pd.read_excel(xls, sheet_name="Info")
         real_client = info_df.iloc[0,1]
-        currency = info_df.iloc[0,3]
+        currency = info_df.iloc[0,3].strip().lower()
         rate = info_df.iloc[0,4]
 
         info = {
