@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import re
 import streamlit as st
 
@@ -201,3 +202,21 @@ def clean_value(x):
     if hasattr(x, "to_pydatetime"):
         return x.to_pydatetime()
     return x
+
+
+def clean_numeric_values(dfs_dict, tol=0.001, max_decimals=5):
+    for key, data in dfs_dict.items():
+        for col in data.select_dtypes(include=[np.number]).columns:
+            
+            def fix_value(x):
+                if pd.isna(x):
+                    return x
+                
+                if abs(x - round(x)) <= tol:
+                    return round(x)
+                
+                return round(x, max_decimals)
+            
+            data[col] = data[col].apply(fix_value)
+    
+    return dfs_dict

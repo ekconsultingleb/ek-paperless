@@ -59,6 +59,7 @@ def render_push_to_database(user: str):
             convert_date_columns,
             apply_grouping,
             normalize_string_columns,
+            clean_numeric_values,
         )
         from supa_import.validators import (
             validate_required_columns,
@@ -209,6 +210,8 @@ def render_push_to_database(user: str):
             return
         sheets_dict = meta_res["data"]
         st.write(meta_res["message"])
+
+        sheets_dict = clean_numeric_values(sheets_dict)
 
         pro_st.update(label="Processing Data", state="complete", expanded=True)
 
