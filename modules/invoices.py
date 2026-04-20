@@ -89,8 +89,10 @@ def _render_invoice_card(supabase, row: dict, user: str, user_role: str, key_pre
         with col_thumb:
             if img_url and not is_pdf:
                 st.image(img_url, use_container_width=True)
-            else:
+            elif is_pdf:
                 st.markdown("<div style='text-align:center;padding:10px;font-size:28px;'>📄</div>", unsafe_allow_html=True)
+            else:
+                st.markdown("<div style='text-align:center;padding:10px;font-size:24px;color:#888;'>📦<br><span style='font-size:10px;'>Archived</span></div>", unsafe_allow_html=True)
 
         with col_info:
             amount_str = ""
@@ -112,9 +114,12 @@ def _render_invoice_card(supabase, row: dict, user: str, user_role: str, key_pre
             with col_img:
                 if is_pdf:
                     st.markdown("<div style='text-align:center;padding:20px;font-size:48px;'>📄</div>", unsafe_allow_html=True)
-                else:
+                elif img_url:
                     st.image(img_url, use_container_width=True)
-                st.markdown(f"[🔍 Open full size]({img_url})")
+                else:
+                    st.markdown("<div style='text-align:center;padding:40px;font-size:48px;color:#888;'>📦<br><span style='font-size:14px;'>Image Archived</span><br><span style='font-size:11px;'>Data preserved in Omega</span></div>", unsafe_allow_html=True)
+                if img_url:
+                    st.markdown(f"[🔍 Open full size]({img_url})")
 
             with col_form:
                 st.write(f"**👤 Uploaded By:** {row['uploaded_by']}")
@@ -438,9 +443,12 @@ def render_invoices(conn, sheet_link, user, role):
                                         with col_img:
                                             if is_pdf:
                                                 st.markdown("<div style='text-align:center;padding:20px;font-size:48px;'>📄</div>", unsafe_allow_html=True)
-                                            else:
+                                            elif img_url:
                                                 st.image(img_url, use_container_width=True)
-                                            st.markdown(f"[🔍 Open full size]({img_url})")
+                                            else:
+                                                st.markdown("<div style='text-align:center;padding:40px;font-size:48px;color:#888;'>📦<br><span style='font-size:14px;'>Image Archived</span><br><span style='font-size:11px;'>Data preserved in Omega</span></div>", unsafe_allow_html=True)
+                                            if img_url:
+                                                st.markdown(f"[🔍 Open full size]({img_url})")
                                         with col_det:
                                             st.write(f"**👤 Uploaded By:** {row.get('uploaded_by', 'Unknown')}")
                                             st.write(f"**✅ Handled By:** {row.get('posted_by', 'Head Office')}")
@@ -530,12 +538,27 @@ def render_invoices(conn, sheet_link, user, role):
             upload_client = client_name
             upload_outlet = outlet
 
-        # ── Supplier list ──────────────────────────────────────────────────────
+        # ── Supplier list (per outlet, with Cash always on top) ───────────────
         try:
-            sup_res       = supabase.table("suppliers").select("supplier_name").execute()
+            sup_res = (supabase.table("outlet_suppliers")
+                       .select("supplier_name")
+                       .eq("client_name", upload_client)
+                       .eq("outlet", upload_outlet)
+                       .execute())
             supplier_list = sorted([r['supplier_name'] for r in sup_res.data]) if sup_res.data else []
         except Exception:
             supplier_list = []
+
+        # Always inject Cash at the top as the universal fallback
+        supplier_list = ["Cash"] + [s for s in supplier_list if s.lower() != "cash"]
+
+        # ── Fast mode toggle (persists across uploads in this session) ────────
+        fast_mode = st.checkbox(
+            "⚡ Fast mode — skip AI, enter manually",
+            value=st.session_state.get('fast_mode', False),
+            key='fast_mode',
+            help="Faster when you already know the supplier and amount. Skips the AI reading step."
+        )
 
         browse_file = st.file_uploader("📸 Take a Photo or Upload PDF", type=['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'pdf'])
 
@@ -560,12 +583,16 @@ def render_invoices(conn, sheet_link, user, role):
             elif file_mime == 'application/pdf':
                 st.success(f"📄 PDF Selected: {uploaded_file.name}")
 
-            if 'ai_invoice_data' not in st.session_state:
+            # Run AI only if fast_mode is OFF
+            if not fast_mode and 'ai_invoice_data' not in st.session_state:
                 with st.spinner("🤖 AI is reading your invoice..."):
                     ai = _extract_invoice_data(file_bytes, file_mime)
                     st.session_state['ai_invoice_data'] = ai
+            elif fast_mode:
+                # Clear any stale AI data when in fast mode
+                st.session_state.pop('ai_invoice_data', None)
 
-            ai          = st.session_state.get('ai_invoice_data', {})
+            ai          = st.session_state.get('ai_invoice_data', {}) if not fast_mode else {}
             ai_supplier = ai.get("supplier")
             ai_total    = ai.get("total")
             ai_currency = ai.get("currency")
@@ -574,19 +601,33 @@ def render_invoices(conn, sheet_link, user, role):
             st.markdown("**📋 Confirm Invoice Details**")
 
             _sup_options = supplier_list + ["➕ Other (Type manually)"]
-            _sup_default = 0
+
+            # Priority: (1) AI match → use matched index, (2) AI detected but no match → default to Cash (index 0), (3) no AI → Cash
+            _sup_default = 0  # Cash by default
+            _ai_matched = False
             if ai_supplier:
-                _ai_lower = ai_supplier.lower()
+                _ai_lower = ai_supplier.lower().strip()
                 for i, s in enumerate(supplier_list):
                     if _ai_lower in s.lower() or s.lower() in _ai_lower:
                         _sup_default = i
+                        _ai_matched = True
                         break
-                else:
-                    st.caption(f"🤖 AI detected: **{ai_supplier}** — not found in list, select manually below.")
+                if not _ai_matched:
+                    st.warning(
+                        f"🤖 AI detected **{ai_supplier}** — not in this outlet's supplier list. "
+                        f"Defaulting to **Cash**, or pick **➕ Other** below to add it as a new supplier."
+                    )
+                    # Point default at "Other" so new supplier registration is the obvious path
+                    _sup_default = len(_sup_options) - 1
 
             selected_supplier = st.selectbox("🏢 Supplier", _sup_options, index=_sup_default)
             if selected_supplier == "➕ Other (Type manually)":
-                final_supplier_name = st.text_input("📝 Type supplier name:", value=ai_supplier or "")
+                # Pre-fill with AI detection when available
+                final_supplier_name = st.text_input(
+                    "📝 Type supplier name:",
+                    value=ai_supplier or "",
+                    help="This supplier will be added to this outlet's list after submission."
+                )
             else:
                 final_supplier_name = selected_supplier
 
@@ -640,9 +681,30 @@ def render_invoices(conn, sheet_link, user, role):
                         )
                         image_url = supabase.storage.from_("invoices").get_public_url(unique_filename)
 
+                        normalized_supplier = final_supplier_name.strip().title()
+
+                        # Auto-register the supplier if it's new for this outlet
+                        # (safe to run every time — on_conflict handles duplicates)
+                        try:
+                            supabase.table("suppliers").upsert(
+                                {"supplier_name": normalized_supplier},
+                                on_conflict="supplier_name"
+                            ).execute()
+                            supabase.table("outlet_suppliers").upsert(
+                                {
+                                    "client_name": upload_client,
+                                    "outlet": upload_outlet,
+                                    "supplier_name": normalized_supplier,
+                                },
+                                on_conflict="client_name,outlet,supplier_name"
+                            ).execute()
+                        except Exception as _e:
+                            # Non-fatal — the invoice still gets logged even if the registration fails
+                            st.caption(f"⚠️ Supplier registration note: {_e}")
+
                         db_record = {
                             "client_name": upload_client, "outlet": upload_outlet, "location": location,
-                            "uploaded_by": user, "supplier": final_supplier_name.strip().title(),
+                            "uploaded_by": user, "supplier": normalized_supplier,
                             "image_url": image_url, "status": "Pending", "data_entry_notes": "",
                             "total_amount": float(final_total) if final_total > 0 else None,
                             "currency": final_currency,
@@ -716,6 +778,8 @@ def render_invoices(conn, sheet_link, user, role):
                         with col_img:
                             if img_url and not is_pdf:
                                 st.image(img_url, use_container_width=True)
+                            elif not img_url:
+                                st.markdown("<div style='text-align:center;padding:10px;font-size:28px;color:#888;'>📦<br><small>Archived</small></div>", unsafe_allow_html=True)
                             else:
                                 st.markdown("<div style='text-align:center;padding:20px;font-size:36px;'>📄</div>", unsafe_allow_html=True)
                         with col_info:
