@@ -22,6 +22,8 @@ ARABIZI: dict[str, str] = {
     "sakkar":       "sugar",
     "s5kar":        "sugar",
     "miyeh":         "water",
+    "assal":        "Honey",
+    "asal":         "Honey",
     "mai":          "water",
     "zeit":         "oil",
     "zayt":         "oil",
