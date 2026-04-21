@@ -340,10 +340,10 @@ def render_recipe_report(supabase: Client, user: str, role: str,
                              width="stretch", key="exp_prod"):
                     with st.spinner("Building PDF…"):
                         pdf = _build_productions_pdf(
-                            selected_prods, client_name, selected_date, show_cost
+                            selected_prods, outlet, selected_date, show_cost
                         )
                     if pdf:
-                        fname = f"Productions_{client_name.replace(' ','_')}_{_fmt_date(selected_date)}.pdf"
+                        fname = f"Productions_{outlet.replace(' ','_')}_{_fmt_date(selected_date)}.pdf"
                         st.success("Ready!")
                         st.download_button("⬇️ Download Productions PDF",
                                            data=pdf, file_name=fname,
@@ -371,10 +371,10 @@ def render_recipe_report(supabase: Client, user: str, role: str,
                              width="stretch", key="exp_menu"):
                     with st.spinner("Building PDF…"):
                         pdf = _build_menu_pdf(
-                            selected_menu, client_name, selected_date, show_cost
+                            selected_menu, outlet, selected_date, show_cost
                         )
                     if pdf:
-                        fname = f"MenuCards_{client_name.replace(' ','_')}_{_fmt_date(selected_date)}.pdf"
+                        fname = f"MenuCards_{outlet.replace(' ','_')}_{_fmt_date(selected_date)}.pdf"
                         st.success("Ready!")
                         st.download_button("⬇️ Download Menu Items PDF",
                                            data=pdf, file_name=fname,
@@ -390,9 +390,9 @@ def render_recipe_report(supabase: Client, user: str, role: str,
             sel_p = [i for i in productions if not i.get("auto_exclude", False)]
             sel_m = [i for i in menu_items  if not i.get("auto_exclude", False)]
             with st.spinner("Building full PDF…"):
-                pdf = _build_all_pdf(sel_p, sel_m, client_name, selected_date, show_cost)
+                pdf = _build_all_pdf(sel_p, sel_m, outlet, selected_date, show_cost)
             if pdf:
-                fname = f"RecipeCards_{client_name.replace(' ','_')}_{_fmt_date(selected_date)}.pdf"
+                fname = f"RecipeCards_{outlet.replace(' ','_')}_{_fmt_date(selected_date)}.pdf"
                 st.success("Ready!")
                 st.download_button("⬇️ Download Full PDF",
                                    data=pdf, file_name=fname,
@@ -467,7 +467,7 @@ def _add_footer(canvas, doc):
     canvas.restoreState()
 
 
-def _cover(story, client_name, report_date, styles, subtitle="Recipe Cards"):
+def _cover(story, outlet, report_date, styles, subtitle="Recipe Cards"):
     cover_bg = Table([[""]], colWidths=[17*cm], rowHeights=[2.5*cm])
     cover_bg.setStyle(TableStyle([
         ("BACKGROUND", (0,0), (-1,-1), EK_DARK),
@@ -480,7 +480,7 @@ def _cover(story, client_name, report_date, styles, subtitle="Recipe Cards"):
     story.append(HRFlowable(width="50%", thickness=1.5, color=EK_SAND, hAlign="CENTER"))
     story.append(Spacer(1, 0.5*cm))
     story.append(Paragraph(subtitle, styles["cover_title"]))
-    story.append(Paragraph(client_name.upper(), styles["cover_sub"]))
+    story.append(Paragraph(outlet.upper(), styles["cover_sub"]))
     try:
         story.append(Paragraph(
             datetime.strptime(report_date, "%Y-%m-%d").strftime("%B %Y"),
@@ -666,7 +666,7 @@ def _pdf_menu_card(dish: dict, styles: dict, show_cost: bool) -> list:
 
 # ── PDF builders ───────────────────────────────────────────────────────────────
 
-def _build_productions_pdf(productions: list, client_name: str,
+def _build_productions_pdf(productions: list, outlet: str,
                             report_date: str, show_cost: bool):
     if not REPORTLAB_OK or not productions:
         return None
@@ -677,7 +677,7 @@ def _build_productions_pdf(productions: list, client_name: str,
                                 topMargin=2*cm, bottomMargin=2.2*cm)
         styles = _make_styles()
         story  = []
-        _cover(story, client_name, report_date, styles, subtitle="Production Cards")
+        _cover(story, outlet, report_date, styles, subtitle="Production Cards")
 
         current_group = None
         for prod in sorted(productions, key=lambda p: (p["item_group"], p["name"])):
@@ -694,7 +694,7 @@ def _build_productions_pdf(productions: list, client_name: str,
         return None
 
 
-def _build_menu_pdf(menu_items: list, client_name: str,
+def _build_menu_pdf(menu_items: list, outlet: str,
                     report_date: str, show_cost: bool):
     if not REPORTLAB_OK or not menu_items:
         return None
@@ -705,7 +705,7 @@ def _build_menu_pdf(menu_items: list, client_name: str,
                                 topMargin=2*cm, bottomMargin=2.2*cm)
         styles = _make_styles()
         story  = []
-        _cover(story, client_name, report_date, styles, subtitle="Menu Item Cards")
+        _cover(story, outlet, report_date, styles, subtitle="Menu Item Cards")
 
         current_cat   = None
         current_group = None
@@ -730,7 +730,7 @@ def _build_menu_pdf(menu_items: list, client_name: str,
 
 
 def _build_all_pdf(productions: list, menu_items: list,
-                   client_name: str, report_date: str, show_cost: bool):
+                   outlet: str, report_date: str, show_cost: bool):
     if not REPORTLAB_OK:
         return None
     try:
@@ -740,7 +740,7 @@ def _build_all_pdf(productions: list, menu_items: list,
                                 topMargin=2*cm, bottomMargin=2.2*cm)
         styles = _make_styles()
         story  = []
-        _cover(story, client_name, report_date, styles, subtitle="Recipe Cards")
+        _cover(story, outlet, report_date, styles, subtitle="Recipe Cards")
 
         # ── Productions section ───────────────────────────────────────────────
         if productions:

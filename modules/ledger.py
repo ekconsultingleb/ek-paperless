@@ -288,7 +288,7 @@ def render_ledger(conn, sheet_link, user, role, assigned_client="All", assigned_
                     <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #333; padding-bottom: 20px; margin-bottom: 30px;">
                         <div>
                             <h1 style="margin: 0; color: #1a1a1a; font-size: 28px;">STATEMENT OF ACCOUNT</h1>
-                            <p style="margin: 5px 0; color: #666;">EK Consulting Partner Portal</p>
+                            <p style="margin: 5px 0; color: #666; font-size: 9px;">Paperless By EK Consulting</p>
                         </div>
                         <div style="text-align: right;">
                             <p style="margin: 0; color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Outstanding Balance</p>
