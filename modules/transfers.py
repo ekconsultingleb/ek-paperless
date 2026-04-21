@@ -542,7 +542,6 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                             (df_rep["to_outlet"].str.title() == rep_outlet)
                         ]
 
-                df_rep = df_rep.drop(columns=[c for c in ["id", "created_at"] if c in df_rep.columns])
                 if df_rep.empty:
                     st.info("No transfers found for the selected period.")
                 else:
@@ -553,7 +552,8 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                     if sel_status != "All":
                         df_flat = df_flat[df_flat["status"] == sel_status]
 
-                    st.dataframe(df_flat, use_container_width=True, hide_index=True)
+                    df_flat_preview = df_flat.drop(columns=[c for c in ["id", "created_at"] if c in df_flat.columns])
+                    st.dataframe(df_flat_preview, use_container_width=True, hide_index=True)
                     st.caption(f"{len(df_flat)} item-rows across {df_flat['transfer_id'].nunique()} transfers")
 
                     csv_bytes = df_flat.to_csv(index=False).encode("utf-8-sig")

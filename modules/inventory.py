@@ -229,8 +229,6 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                 
             archive_res = query.order("date", desc=True).limit(5000).execute()
             df_archive = pd.DataFrame(archive_res.data)
-            df_archive = df_archive.drop(columns=[c for c in ["id", "created_at"] if c in df_archive.columns])
-
             if not df_archive.empty:
                 tab_raw, tab_total = st.tabs(["📜 Raw Logs (By User)", "📊 Consolidated Totals"]) 
                 with tab_raw:
@@ -263,6 +261,8 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                             disabled=lock_cols,
                             column_config={
                                 "quantity": st.column_config.NumberColumn("Quantity", min_value=0.0, step=0.5),
+                                "id": None,
+                                "created_at": None,
                             },
                             key="raw_log_editor"
                         )
@@ -286,7 +286,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                                 except Exception as e:
                                     st.error(f"❌ Failed to save: {e}")
                     else:
-                        st.dataframe(df_archive, width="stretch", hide_index=True)
+                        st.dataframe(df_archive.drop(columns=[c for c in ["id", "created_at"] if c in df_archive.columns]), width="stretch", hide_index=True)
                     
                 with tab_total:
                     st.write("### Total Inventory by Item")

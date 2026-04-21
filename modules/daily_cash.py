@@ -99,12 +99,11 @@ def render_daily_cash(conn, sheet_link, user, role, assigned_client, assigned_ou
                     if rep_outlet.lower() not in ["all", "none", ""]:
                         df_rep = df_rep[df_rep["outlet"].str.lower() == rep_outlet.lower()]
 
-                df_rep = df_rep.drop(columns=[c for c in ["id", "created_at"] if c in df_rep.columns])
                 if df_rep.empty:
                     st.info("No cash reports found for the selected period.")
                 else:
                     currency_cols = ["main_reading", "cash", "visa", "expenses", "on_account", "revenue", "over_short"]
-                    df_display = df_rep.copy()
+                    df_display = df_rep.drop(columns=[c for c in ["id", "created_at"] if c in df_rep.columns]).copy()
                     for col in currency_cols:
                         if col in df_display.columns:
                             df_display[col] = pd.to_numeric(df_display[col], errors="coerce").fillna(0)

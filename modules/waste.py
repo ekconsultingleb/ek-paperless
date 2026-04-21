@@ -153,11 +153,11 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
                     if rep_outlet.lower() not in ["all", "", "none"]:
                         df_rep = df_rep[df_rep["outlet"].str.lower() == rep_outlet.lower()]
 
-                df_rep = df_rep.drop(columns=[c for c in ["id", "created_at"] if c in df_rep.columns])
                 if df_rep.empty:
                     st.info("No waste logs found for the selected period.")
                 else:
-                    st.dataframe(df_rep, use_container_width=True, hide_index=True)
+                    df_preview = df_rep.drop(columns=[c for c in ["id", "created_at"] if c in df_rep.columns])
+                    st.dataframe(df_preview, use_container_width=True, hide_index=True)
                     st.caption(f"{len(df_rep)} rows · {df_rep['item_name'].nunique()} unique items")
 
                     col_pdf, col_csv = st.columns(2)
