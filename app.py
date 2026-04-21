@@ -530,7 +530,7 @@ else:
         elif st.session_state['current_page'] == PAGE_INVOICES:
             render_invoices(None, None, user, role)
         elif st.session_state['current_page'] == PAGE_LEDGER:
-            render_ledger(None, None, user, role)
+            render_ledger(None, None, user, role, client, outlet, location)
         elif st.session_state['current_page'] == PAGE_MAIN:
             render_main(None, None, user, role)
         elif st.session_state['current_page'] == PAGE_OVERVIEW:

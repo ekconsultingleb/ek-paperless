@@ -4,25 +4,29 @@ from datetime import datetime
 import zoneinfo
 import streamlit.components.v1 as components
 from supabase import create_client, Client
+from modules.nav_helper import build_outlet_location_sidebar
 
 # --- SAFELY INITIALIZE SUPABASE ---
 @st.cache_resource
 def get_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
-def render_ledger(conn, sheet_link, user, role):
+def render_ledger(conn, sheet_link, user, role, assigned_client="All", assigned_outlet="All", assigned_location="All"):
     supabase = get_supabase()
-    
+
     if 'ledger_is_saving' not in st.session_state:
         st.session_state.ledger_is_saving = False
 
-    client_name = st.session_state.get('client_name', 'Unknown')
-    outlet = st.session_state.get('assigned_outlet', 'Unknown')
     user_role = str(role).lower()
 
     if user_role not in ["manager", "admin", "admin_all", "viewer"]:
         st.error("🚫 Access Denied.")
         return
+
+    client_name, outlet, _ = build_outlet_location_sidebar(
+        assigned_client, assigned_outlet, assigned_location,
+        outlet_key="ledger_outlet", location_key="ledger_location"
+    )
 
     st.markdown("### 💸 Cash & Debt Control")
     
