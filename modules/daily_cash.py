@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import zoneinfo
 from supabase import create_client, Client
-from modules.nav_helper import build_outlet_location_sidebar
+from modules.nav_helper import build_outlet_location_sidebar, get_all_clients, get_outlets_for_client
 
 # --- SAFELY INITIALIZE SUPABASE ---
 @st.cache_resource
@@ -66,6 +66,19 @@ def render_daily_cash(conn, sheet_link, user, role, assigned_client, assigned_ou
         # REPORT SECTION
         # ==========================================
         with st.expander("📊 Cash Report & Export", expanded=False):
+            _is_admin_rep = role.lower() in ["admin", "admin_all"]
+            if _is_admin_rep:
+                _rep_col1, _rep_col2 = st.columns(2)
+                with _rep_col1:
+                    _all_clients = ["All"] + get_all_clients()
+                    rep_client = st.selectbox("🏢 Client", _all_clients, key="cash_rep_client")
+                with _rep_col2:
+                    _rep_outlets = ["All"] + (get_outlets_for_client(rep_client) if rep_client != "All" else [])
+                    rep_outlet = st.selectbox("🏪 Outlet", _rep_outlets, key="cash_rep_outlet")
+            else:
+                rep_client = final_client
+                rep_outlet = final_outlet
+
             today_r = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).date()
             default_start_r = today_r - timedelta(days=30)
             date_range_r = st.date_input("📅 Date Range", value=(default_start_r, today_r),
@@ -81,10 +94,10 @@ def render_daily_cash(conn, sheet_link, user, role, assigned_client, assigned_ou
                 df_rep = pd.DataFrame(rep_q.data) if rep_q.data else pd.DataFrame()
 
                 if not df_rep.empty:
-                    if final_client.lower() not in ["all", "", "none"]:
-                        df_rep = df_rep[df_rep["client_name"].str.lower() == final_client.lower()]
-                    if final_outlet.lower() not in ["all", "none", ""]:
-                        df_rep = df_rep[df_rep["outlet"].str.lower() == final_outlet.lower()]
+                    if rep_client.lower() not in ["all", "", "none"]:
+                        df_rep = df_rep[df_rep["client_name"].str.lower() == rep_client.lower()]
+                    if rep_outlet.lower() not in ["all", "none", ""]:
+                        df_rep = df_rep[df_rep["outlet"].str.lower() == rep_outlet.lower()]
 
                 if df_rep.empty:
                     st.info("No cash reports found for the selected period.")

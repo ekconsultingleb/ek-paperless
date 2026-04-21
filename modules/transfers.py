@@ -5,7 +5,7 @@ import zoneinfo
 import uuid
 import json
 from supabase import create_client, Client
-from modules.nav_helper import build_outlet_location_sidebar, get_nav_data
+from modules.nav_helper import build_outlet_location_sidebar, get_nav_data, get_all_clients, get_outlets_for_client
 from modules.arabizi import arabizi_translate
 
 # --- SAFELY INITIALIZE SUPABASE ---
@@ -507,6 +507,19 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
         # ==========================================
         with tab_report:
             st.markdown("#### 📊 Transfer Report")
+            _is_admin_rep = role.lower() in ["admin", "admin_all"]
+            if _is_admin_rep:
+                _rep_col1, _rep_col2 = st.columns(2)
+                with _rep_col1:
+                    _all_clients = ["All"] + get_all_clients()
+                    rep_client = st.selectbox("🏢 Client", _all_clients, key="tr_rep_client")
+                with _rep_col2:
+                    _rep_outlets = ["All"] + (get_outlets_for_client(rep_client) if rep_client != "All" else [])
+                    rep_outlet = st.selectbox("🏪 Outlet", _rep_outlets, key="tr_rep_outlet")
+            else:
+                rep_client = final_client
+                rep_outlet = final_outlet
+
             today = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).date()
             default_start = today - timedelta(days=30)
             date_range = st.date_input("📅 Date Range", value=(default_start, today),
@@ -523,11 +536,10 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
 
                 if not df_rep.empty:
                     df_rep.columns = [c.lower() for c in df_rep.columns]
-                    # Filter to this outlet unless admin/all
-                    if final_outlet.lower() not in ["all", "", "none", "nan"]:
+                    if rep_outlet.lower() not in ["all", "", "none", "nan"]:
                         df_rep = df_rep[
-                            (df_rep["from_outlet"].str.title() == final_outlet) |
-                            (df_rep["to_outlet"].str.title() == final_outlet)
+                            (df_rep["from_outlet"].str.title() == rep_outlet) |
+                            (df_rep["to_outlet"].str.title() == rep_outlet)
                         ]
 
                 if df_rep.empty:

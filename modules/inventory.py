@@ -5,7 +5,7 @@ import zoneinfo
 from supabase import create_client, Client
 from fpdf import FPDF
 import json
-from modules.nav_helper import build_outlet_location_sidebar
+from modules.nav_helper import build_outlet_location_sidebar, get_all_clients, get_outlets_for_client
 
 # --- SAFELY INITIALIZE SUPABASE ---
 @st.cache_resource
@@ -198,22 +198,34 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
     # ---------------------------------------------------------
     def show_reports():
         st.info("👁️ Viewing Inventory Logs & Totals")
-        
+
+        _is_admin_rep = role.lower() in ["admin", "admin_all"]
+        if _is_admin_rep:
+            _rep_col1, _rep_col2 = st.columns(2)
+            with _rep_col1:
+                _all_clients = ["All"] + get_all_clients()
+                rep_client = st.selectbox("🏢 Client", _all_clients, key="inv_rep_client")
+            with _rep_col2:
+                _rep_outlets = ["All"] + (get_outlets_for_client(rep_client) if rep_client != "All" else [])
+                rep_outlet = st.selectbox("🏪 Outlet", _rep_outlets, key="inv_rep_outlet")
+        else:
+            rep_client = final_client
+            rep_outlet = final_outlet
+
         today = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).date()
         default_start = today - timedelta(days=7)
-        
+
         date_range = st.date_input("📅 Select Date Range", value=(default_start, today), max_value=today, key="report_dates")
-        
+
         if len(date_range) == 2:
             start_date, end_date = date_range
-            
-            # 🔒 The Security Lock now dynamically listens to the Sidebar!
+
             query = supabase.table("inventory_logs").select("*").gte("date", str(start_date)).lte("date", str(end_date))
-            
-            if final_client and final_client not in ["Select Branch", "All"]:
-                query = query.ilike("client_name", f"%{final_client}%")
-            if final_outlet and final_outlet != "None":
-                query = query.ilike("outlet", f"%{final_outlet}%")
+
+            if rep_client and rep_client not in ["Select Branch", "All"]:
+                query = query.ilike("client_name", f"%{rep_client}%")
+            if rep_outlet and rep_outlet != "None":
+                query = query.ilike("outlet", f"%{rep_outlet}%")
                 
             archive_res = query.order("date", desc=True).limit(5000).execute()
             df_archive = pd.DataFrame(archive_res.data)
@@ -224,7 +236,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                     st.write("### Individual Staff Counts")
                     pdf_bytes = generate_inventory_pdf(
                         df_archive, f"{start_date} to {end_date}",
-                        final_client, final_outlet, "Multiple Locations", "System Report"
+                        rep_client, rep_outlet, "Multiple Locations", "System Report"
                     )
                     st.download_button(
                         label="🖨️ Download Raw PDF Report",
