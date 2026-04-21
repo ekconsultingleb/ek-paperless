@@ -229,6 +229,7 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                 
             archive_res = query.order("date", desc=True).limit(5000).execute()
             df_archive = pd.DataFrame(archive_res.data)
+            df_archive = df_archive.drop(columns=[c for c in ["id", "created_at"] if c in df_archive.columns])
 
             if not df_archive.empty:
                 tab_raw, tab_total = st.tabs(["📜 Raw Logs (By User)", "📊 Consolidated Totals"]) 

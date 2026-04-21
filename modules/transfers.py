@@ -542,6 +542,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                             (df_rep["to_outlet"].str.title() == rep_outlet)
                         ]
 
+                df_rep = df_rep.drop(columns=[c for c in ["id", "created_at"] if c in df_rep.columns])
                 if df_rep.empty:
                     st.info("No transfers found for the selected period.")
                 else:

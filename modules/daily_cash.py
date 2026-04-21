@@ -99,6 +99,7 @@ def render_daily_cash(conn, sheet_link, user, role, assigned_client, assigned_ou
                     if rep_outlet.lower() not in ["all", "none", ""]:
                         df_rep = df_rep[df_rep["outlet"].str.lower() == rep_outlet.lower()]
 
+                df_rep = df_rep.drop(columns=[c for c in ["id", "created_at"] if c in df_rep.columns])
                 if df_rep.empty:
                     st.info("No cash reports found for the selected period.")
                 else:
