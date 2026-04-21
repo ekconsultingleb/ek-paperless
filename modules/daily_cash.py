@@ -63,6 +63,52 @@ def render_daily_cash(conn, sheet_link, user, role, assigned_client, assigned_ou
         )
 
         # ==========================================
+        # REPORT SECTION
+        # ==========================================
+        with st.expander("📊 Cash Report & Export", expanded=False):
+            today_r = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).date()
+            default_start_r = today_r - timedelta(days=30)
+            date_range_r = st.date_input("📅 Date Range", value=(default_start_r, today_r),
+                                         max_value=today_r, key="cash_rep_dates")
+            if len(date_range_r) == 2:
+                start_r, end_r = date_range_r
+                rep_q = (supabase.table("daily_cash").select("*")
+                         .gte("date", str(start_r))
+                         .lte("date", str(end_r))
+                         .order("date", desc=True)
+                         .limit(5000)
+                         .execute())
+                df_rep = pd.DataFrame(rep_q.data) if rep_q.data else pd.DataFrame()
+
+                if not df_rep.empty:
+                    if final_client.lower() not in ["all", "", "none"]:
+                        df_rep = df_rep[df_rep["client_name"].str.lower() == final_client.lower()]
+                    if final_outlet.lower() not in ["all", "none", ""]:
+                        df_rep = df_rep[df_rep["outlet"].str.lower() == final_outlet.lower()]
+
+                if df_rep.empty:
+                    st.info("No cash reports found for the selected period.")
+                else:
+                    currency_cols = ["main_reading", "cash", "visa", "expenses", "on_account", "revenue", "over_short"]
+                    df_display = df_rep.copy()
+                    for col in currency_cols:
+                        if col in df_display.columns:
+                            df_display[col] = pd.to_numeric(df_display[col], errors="coerce").fillna(0)
+
+                    totals = {c: df_display[c].sum() for c in currency_cols if c in df_display.columns}
+                    st.dataframe(df_display, use_container_width=True, hide_index=True)
+                    st.caption(f"{len(df_display)} entries · Revenue total: **${totals.get('revenue', 0):,.2f}** · Over/Short: **${totals.get('over_short', 0):,.2f}**")
+
+                    csv_bytes = df_rep.to_csv(index=False).encode("utf-8-sig")
+                    st.download_button("⬇️ Download CSV", data=csv_bytes,
+                                       file_name=f"DailyCash_{start_r}_{end_r}.csv",
+                                       mime="text/csv", type="primary", use_container_width=True)
+            else:
+                st.info("Select both a start and end date.")
+
+        st.divider()
+
+        # ==========================================
         # 3. CASH ENTRY UI (LIVE MATH)
         # ==========================================
         st.info(f"📝 Entering Cash Report for **{final_outlet}**")

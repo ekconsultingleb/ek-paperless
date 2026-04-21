@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 import zoneinfo
 from supabase import Client
+from modules.nav_helper import build_outlet_location_sidebar
 
 # ─────────────────────────────────────────────
 # CONSTANTS
@@ -1011,12 +1012,16 @@ def _render_new_recipe(
 # ENTRY POINT
 # ─────────────────────────────────────────────
 
-def render_recipes(supabase: Client, user: str, role: str):
-    client_name = st.session_state.get("client_name", "Unknown")
-    outlet      = st.session_state.get("assigned_outlet", "Unknown")
-    show_cost   = str(role).lower() in ["admin", "admin_all", "manager", "viewer"]
+def render_recipes(supabase: Client, user: str, role: str,
+                   assigned_client="All", assigned_outlet="All", assigned_location="All"):
+    show_cost = str(role).lower() in ["admin", "admin_all", "manager", "viewer"]
 
     st.markdown("### 🍽️ Recipes")
+
+    client_name, outlet, _ = build_outlet_location_sidebar(
+        assigned_client, assigned_outlet, assigned_location,
+        outlet_key="rec_outlet", location_key="rec_location"
+    )
 
     # ── Library redirect fix ──
     if st.session_state.pop("go_to_library", False):

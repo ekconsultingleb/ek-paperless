@@ -8,7 +8,6 @@ from supabase import create_client, Client
 
 
 # --- IMPORT YOUR MODULES ---#
-from modules.overview import render_overview
 from modules.recipe_report import render_recipe_report
 from modules.ledger import render_ledger
 from modules.main import render_main
@@ -20,14 +19,13 @@ from modules.transfers import render_transfers
 from modules.invoices import render_invoices
 from modules.recipes import render_recipes
 from modules.nav_helper import hash_password, verify_password
-from modules.dpos import show_dpos
 from modules.constants import (
     PAGE_HOME, PAGE_CASH, PAGE_INVENTORY, PAGE_WASTE, PAGE_INVOICES,
-    PAGE_TRANSFERS, PAGE_DASHBOARD, PAGE_LEDGER, PAGE_OVERVIEW,
-    PAGE_RECIPES, PAGE_RECIPES_REPORT, PAGE_PRICING_STUDIO, PAGE_MAIN,
+    PAGE_TRANSFERS, PAGE_DASHBOARD, PAGE_LEDGER,
+    PAGE_RECIPES, PAGE_RECIPES_REPORT, PAGE_MAIN,
     MOD_CASH, MOD_INVENTORY, MOD_WASTE, MOD_INVOICES, MOD_TRANSFERS,
-    MOD_DASHBOARD, MOD_LEDGER, MOD_OVERVIEW, MOD_RECIPES,
-    MOD_RECIPES_REPORT, MOD_PRICING_STUDIO,
+    MOD_DASHBOARD, MOD_LEDGER, MOD_RECIPES,
+    MOD_RECIPES_REPORT,
     ALL_MODULES, LOGO_URL, APP_VERSION,
 )
 
@@ -445,13 +443,6 @@ else:
             st.session_state['current_page'] = PAGE_MAIN
             st.rerun()
 
-    # Pricing Studio button (ek_team / admin only)
-    if role in ["admin", "admin_all", "ek_team"]:
-        if st.session_state.get('current_page', PAGE_HOME) == PAGE_HOME:
-            st.sidebar.divider()
-        if st.sidebar.button("💲 Pricing Studio", type="primary"):
-            st.session_state['current_page'] = PAGE_PRICING_STUDIO
-            st.rerun()
     # ==========================================
     # PAGE: HOME MENU
     # ==========================================
@@ -484,10 +475,8 @@ else:
             (MOD_TRANSFERS,      "🔄\nTransfers",      PAGE_TRANSFERS),
             (MOD_DASHBOARD,      "📊\nDashboard",      PAGE_DASHBOARD),
             (MOD_LEDGER,         "💸\nDebt Control",   PAGE_LEDGER),
-            (MOD_OVERVIEW,       "📈\nOverview",       PAGE_OVERVIEW),
             (MOD_RECIPES,        "🍳\nRecipes",        PAGE_RECIPES),
             (MOD_RECIPES_REPORT, "📋\nRecipe Report",  PAGE_RECIPES_REPORT),
-            (MOD_PRICING_STUDIO, "💲\nPricing Studio", PAGE_PRICING_STUDIO),
         ]
 
         # Filter to only modules this user can access
@@ -533,11 +522,7 @@ else:
             render_ledger(None, None, user, role, client, outlet, location)
         elif st.session_state['current_page'] == PAGE_MAIN:
             render_main(None, None, user, role)
-        elif st.session_state['current_page'] == PAGE_OVERVIEW:
-            render_overview(None, None, user, role, client, outlet, location)
         elif st.session_state['current_page'] == PAGE_RECIPES:
-            render_recipes(supabase, user, role)
+            render_recipes(supabase, user, role, client, outlet, location)
         elif st.session_state['current_page'] == PAGE_RECIPES_REPORT:
-            render_recipe_report(supabase, user, role)
-        elif st.session_state['current_page'] == PAGE_PRICING_STUDIO:
-            show_dpos(supabase)
+            render_recipe_report(supabase, user, role, client, outlet, location)

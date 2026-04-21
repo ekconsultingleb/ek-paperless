@@ -10,6 +10,7 @@ import io
 import streamlit as st
 from datetime import datetime
 from supabase import Client
+from modules.nav_helper import build_outlet_location_sidebar
 
 try:
     from reportlab.lib.pagesizes import A4
@@ -40,42 +41,42 @@ _REMARK_GROUPS = {"bar remarks", "kitchen remarks", "gls add on"}
 
 # ── Supabase helpers ───────────────────────────────────────────────────────────
 
-def _get_client_id(supabase: Client, client_name: str):
+def _get_branch_id(supabase: Client, outlet: str):
     try:
-        res = supabase.table("clients").select("id").eq(
-            "client_name", client_name
+        res = supabase.table("branches").select("id").eq(
+            "outlet", outlet
         ).single().execute()
         return res.data["id"] if res.data else None
     except Exception:
         return None
 
 
-def _get_dates(supabase: Client, client_id: int) -> list:
+def _get_dates(supabase: Client, branch_id: int) -> list:
     try:
         res = supabase.table("ac_recipes").select("report_date").eq(
-            "client_id", client_id
+            "branch_id", branch_id
         ).execute()
         return sorted({r["report_date"] for r in (res.data or [])}, reverse=True)
     except Exception:
         return []
 
 
-def _load_recipes(supabase: Client, client_id: int, report_date: str) -> list:
+def _load_recipes(supabase: Client, branch_id: int, report_date: str) -> list:
     try:
         r = supabase.table("ac_recipes").select(
             "category,item_group,menu_items,product_description,qty,unit,avg_cost,total_cost"
-        ).eq("client_id", client_id).eq("report_date", report_date).execute()
+        ).eq("branch_id", branch_id).eq("report_date", report_date).execute()
         return r.data or []
     except Exception as e:
         st.error(f"Error loading ac_recipes: {e}")
         return []
 
 
-def _load_subs(supabase: Client, client_id: int, report_date: str) -> list:
+def _load_subs(supabase: Client, branch_id: int, report_date: str) -> list:
     try:
         s = supabase.table("ac_sub_recipes").select(
             "production_name,product_description,qty,unit_name,qty_to_prepared,prepared_unit,item_group,average_cost,cost_for_1"
-        ).eq("client_id", client_id).eq("report_date", report_date).execute()
+        ).eq("branch_id", branch_id).eq("report_date", report_date).execute()
         return s.data or []
     except Exception as e:
         st.error(f"Error loading ac_sub_recipes: {e}")
@@ -265,37 +266,31 @@ def _item_editor(items: list, excl_from_groups: set,
 
 # ── Streamlit UI ───────────────────────────────────────────────────────────────
 
-def render_recipe_report(supabase: Client, user: str, role: str):
-    session_client = st.session_state.get("client_name", "All")
-
+def render_recipe_report(supabase: Client, user: str, role: str,
+                         assigned_client="All", assigned_outlet="All", assigned_location="All"):
     st.markdown("### 🍽️ Recipe Cards")
     st.caption("Productions & Menu Items from Auto Calc data.")
 
     if not REPORTLAB_OK:
         st.warning("reportlab not installed — PDF export unavailable.")
 
-    # Client selector
-    if role in ("admin", "admin_all") or session_client.lower() in ("all", "", "none"):
-        try:
-            cl_res = supabase.table("clients").select("client_name").order("client_name").execute()
-            cl_list = [r["client_name"] for r in (cl_res.data or []) if r.get("client_name")]
-        except Exception:
-            cl_list = []
-        if not cl_list:
-            st.warning("No clients found.")
-            return
-        client_name = st.selectbox("🏢 Client", cl_list, key="rr_client")
-    else:
-        client_name = session_client
+    _, outlet, _ = build_outlet_location_sidebar(
+        assigned_client, assigned_outlet, assigned_location,
+        outlet_key="rr_outlet", location_key="rr_location"
+    )
 
-    client_id = _get_client_id(supabase, client_name)
-    if not client_id:
-        st.warning(f"Client **{client_name}** not found in clients table.")
+    if not outlet or outlet.lower() in ("none", "all", ""):
+        st.info("Select an outlet to load recipe data.")
         return
 
-    dates = _get_dates(supabase, client_id)
+    branch_id = _get_branch_id(supabase, outlet)
+    if not branch_id:
+        st.warning(f"Outlet **{outlet}** not found in branches table.")
+        return
+
+    dates = _get_dates(supabase, branch_id)
     if not dates:
-        st.info("No Auto Calc data found for this client.")
+        st.info("No Auto Calc data found for this outlet.")
         return
 
     col_d, col_c = st.columns([2, 1])
@@ -310,8 +305,8 @@ def render_recipe_report(supabase: Client, user: str, role: str):
 
     # Load
     with st.spinner("Loading…"):
-        raw_recipes = _load_recipes(supabase, client_id, selected_date)
-        raw_subs    = _load_subs(supabase, client_id, selected_date)
+        raw_recipes = _load_recipes(supabase, branch_id, selected_date)
+        raw_subs    = _load_subs(supabase, branch_id, selected_date)
 
     if not raw_recipes and not raw_subs:
         st.warning("No data found for this period.")

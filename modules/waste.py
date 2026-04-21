@@ -116,6 +116,54 @@ def render_waste(conn, sheet_link, user, role, assigned_client, assigned_outlet,
             outlet_key="waste_outlet", location_key="waste_location"
         )
 
+        # ==========================================
+        # REPORT SECTION
+        # ==========================================
+        with st.expander("📊 Waste Report & Export", expanded=False):
+            today_r = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).date()
+            default_start_r = today_r - timedelta(days=30)
+            date_range_r = st.date_input("📅 Date Range", value=(default_start_r, today_r),
+                                         max_value=today_r, key="waste_rep_dates")
+            if len(date_range_r) == 2:
+                start_r, end_r = date_range_r
+                rep_q = (supabase.table("waste_logs").select("*")
+                         .gte("date", str(start_r))
+                         .lte("date", str(end_r))
+                         .order("date", desc=True)
+                         .limit(5000)
+                         .execute())
+                df_rep = pd.DataFrame(rep_q.data) if rep_q.data else pd.DataFrame()
+
+                if not df_rep.empty:
+                    if final_client.lower() not in ["all", "", "none"]:
+                        df_rep = df_rep[df_rep["client_name"].str.lower() == final_client.lower()]
+                    if final_outlet.lower() not in ["all", "", "none"]:
+                        df_rep = df_rep[df_rep["outlet"].str.lower() == final_outlet.lower()]
+
+                if df_rep.empty:
+                    st.info("No waste logs found for the selected period.")
+                else:
+                    st.dataframe(df_rep, use_container_width=True, hide_index=True)
+                    st.caption(f"{len(df_rep)} rows · {df_rep['item_name'].nunique()} unique items")
+
+                    col_pdf, col_csv = st.columns(2)
+                    with col_pdf:
+                        pdf_bytes = generate_waste_pdf(df_rep, f"{start_r} to {end_r}",
+                                                       final_client, final_outlet,
+                                                       "All Locations", user, "Historical Report")
+                        st.download_button("🖨️ Download PDF", data=pdf_bytes,
+                                           file_name=f"Waste_{start_r}_{end_r}.pdf",
+                                           mime="application/pdf", use_container_width=True)
+                    with col_csv:
+                        csv_bytes = df_rep.to_csv(index=False).encode("utf-8-sig")
+                        st.download_button("⬇️ Download CSV", data=csv_bytes,
+                                           file_name=f"Waste_{start_r}_{end_r}.csv",
+                                           mime="text/csv", use_container_width=True, type="primary")
+            else:
+                st.info("Select both a start and end date.")
+
+        st.divider()
+
         if 'last_waste_receipt' in st.session_state:
             st.success("✅ **Success!** Waste ticket has been logged.")
             st.download_button(label="🖨️ Download Waste Ticket (PDF)", data=st.session_state['last_waste_receipt']['bytes'], file_name=st.session_state['last_waste_receipt']['filename'], mime="application/pdf", type="primary")
