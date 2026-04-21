@@ -17,6 +17,7 @@ PAGE_LEDGER         = "ledger"
 PAGE_RECIPES        = "recipes"
 PAGE_RECIPES_REPORT = "recipes report"
 PAGE_MAIN           = "main"
+PAGE_PRICING_STUDIO = "pricing studio"
 
 # ── Module access keys (must match values stored in users.module column) ──────
 MOD_CASH           = "cash"
@@ -44,4 +45,4 @@ ALL_MODULES = [
 
 # ── App config ────────────────────────────────────────────────────────────────
 LOGO_URL    = "https://hgvubaohmgvesblfvdps.supabase.co/storage/v1/object/public/assets/EK-Logo.png"
-APP_VERSION = "2.5.0"
+APP_VERSION = "2.5.1"

@@ -18,11 +18,12 @@ from modules.waste import render_waste
 from modules.transfers import render_transfers
 from modules.invoices import render_invoices
 from modules.recipes import render_recipes
+from modules.dpos import show_dpos
 from modules.nav_helper import hash_password, verify_password
 from modules.constants import (
     PAGE_HOME, PAGE_CASH, PAGE_INVENTORY, PAGE_WASTE, PAGE_INVOICES,
     PAGE_TRANSFERS, PAGE_DASHBOARD, PAGE_LEDGER,
-    PAGE_RECIPES, PAGE_RECIPES_REPORT, PAGE_MAIN,
+    PAGE_RECIPES, PAGE_RECIPES_REPORT, PAGE_MAIN, PAGE_PRICING_STUDIO,
     MOD_CASH, MOD_INVENTORY, MOD_WASTE, MOD_INVOICES, MOD_TRANSFERS,
     MOD_DASHBOARD, MOD_LEDGER, MOD_RECIPES,
     MOD_RECIPES_REPORT,
@@ -526,3 +527,5 @@ else:
             render_recipes(supabase, user, role, client, outlet, location)
         elif st.session_state['current_page'] == PAGE_RECIPES_REPORT:
             render_recipe_report(supabase, user, role, client, outlet, location)
+        elif st.session_state['current_page'] == PAGE_PRICING_STUDIO:
+            show_dpos(supabase)

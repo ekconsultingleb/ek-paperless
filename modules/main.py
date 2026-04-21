@@ -27,6 +27,12 @@ def render_main(conn, sheet_link, user, role):
     st.markdown("### ⚙️ Control Panel")
     supabase = get_supabase()
 
+    if is_super_admin or is_normal_admin:
+        if st.button("💲 Pricing Studio", type="primary"):
+            st.session_state['current_page'] = "pricing studio"
+            st.rerun()
+        st.divider()
+
     # --- 🏗️ STRUCTURED ROUTING FROM clients / branches / areas ---
     def get_clients_list():
         try:
