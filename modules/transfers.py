@@ -28,6 +28,47 @@ def _init_transfer_session():
 def _all_units():
     return _DEFAULT_UNITS + [u for u in st.session_state.get('tr_custom_units', []) if u not in _DEFAULT_UNITS]
 
+
+def _explode_transfers(df: pd.DataFrame) -> pd.DataFrame:
+    """One row per item per transfer with requested / fulfilled / received qty columns."""
+    rows = []
+    for _, t in df.iterrows():
+        base = {
+            "transfer_id":     t.get("transfer_id", ""),
+            "date":            str(t.get("date", ""))[:16],
+            "status":          t.get("status", ""),
+            "requester":       t.get("requester", ""),
+            "from_outlet":     t.get("from_outlet", ""),
+            "from_location":   t.get("from_location", ""),
+            "to_outlet":       t.get("to_outlet", ""),
+            "to_location":     t.get("to_location", ""),
+            "action_by":       t.get("action_by", ""),
+        }
+        try:
+            items = json.loads(t.get("details") or "[]")
+            if not isinstance(items, list):
+                raise ValueError
+        except Exception:
+            items = []
+
+        if items:
+            for item in items:
+                rows.append({**base,
+                    "item_name":       item.get("item_name", ""),
+                    "requested_qty":   item.get("requested_qty", ""),
+                    "requested_unit":  item.get("requested_unit", ""),
+                    "fulfilled_qty":   item.get("fulfilled_qty", ""),
+                    "fulfilled_unit":  item.get("fulfilled_unit", ""),
+                    "received_qty":    item.get("received_qty", ""),
+                    "issue_note":      item.get("issue_note", ""),
+                })
+        else:
+            rows.append({**base,
+                "item_name": t.get("details", ""), "requested_qty": "", "requested_unit": "",
+                "fulfilled_qty": "", "fulfilled_unit": "", "received_qty": "", "issue_note": "",
+            })
+    return pd.DataFrame(rows)
+
 def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_outlet, assigned_location):
     st.markdown("### 🔄 Transfers & Requisitions")
     supabase = get_supabase()
@@ -149,15 +190,17 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
         # TABS
         # ==========================================
         if can_dispatch:
-            tab_req, tab_out, tab_in = st.tabs([
+            tab_req, tab_out, tab_in, tab_report = st.tabs([
                 "🛒 Request",
                 f"📤 Dispatch ({len(my_pending)})",
-                f"✅ Receive ({len(my_incoming)})"
+                f"✅ Receive ({len(my_incoming)})",
+                "📊 Report",
             ])
         else:
-            tab_req, tab_in = st.tabs([
+            tab_req, tab_in, tab_report = st.tabs([
                 "🛒 Request",
-                f"✅ Receive ({len(my_incoming)})"
+                f"✅ Receive ({len(my_incoming)})",
+                "📊 Report",
             ])
             tab_out = None
 
@@ -458,6 +501,58 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                                         "action_by": f"Received by {user} — ISSUE: {issue_note.strip() or 'reported'}"
                                     }).eq("transfer_id", tid).execute()
                                     st.rerun()
+
+        # ==========================================
+        # TAB — REPORT
+        # ==========================================
+        with tab_report:
+            st.markdown("#### 📊 Transfer Report")
+            today = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).date()
+            default_start = today - timedelta(days=30)
+            date_range = st.date_input("📅 Date Range", value=(default_start, today),
+                                       max_value=today, key="rep_date_range")
+            if len(date_range) == 2:
+                start_date, end_date = date_range
+                rep_q = (supabase.table("transfers").select("*")
+                         .gte("date", f"{start_date} 00:00")
+                         .lte("date", f"{end_date} 23:59")
+                         .order("date", desc=True)
+                         .limit(5000)
+                         .execute())
+                df_rep = pd.DataFrame(rep_q.data) if rep_q.data else pd.DataFrame()
+
+                if not df_rep.empty:
+                    df_rep.columns = [c.lower() for c in df_rep.columns]
+                    # Filter to this outlet unless admin/all
+                    if final_outlet.lower() not in ["all", "", "none", "nan"]:
+                        df_rep = df_rep[
+                            (df_rep["from_outlet"].str.title() == final_outlet) |
+                            (df_rep["to_outlet"].str.title() == final_outlet)
+                        ]
+
+                if df_rep.empty:
+                    st.info("No transfers found for the selected period.")
+                else:
+                    df_flat = _explode_transfers(df_rep)
+
+                    status_opts = ["All"] + sorted(df_flat["status"].dropna().unique().tolist())
+                    sel_status = st.selectbox("Filter by status", status_opts, key="rep_status")
+                    if sel_status != "All":
+                        df_flat = df_flat[df_flat["status"] == sel_status]
+
+                    st.dataframe(df_flat, use_container_width=True, hide_index=True)
+                    st.caption(f"{len(df_flat)} item-rows across {df_flat['transfer_id'].nunique()} transfers")
+
+                    csv_bytes = df_flat.to_csv(index=False).encode("utf-8-sig")
+                    st.download_button(
+                        label="⬇️ Download CSV",
+                        data=csv_bytes,
+                        file_name=f"transfers_{start_date}_{end_date}.csv",
+                        mime="text/csv",
+                        type="primary",
+                    )
+            else:
+                st.info("Select both a start and end date.")
 
     except Exception as e:
         st.error(f"❌ System Error in Transfers: {e}")
