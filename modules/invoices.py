@@ -560,18 +560,53 @@ def render_invoices(conn, sheet_link, user, role):
             help="Faster when you already know the supplier and amount. Skips the AI reading step."
         )
 
-        browse_file = st.file_uploader("📸 Take a Photo or Upload PDF", type=['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'pdf'])
+        browse_files = st.file_uploader(
+            "📸 Take a Photo or Upload PDF",
+            type=['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'pdf'],
+            accept_multiple_files=True
+        )
 
-        if browse_file:
-            uploaded_file = browse_file
-            file_bytes    = browse_file.getvalue()
-            file_mime     = browse_file.type if browse_file.type else "image/jpeg"
+        # accept_multiple_files always returns a list (empty when nothing uploaded)
+        files_list = browse_files if isinstance(browse_files, list) else ([browse_files] if browse_files else [])
+
+        if len(files_list) > 1:
+            if any(f.type == 'application/pdf' for f in files_list):
+                st.error("❌ Multiple PDFs aren't supported. Combine the pages into one PDF file first.")
+                uploaded_file = None
+                file_bytes    = None
+                file_mime     = None
+            else:
+                try:
+                    from PIL import Image as _PILImg
+                    import io as _stitch_io
+                    imgs    = [_PILImg.open(_stitch_io.BytesIO(f.getvalue())).convert("RGB") for f in files_list]
+                    total_h = sum(i.height for i in imgs)
+                    max_w   = max(i.width  for i in imgs)
+                    canvas  = _PILImg.new("RGB", (max_w, total_h), (255, 255, 255))
+                    y_off   = 0
+                    for img in imgs:
+                        canvas.paste(img, (0, y_off))
+                        y_off += img.height
+                    buf = _stitch_io.BytesIO()
+                    canvas.save(buf, format="JPEG", quality=85)
+                    file_bytes    = buf.getvalue()
+                    file_mime     = "image/jpeg"
+                    uploaded_file = files_list[0]
+                except Exception as _se:
+                    st.error(f"❌ Could not combine images: {_se}")
+                    uploaded_file = None
+                    file_bytes    = None
+                    file_mime     = None
+        elif files_list:
+            uploaded_file = files_list[0]
+            file_bytes    = files_list[0].getvalue()
+            file_mime     = files_list[0].type if files_list[0].type else "image/jpeg"
         else:
             uploaded_file = None
             file_bytes    = None
             file_mime     = None
 
-        current_file_id = uploaded_file.name if uploaded_file else None
+        current_file_id = "+".join(f.name for f in files_list) if files_list else None
         if st.session_state.get('invoice_submitted_file') != current_file_id:
             st.session_state['invoice_submitted']      = False
             st.session_state['invoice_submitted_file'] = current_file_id
@@ -579,7 +614,8 @@ def render_invoices(conn, sheet_link, user, role):
 
         if uploaded_file:
             if file_mime and file_mime.startswith('image'):
-                st.image(file_bytes, caption="Invoice Preview", use_container_width=True)
+                caption = f"Invoice Preview ({len(files_list)} pages combined)" if len(files_list) > 1 else "Invoice Preview"
+                st.image(file_bytes, caption=caption, use_container_width=True)
             elif file_mime == 'application/pdf':
                 st.success(f"📄 PDF Selected: {uploaded_file.name}")
 
@@ -589,7 +625,6 @@ def render_invoices(conn, sheet_link, user, role):
                     ai = _extract_invoice_data(file_bytes, file_mime)
                     st.session_state['ai_invoice_data'] = ai
             elif fast_mode:
-                # Clear any stale AI data when in fast mode
                 st.session_state.pop('ai_invoice_data', None)
 
             ai          = st.session_state.get('ai_invoice_data', {}) if not fast_mode else {}
