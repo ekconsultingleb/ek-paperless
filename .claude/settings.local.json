@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(python -c \"from modules.main import render_main; print\\(''OK''\\)\")",
-      "Bash(python -c \":*)"
+      "Bash(python -c \":*)",
+      "Bash(python -c \"import psycopg2; print\\('psycopg2 available'\\)\")",
+      "Bash(python -c \"import psycopg2\")",
+      "Bash(python -c \"import supabase; print\\('supabase available'\\)\")",
+      "Bash(python -c \"import requests; print\\('requests available'\\)\")"
     ]
   }
 }

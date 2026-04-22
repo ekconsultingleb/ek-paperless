@@ -419,6 +419,13 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                 loc_filter, st.session_state['mobile_counts']
             )
 
+        # Reset category/group filters when outlet changes so stale session state
+        # values don't fall back to "All" on the new outlet's item list
+        if st.session_state.get('_last_inv_outlet') != final_outlet:
+            st.session_state.pop('cat_filter', None)
+            st.session_state.pop('sub_filter', None)
+            st.session_state['_last_inv_outlet'] = final_outlet
+
         count_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")), key="count_date")
         st.divider()
 
