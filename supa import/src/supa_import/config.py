@@ -407,7 +407,7 @@ SHEET_CONFIG = {
             'qty',
             'unit',
             'product_description',
-            'remark',
+            'remarks',
             'avg_cost',
             'total_cost',
             'month',
