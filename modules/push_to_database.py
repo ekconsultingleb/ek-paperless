@@ -101,10 +101,15 @@ def render_push_to_database(user: str):
         sheets_dict, file_client_name, currency, rate, info = extract_sheets_and_client(
             uploaded_file, SHEET_CONFIG
         )
-        if info.get("missing_in_workbook"):
-            st.error(f"Missing sheets: {info.get('missing_str', '')}")
+        # if info.get("missing_in_workbook"):
+        #     st.error(f"Missing sheets: {info.get('missing_str', '')}")
+        #     extract_st.update(label="Extracting Sheets", state="error", expanded=True)
+        #     return
+        if info['status'] != 'ok':
+            st.error(info['msg'])
             extract_st.update(label="Extracting Sheets", state="error", expanded=True)
             return
+        st.write(info['msg'])
 
         sheets_dict = normalize_all_dataframes(sheets_dict)
         sht_st = validate_required_columns(sheets_dict, SHEET_CONFIG)
