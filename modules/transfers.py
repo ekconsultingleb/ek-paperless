@@ -413,7 +413,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                                         "remarks":       dt_remark_sel,
                                     }
                                     supabase.table("transfers").insert(new_direct).execute()
-                                    send_transfer_notification(new_direct)
+                                    send_transfer_notification(new_direct, client_name=final_client)
                                     st.session_state['tr_direct_staged'] = None
                                     st.success(f"✅ Direct transfer recorded — {dt_qty} {unit_to_use} of {staged['item_name']} → {dt_to_loc} ({dt_remark_sel})")
                                     st.rerun()

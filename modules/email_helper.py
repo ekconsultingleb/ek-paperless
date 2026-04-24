@@ -70,7 +70,7 @@ def _get_transfer_recipients(client_name: str, outlet: str) -> list[str]:
     try:
         res = (
             supabase.table("users")
-            .select("email, full_name")
+            .select("email, full_name, outlet")
             .eq("transfer_notification", True)
             .eq("client_name", client_name)
             .execute()
@@ -180,20 +180,20 @@ def _transfer_email_html(transfer: dict) -> str:
 # PUBLIC FUNCTIONS — imported by other modules
 # ──────────────────────────────────────────────
 
-def send_transfer_notification(transfer: dict) -> bool:
+def send_transfer_notification(transfer: dict, client_name: str = "") -> bool:
     """
     Send a direct transfer notification email to all eligible users
     in the outlet who have transfer_notification = true.
 
     Args:
-        transfer: the dict that was just inserted into supabase transfers table
+        transfer:    the dict that was just inserted into supabase transfers table
+        client_name: the client name (branch) — must be passed explicitly
 
     Returns:
         True if at least one email was sent, False otherwise.
     """
-    client_name = transfer.get("from_outlet", "")
-    outlet      = transfer.get("from_outlet", "")
-    item_name   = ""
+    outlet    = transfer.get("from_outlet", "")
+    item_name = ""
 
     import json
     try:
@@ -203,17 +203,7 @@ def send_transfer_notification(transfer: dict) -> bool:
     except Exception:
         pass
 
-    recipients = _get_transfer_recipients(
-        client_name=transfer.get("requester", ""),  # fallback
-        outlet=outlet
-    )
-
-    # Try to resolve client_name from session state if available
-    try:
-        client_name = st.session_state.get("client_name", outlet)
-        recipients  = _get_transfer_recipients(client_name=client_name, outlet=outlet)
-    except Exception:
-        pass
+    recipients = _get_transfer_recipients(client_name=client_name, outlet=outlet)
 
     subject   = f"Direct Transfer — {item_name} · {transfer.get('from_location', '')} → {transfer.get('to_location', '')}"
     html_body = _transfer_email_html(transfer)
