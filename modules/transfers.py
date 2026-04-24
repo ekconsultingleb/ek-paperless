@@ -16,6 +16,9 @@ def get_supabase() -> Client:
 # Default units available to every requester
 _DEFAULT_UNITS = ["Kg", "G", "L", "ml", "Pcs", "Box", "Bottle", "Can", "Bag", "Tray", "Crate", "Pack", "Dozen", "Jar"]
 
+# System remarks for direct transfers (always present, cannot be deleted)
+_DIRECT_SYSTEM_REMARKS = ["Bar", "Kitchen", "Warehouse"]
+
 
 def _init_transfer_session():
     if 'tr_cart' not in st.session_state:
@@ -23,7 +26,12 @@ def _init_transfer_session():
     if 'tr_custom_units' not in st.session_state:
         st.session_state['tr_custom_units'] = []
     if 'tr_staged' not in st.session_state:
-        st.session_state['tr_staged'] = None   # item dict waiting for qty/unit input
+        st.session_state['tr_staged'] = None
+    if 'tr_direct_mode' not in st.session_state:
+        st.session_state['tr_direct_mode'] = False
+    # Direct transfer single-item state
+    if 'tr_direct_staged' not in st.session_state:
+        st.session_state['tr_direct_staged'] = None
 
 def _all_units():
     return _DEFAULT_UNITS + [u for u in st.session_state.get('tr_custom_units', []) if u not in _DEFAULT_UNITS]
@@ -34,15 +42,16 @@ def _explode_transfers(df: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for _, t in df.iterrows():
         base = {
-            "transfer_id":     t.get("transfer_id", ""),
-            "date":            str(t.get("date", ""))[:16],
-            "status":          t.get("status", ""),
-            "requester":       t.get("requester", ""),
-            "from_outlet":     t.get("from_outlet", ""),
-            "from_location":   t.get("from_location", ""),
-            "to_outlet":       t.get("to_outlet", ""),
-            "to_location":     t.get("to_location", ""),
-            "action_by":       t.get("action_by", ""),
+            "transfer_id":   t.get("transfer_id", ""),
+            "date":          str(t.get("date", ""))[:16],
+            "status":        t.get("status", ""),
+            "requester":     t.get("requester", ""),
+            "from_outlet":   t.get("from_outlet", ""),
+            "from_location": t.get("from_location", ""),
+            "to_outlet":     t.get("to_outlet", ""),
+            "to_location":   t.get("to_location", ""),
+            "action_by":     t.get("action_by", ""),
+            "remarks":       t.get("remarks", ""),
         }
         try:
             items = json.loads(t.get("details") or "[]")
@@ -54,13 +63,13 @@ def _explode_transfers(df: pd.DataFrame) -> pd.DataFrame:
         if items:
             for item in items:
                 rows.append({**base,
-                    "item_name":       item.get("item_name", ""),
-                    "requested_qty":   item.get("requested_qty", ""),
-                    "requested_unit":  item.get("requested_unit", ""),
-                    "fulfilled_qty":   item.get("fulfilled_qty", ""),
-                    "fulfilled_unit":  item.get("fulfilled_unit", ""),
-                    "received_qty":    item.get("received_qty", ""),
-                    "issue_note":      item.get("issue_note", ""),
+                    "item_name":      item.get("item_name", ""),
+                    "requested_qty":  item.get("requested_qty", ""),
+                    "requested_unit": item.get("requested_unit", ""),
+                    "fulfilled_qty":  item.get("fulfilled_qty", ""),
+                    "fulfilled_unit": item.get("fulfilled_unit", ""),
+                    "received_qty":   item.get("received_qty", ""),
+                    "issue_note":     item.get("issue_note", ""),
                 })
         else:
             rows.append({**base,
@@ -68,6 +77,64 @@ def _explode_transfers(df: pd.DataFrame) -> pd.DataFrame:
                 "fulfilled_qty": "", "fulfilled_unit": "", "received_qty": "", "issue_note": "",
             })
     return pd.DataFrame(rows)
+
+
+def _load_transfer_remarks(supabase, client_name: str) -> list:
+    """Load custom transfer remarks for the client from Supabase."""
+    try:
+        res = supabase.table("transfer_remark_options").select("remark").eq("client_name", client_name).execute()
+        custom = [r["remark"] for r in (res.data or [])]
+    except Exception:
+        custom = []
+    return _DIRECT_SYSTEM_REMARKS + [r for r in custom if r not in _DIRECT_SYSTEM_REMARKS] + ["+ Add New..."]
+
+
+def _render_manage_remarks(supabase, client_name: str, user: str, role: str):
+    """Expander to add/delete custom transfer remarks — managers+ only."""
+    if role.lower() not in ["manager", "admin", "admin_all", "chef", "bar manager"]:
+        return
+    try:
+        res = supabase.table("transfer_remark_options").select("remark").eq("client_name", client_name).execute()
+        custom_remarks = [r["remark"] for r in (res.data or [])]
+    except Exception:
+        custom_remarks = []
+
+    with st.expander("⚙️ Manage Transfer Remarks"):
+        col_nr, col_nb = st.columns([4, 1])
+        with col_nr:
+            new_remark = st.text_input(
+                "New Remark", placeholder="e.g. Rooftop, Event...",
+                label_visibility="collapsed", key="tr_new_remark_input"
+            )
+        with col_nb:
+            if st.button("➕ Add", width="stretch", key="tr_add_remark_btn"):
+                nr = new_remark.strip().title()
+                if nr and nr not in _DIRECT_SYSTEM_REMARKS and nr not in custom_remarks:
+                    try:
+                        supabase.table("transfer_remark_options").insert({
+                            "client_name": client_name,
+                            "remark":      nr,
+                            "created_by":  user
+                        }).execute()
+                        st.success(f"✅ '{nr}' added.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ {e}")
+                elif not nr:
+                    st.warning("Please type a remark first.")
+                else:
+                    st.warning("Already exists.")
+
+        if custom_remarks:
+            st.markdown("**Custom remarks:**")
+            for _cr in custom_remarks:
+                col_cl, col_cd = st.columns([5, 1])
+                col_cl.markdown(f"• {_cr}")
+                if col_cd.button("✕", key=f"tr_del_rem_{_cr}"):
+                    supabase.table("transfer_remark_options").delete().eq(
+                        "client_name", client_name).eq("remark", _cr).execute()
+                    st.rerun()
+
 
 def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_outlet, assigned_location):
     st.markdown("### 🔄 Transfers & Requisitions")
@@ -151,7 +218,8 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
         else:
             df_transfers = pd.DataFrame(columns=['transfer_id', 'date', 'status', 'requester',
                                                   'from_outlet', 'from_location', 'to_outlet',
-                                                  'to_location', 'request_type', 'details', 'action_by'])
+                                                  'to_location', 'request_type', 'details',
+                                                  'action_by', 'remarks'])
 
         user_locs_lower = [loc.lower() for loc in active_locations]
         user_locs_title = [l.title() for l in active_locations]
@@ -205,139 +273,289 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
             tab_out = None
 
         # ==========================================
-        # TAB 1 — REQUEST
+        # TAB 1 — REQUEST / DIRECT TRANSFER
         # ==========================================
         with tab_req:
             if final_outlet == "None":
                 st.error("No valid outlet assigned. Cannot create requests.")
             else:
-                # --- Route selectors ---
-                outlets_in_branch = sorted(df_inv['outlet'].unique()) if not df_inv.empty else [final_outlet]
-                col_o1, col_o2 = st.columns(2)
-                with col_o1:
-                    from_outlet = st.selectbox("Request From (Outlet)", outlets_in_branch, key="t_from_out")
-                with col_o2:
-                    st.selectbox("Request For (Outlet)", [final_outlet], disabled=True, key="t_to_out")
-                    to_outlet = final_outlet
+                # ── Direct Transfer Toggle ────────────────────────────────
+                is_direct = st.toggle(
+                    "⚡ Direct Transfer",
+                    value=st.session_state['tr_direct_mode'],
+                    key="tr_direct_toggle",
+                    help="Skip the request flow — record an immediate location-to-location transfer."
+                )
+                st.session_state['tr_direct_mode'] = is_direct
 
-                df_source_items = df_inv[(df_inv['client_name'] == final_client) & (df_inv['outlet'] == from_outlet)] if not df_inv.empty else pd.DataFrame()
-                from_loc_options = sorted(list(df_source_items['location'].dropna().unique())) if not df_source_items.empty else ["Main Store"]
+                # ──────────────────────────────────────────────────────────
+                # DIRECT TRANSFER FORM
+                # ──────────────────────────────────────────────────────────
+                if is_direct:
+                    st.markdown("#### ⚡ Direct Transfer")
+                    st.caption("Immediate transfer between locations — no approval needed. Remarks are required.")
 
-                col_l1, col_l2 = st.columns(2)
-                with col_l1:
-                    from_location = st.selectbox("From Location", from_loc_options, key="t_from_loc")
-                with col_l2:
-                    if raw_loc.lower() == 'all':
-                        df_to_items   = df_inv[(df_inv['client_name'] == final_client) & (df_inv['outlet'] == to_outlet)] if not df_inv.empty else pd.DataFrame()
-                        to_loc_opts   = sorted(list(df_to_items['location'].dropna().unique())) if not df_to_items.empty else ["Main Store"]
-                        to_loc_opts   = [l for l in to_loc_opts if l != from_location] or to_loc_opts
-                        to_location   = st.selectbox("To Location", to_loc_opts, key="t_to_loc")
-                    else:
-                        to_location = st.selectbox("To Location", active_locations, key="t_to_loc")
+                    # Load remarks
+                    _remark_options = _load_transfer_remarks(supabase, final_client)
+                    _render_manage_remarks(supabase, final_client, user, role)
 
-                st.divider()
-
-                # --- Item search (supports Arabizi: "meleh" → Salt, "batata" → Potato …) ---
-                search_q = st.text_input("🔍 Search item to add", placeholder="e.g. mayo, glen, meleh ", key="tr_search")
-
-                df_filtered = pd.DataFrame()
-                if search_q.strip() and not df_source_items.empty:
-                    translations = arabizi_translate(search_q.strip())
-                    # Build a combined regex: original term OR any translation
-                    all_terms = [search_q.strip()] + translations
-                    pattern = "|".join(all_terms)
-                    df_filtered = df_source_items[
-                        df_source_items['item_name'].str.contains(pattern, case=False, na=False, regex=True)
-                    ].drop_duplicates(subset=['item_name']).head(12)
-                    if translations:
-                        st.caption(f"🔤 Arabizi detected — also searching: {', '.join(translations)}")
-
-                if not df_filtered.empty:
-                    st.caption(f"{len(df_filtered)} result(s) — click an item to select it:")
-                    cols = st.columns(3)
-                    for i, (_, item_row) in enumerate(df_filtered.iterrows()):
-                        with cols[i % 3]:
-                            label = f"{item_row['item_name']}\n({item_row.get('count_unit','pcs')})"
-                            if st.button(label, key=f"sel_{item_row['item_name']}_{i}", use_container_width=True):
-                                st.session_state['tr_staged'] = {
-                                    'item_name': item_row['item_name'],
-                                    'db_unit':   str(item_row.get('count_unit', 'pcs'))
-                                }
-                                st.rerun()
-
-                # --- Staged item: enter qty + unit ---
-                if st.session_state.get('tr_staged'):
-                    staged = st.session_state['tr_staged']
-                    st.markdown(f"**Selected:** {staged['item_name']}  ·  DB unit: `{staged['db_unit']}`")
-
-                    all_units = _all_units()
-                    col_q, col_u, col_custom, col_add = st.columns([2, 2, 2, 1], vertical_alignment="bottom")
-
-                    with col_q:
-                        req_qty = st.number_input("Qty", min_value=0.0, step=1.0, format="%g", key="tr_staged_qty")
-                    with col_u:
-                        req_unit = st.selectbox("Unit", all_units, key="tr_staged_unit")
-                    with col_custom:
-                        new_unit = st.text_input("+ New unit", placeholder="e.g. Gallon", key="tr_new_unit")
-                    with col_add:
-                        if st.button("Add to list", type="primary", key="tr_add_item"):
-                            if new_unit.strip() and new_unit.strip() not in all_units:
-                                st.session_state['tr_custom_units'].append(new_unit.strip())
-                            unit_to_use = new_unit.strip() if new_unit.strip() else req_unit
-                            if req_qty > 0:
-                                # Avoid duplicates: remove existing entry for same item if present
-                                st.session_state['tr_cart'] = [
-                                    c for c in st.session_state['tr_cart']
-                                    if c['item_name'] != staged['item_name']
-                                ]
-                                st.session_state['tr_cart'].append({
-                                    'item_name':      staged['item_name'],
-                                    'db_unit':        staged['db_unit'],
-                                    'requested_qty':  req_qty,
-                                    'requested_unit': unit_to_use,
-                                })
-                                st.session_state['tr_staged'] = None
-                                st.rerun()
-                            else:
-                                st.warning("Qty must be greater than 0.")
-
-                    if st.button("✕ Cancel", key="tr_cancel_staged"):
-                        st.session_state['tr_staged'] = None
-                        st.rerun()
-
-                # --- Cart ---
-                cart = st.session_state['tr_cart']
-                if cart:
                     st.divider()
-                    st.markdown(f"**Cart — {len(cart)} item(s)**")
-                    for i, entry in enumerate(cart):
-                        c_name, c_qty, c_del = st.columns([5, 2, 1], vertical_alignment="center")
-                        c_name.markdown(f"**{entry['item_name']}**  ·  DB unit: `{entry['db_unit']}`")
-                        c_qty.markdown(f"`{entry['requested_qty']} {entry['requested_unit']}`")
-                        if c_del.button("✕", key=f"tr_rm_{i}"):
-                            st.session_state['tr_cart'].pop(i)
+
+                    # All locations for this outlet (allow LoR → LoR)
+                    df_outlet_items = df_inv[(df_inv['client_name'] == final_client) & (df_inv['outlet'] == final_outlet)] if not df_inv.empty else pd.DataFrame()
+                    all_outlet_locs = sorted(list(df_outlet_items['location'].dropna().unique())) if not df_outlet_items.empty else (db_locs if db_locs else ["Main Store"])
+
+                    col_fl, col_tl = st.columns(2)
+                    with col_fl:
+                        dt_from_loc = st.selectbox("📤 From Location", all_outlet_locs, key="dt_from_loc")
+                    with col_tl:
+                        dt_to_loc = st.selectbox("📥 To Location", all_outlet_locs, key="dt_to_loc")
+
+                    if dt_from_loc == dt_to_loc:
+                        st.warning("⚠️ From and To locations are the same.")
+
+                    st.divider()
+
+                    # Item search — same arabizi pattern as standard request
+                    dt_search = st.text_input("🔍 Search item", placeholder="e.g. lemon, batata, meleh", key="dt_search")
+
+                    df_direct_source = df_inv[
+                        (df_inv['client_name'] == final_client) &
+                        (df_inv['outlet'] == final_outlet) &
+                        (df_inv['location'].str.title() == dt_from_loc)
+                    ] if not df_inv.empty else pd.DataFrame()
+
+                    df_dt_filtered = pd.DataFrame()
+                    if dt_search.strip() and not df_direct_source.empty:
+                        translations = arabizi_translate(dt_search.strip())
+                        all_terms = [dt_search.strip()] + translations
+                        pattern = "|".join(all_terms)
+                        df_dt_filtered = df_direct_source[
+                            df_direct_source['item_name'].str.contains(pattern, case=False, na=False, regex=True)
+                        ].drop_duplicates(subset=['item_name']).head(12)
+                        if translations:
+                            st.caption(f"🔤 Arabizi detected — also searching: {', '.join(translations)}")
+
+                    if not df_dt_filtered.empty:
+                        st.caption(f"{len(df_dt_filtered)} result(s) — click to select:")
+                        cols = st.columns(3)
+                        for i, (_, item_row) in enumerate(df_dt_filtered.iterrows()):
+                            with cols[i % 3]:
+                                label = f"{item_row['item_name']}\n({item_row.get('count_unit','pcs')})"
+                                if st.button(label, key=f"dt_sel_{item_row['item_name']}_{i}", use_container_width=True):
+                                    st.session_state['tr_direct_staged'] = {
+                                        'item_name': item_row['item_name'],
+                                        'db_unit':   str(item_row.get('count_unit', 'pcs'))
+                                    }
+                                    st.rerun()
+
+                    # Staged item for direct transfer
+                    if st.session_state.get('tr_direct_staged'):
+                        staged = st.session_state['tr_direct_staged']
+                        st.markdown(f"**Selected:** {staged['item_name']}  ·  DB unit: `{staged['db_unit']}`")
+
+                        all_units = _all_units()
+                        col_q, col_u, col_custom = st.columns([2, 2, 2])
+                        with col_q:
+                            dt_qty = st.number_input("Qty", min_value=0.0, step=1.0, format="%g", key="dt_qty")
+                        with col_u:
+                            dt_unit = st.selectbox("Unit", all_units, key="dt_unit")
+                        with col_custom:
+                            dt_new_unit = st.text_input("+ New unit", placeholder="e.g. Gallon", key="dt_new_unit")
+
+                        st.divider()
+
+                        # Remarks — same pattern as waste
+                        st.markdown("**Remark** *(required)*")
+                        _rem_index_default = 0
+                        dt_remark_sel = st.selectbox(
+                            "Remark", _remark_options,
+                            index=_rem_index_default,
+                            key="dt_remark_sel",
+                            label_visibility="collapsed"
+                        )
+                        if dt_remark_sel == "+ Add New...":
+                            st.info("Use ⚙️ Manage Transfer Remarks above to add new remarks.")
+                            dt_remark_sel = _DIRECT_SYSTEM_REMARKS[0]
+
+                        col_rec, col_cancel = st.columns([3, 1])
+                        with col_rec:
+                            if st.button("⚡ Record Direct Transfer", type="primary", use_container_width=True, key="dt_submit"):
+                                if dt_from_loc == dt_to_loc:
+                                    st.error("❌ From and To locations cannot be the same.")
+                                elif dt_qty <= 0:
+                                    st.error("❌ Qty must be greater than 0.")
+                                elif dt_remark_sel in ["+ Add New...", ""]:
+                                    st.error("❌ Please select a remark.")
+                                else:
+                                    unit_to_use = dt_new_unit.strip() if dt_new_unit.strip() else dt_unit
+                                    if dt_new_unit.strip() and dt_new_unit.strip() not in _all_units():
+                                        st.session_state['tr_custom_units'].append(dt_new_unit.strip())
+
+                                    now_str = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).strftime("%Y-%m-%d %H:%M")
+                                    details_json = json.dumps([{
+                                        "item_name":      staged['item_name'],
+                                        "db_unit":        staged['db_unit'],
+                                        "requested_qty":  dt_qty,
+                                        "requested_unit": unit_to_use,
+                                        "fulfilled_qty":  dt_qty,
+                                        "fulfilled_unit": unit_to_use,
+                                        "received_qty":   dt_qty,
+                                    }])
+                                    new_direct = {
+                                        "transfer_id":   str(uuid.uuid4())[:8],
+                                        "date":          now_str,
+                                        "status":        "Direct",
+                                        "requester":     user,
+                                        "from_outlet":   final_outlet,
+                                        "from_location": dt_from_loc,
+                                        "to_outlet":     final_outlet,
+                                        "to_location":   dt_to_loc,
+                                        "request_type":  "Direct",
+                                        "details":       details_json,
+                                        "action_by":     f"Direct by {user}",
+                                        "remarks":       dt_remark_sel,
+                                    }
+                                    supabase.table("transfers").insert(new_direct).execute()
+                                    st.session_state['tr_direct_staged'] = None
+                                    st.success(f"✅ Direct transfer recorded — {dt_qty} {unit_to_use} of {staged['item_name']} → {dt_to_loc} ({dt_remark_sel})")
+                                    st.rerun()
+
+                        with col_cancel:
+                            if st.button("✕ Cancel", use_container_width=True, key="dt_cancel"):
+                                st.session_state['tr_direct_staged'] = None
+                                st.rerun()
+
+                # ──────────────────────────────────────────────────────────
+                # STANDARD REQUEST FORM (unchanged)
+                # ──────────────────────────────────────────────────────────
+                else:
+                    # --- Route selectors ---
+                    outlets_in_branch = sorted(df_inv['outlet'].unique()) if not df_inv.empty else [final_outlet]
+                    col_o1, col_o2 = st.columns(2)
+                    with col_o1:
+                        from_outlet = st.selectbox("Request From (Outlet)", outlets_in_branch, key="t_from_out")
+                    with col_o2:
+                        st.selectbox("Request For (Outlet)", [final_outlet], disabled=True, key="t_to_out")
+                        to_outlet = final_outlet
+
+                    df_source_items = df_inv[(df_inv['client_name'] == final_client) & (df_inv['outlet'] == from_outlet)] if not df_inv.empty else pd.DataFrame()
+                    from_loc_options = sorted(list(df_source_items['location'].dropna().unique())) if not df_source_items.empty else ["Main Store"]
+
+                    col_l1, col_l2 = st.columns(2)
+                    with col_l1:
+                        from_location = st.selectbox("From Location", from_loc_options, key="t_from_loc")
+                    with col_l2:
+                        if raw_loc.lower() == 'all':
+                            df_to_items   = df_inv[(df_inv['client_name'] == final_client) & (df_inv['outlet'] == to_outlet)] if not df_inv.empty else pd.DataFrame()
+                            to_loc_opts   = sorted(list(df_to_items['location'].dropna().unique())) if not df_to_items.empty else ["Main Store"]
+                            to_loc_opts   = [l for l in to_loc_opts if l != from_location] or to_loc_opts
+                            to_location   = st.selectbox("To Location", to_loc_opts, key="t_to_loc")
+                        else:
+                            to_location = st.selectbox("To Location", active_locations, key="t_to_loc")
+
+                    st.divider()
+
+                    # --- Item search (supports Arabizi) ---
+                    search_q = st.text_input("🔍 Search item to add", placeholder="e.g. mayo, glen, meleh", key="tr_search")
+
+                    df_filtered = pd.DataFrame()
+                    if search_q.strip() and not df_source_items.empty:
+                        translations = arabizi_translate(search_q.strip())
+                        all_terms = [search_q.strip()] + translations
+                        pattern = "|".join(all_terms)
+                        df_filtered = df_source_items[
+                            df_source_items['item_name'].str.contains(pattern, case=False, na=False, regex=True)
+                        ].drop_duplicates(subset=['item_name']).head(12)
+                        if translations:
+                            st.caption(f"🔤 Arabizi detected — also searching: {', '.join(translations)}")
+
+                    if not df_filtered.empty:
+                        st.caption(f"{len(df_filtered)} result(s) — click an item to select it:")
+                        cols = st.columns(3)
+                        for i, (_, item_row) in enumerate(df_filtered.iterrows()):
+                            with cols[i % 3]:
+                                label = f"{item_row['item_name']}\n({item_row.get('count_unit','pcs')})"
+                                if st.button(label, key=f"sel_{item_row['item_name']}_{i}", use_container_width=True):
+                                    st.session_state['tr_staged'] = {
+                                        'item_name': item_row['item_name'],
+                                        'db_unit':   str(item_row.get('count_unit', 'pcs'))
+                                    }
+                                    st.rerun()
+
+                    # --- Staged item: enter qty + unit ---
+                    if st.session_state.get('tr_staged'):
+                        staged = st.session_state['tr_staged']
+                        st.markdown(f"**Selected:** {staged['item_name']}  ·  DB unit: `{staged['db_unit']}`")
+
+                        all_units = _all_units()
+                        col_q, col_u, col_custom, col_add = st.columns([2, 2, 2, 1], vertical_alignment="bottom")
+
+                        with col_q:
+                            req_qty = st.number_input("Qty", min_value=0.0, step=1.0, format="%g", key="tr_staged_qty")
+                        with col_u:
+                            req_unit = st.selectbox("Unit", all_units, key="tr_staged_unit")
+                        with col_custom:
+                            new_unit = st.text_input("+ New unit", placeholder="e.g. Gallon", key="tr_new_unit")
+                        with col_add:
+                            if st.button("Add to list", type="primary", key="tr_add_item"):
+                                if new_unit.strip() and new_unit.strip() not in all_units:
+                                    st.session_state['tr_custom_units'].append(new_unit.strip())
+                                unit_to_use = new_unit.strip() if new_unit.strip() else req_unit
+                                if req_qty > 0:
+                                    st.session_state['tr_cart'] = [
+                                        c for c in st.session_state['tr_cart']
+                                        if c['item_name'] != staged['item_name']
+                                    ]
+                                    st.session_state['tr_cart'].append({
+                                        'item_name':      staged['item_name'],
+                                        'db_unit':        staged['db_unit'],
+                                        'requested_qty':  req_qty,
+                                        'requested_unit': unit_to_use,
+                                    })
+                                    st.session_state['tr_staged'] = None
+                                    st.rerun()
+                                else:
+                                    st.warning("Qty must be greater than 0.")
+
+                        if st.button("✕ Cancel", key="tr_cancel_staged"):
+                            st.session_state['tr_staged'] = None
                             st.rerun()
 
-                    if st.button("🚀 Submit Request", type="primary", width="stretch", key="tr_submit"):
-                        details_json = json.dumps(cart)
-                        new_req = {
-                            "transfer_id":   str(uuid.uuid4())[:8],
-                            "date":          datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).strftime("%Y-%m-%d %H:%M"),
-                            "status":        "Pending",
-                            "requester":     user,
-                            "from_outlet":   from_outlet,
-                            "from_location": from_location,
-                            "to_outlet":     to_outlet,
-                            "to_location":   to_location,
-                            "request_type":  "Itemized",
-                            "details":       details_json,
-                            "action_by":     ""
-                        }
-                        supabase.table("transfers").insert(new_req).execute()
-                        st.session_state['tr_cart'] = []
-                        st.session_state['tr_staged'] = None
-                        st.success("✅ Request submitted!")
-                        st.rerun()
+                    # --- Cart ---
+                    cart = st.session_state['tr_cart']
+                    if cart:
+                        st.divider()
+                        st.markdown(f"**Cart — {len(cart)} item(s)**")
+                        for i, entry in enumerate(cart):
+                            c_name, c_qty, c_del = st.columns([5, 2, 1], vertical_alignment="center")
+                            c_name.markdown(f"**{entry['item_name']}**  ·  DB unit: `{entry['db_unit']}`")
+                            c_qty.markdown(f"`{entry['requested_qty']} {entry['requested_unit']}`")
+                            if c_del.button("✕", key=f"tr_rm_{i}"):
+                                st.session_state['tr_cart'].pop(i)
+                                st.rerun()
+
+                        if st.button("🚀 Submit Request", type="primary", width="stretch", key="tr_submit"):
+                            details_json = json.dumps(cart)
+                            new_req = {
+                                "transfer_id":   str(uuid.uuid4())[:8],
+                                "date":          datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).strftime("%Y-%m-%d %H:%M"),
+                                "status":        "Pending",
+                                "requester":     user,
+                                "from_outlet":   from_outlet,
+                                "from_location": from_location,
+                                "to_outlet":     to_outlet,
+                                "to_location":   to_location,
+                                "request_type":  "Itemized",
+                                "details":       details_json,
+                                "action_by":     "",
+                                "remarks":       "",
+                            }
+                            supabase.table("transfers").insert(new_req).execute()
+                            st.session_state['tr_cart'] = []
+                            st.session_state['tr_staged'] = None
+                            st.success("✅ Request submitted!")
+                            st.rerun()
 
         # ==========================================
         # TAB 2 — DISPATCH
@@ -354,7 +572,6 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                         ):
                             st.caption(f"Requested by **{row['requester']}** · from **{row['from_location']}** to **{row['to_location']}**")
 
-                            # Try to parse structured JSON details
                             try:
                                 items = json.loads(row['details'])
                                 is_structured = isinstance(items, list) and items
@@ -382,7 +599,6 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                                     )
 
                                 if st.button("✅ Approve & Dispatch", key=f"d_{tid}", type="primary"):
-                                    # Embed fulfilled quantities back into the items list
                                     for idx, item in enumerate(items):
                                         item['fulfilled_qty']  = fulfill_qtys[idx]
                                         item['fulfilled_unit'] = item.get('db_unit', 'pcs')
@@ -393,7 +609,6 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                                     }).eq("transfer_id", tid).execute()
                                     st.rerun()
                             else:
-                                # Legacy plain-text request
                                 edited = st.text_area("Details:", value=row['details'], key=f"e_{tid}", height=120)
                                 if st.button("✅ Approve & Dispatch", key=f"d_{tid}", type="primary"):
                                     supabase.table("transfers").update({
@@ -425,9 +640,9 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                         if is_structured:
                             received_qtys = {}
                             for idx, item in enumerate(items):
-                                ful       = item.get('fulfilled_qty')
-                                funit     = item.get('fulfilled_unit', item.get('db_unit', ''))
-                                req_disp  = f"{item.get('requested_qty')} {item.get('requested_unit','')}"
+                                ful      = item.get('fulfilled_qty')
+                                funit    = item.get('fulfilled_unit', item.get('db_unit', ''))
+                                req_disp = f"{item.get('requested_qty')} {item.get('requested_unit','')}"
 
                                 col_info, col_rcv = st.columns([3, 2], vertical_alignment="bottom")
                                 if ful is not None:
@@ -479,7 +694,6 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                                     st.rerun()
 
                         else:
-                            # Legacy plain-text
                             st.info(row['details'])
                             issue_note = st.text_input(
                                 "⚠️ Issue note (optional)",
@@ -547,12 +761,30 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                 else:
                     df_flat = _explode_transfers(df_rep)
 
+                    # Status filter — Direct gets its own option
                     status_opts = ["All"] + sorted(df_flat["status"].dropna().unique().tolist())
                     sel_status = st.selectbox("Filter by status", status_opts, key="rep_status")
                     if sel_status != "All":
                         df_flat = df_flat[df_flat["status"] == sel_status]
 
-                    df_flat_preview = df_flat.drop(columns=[c for c in ["id", "created_at"] if c in df_flat.columns])
+                    # Badge: mark Direct rows visually
+                    def _status_label(s):
+                        if str(s).lower() == "direct":
+                            return "⚡ Direct"
+                        return s
+
+                    df_flat_display = df_flat.copy()
+                    df_flat_display["status"] = df_flat_display["status"].apply(_status_label)
+
+                    # Reorder columns to surface remarks
+                    col_order = ["transfer_id", "date", "status", "remarks", "from_location",
+                                 "to_location", "item_name", "requested_qty", "requested_unit",
+                                 "fulfilled_qty", "fulfilled_unit", "received_qty", "issue_note",
+                                 "requester", "action_by", "from_outlet", "to_outlet"]
+                    col_order = [c for c in col_order if c in df_flat_display.columns]
+                    df_flat_display = df_flat_display[col_order]
+                    df_flat_preview = df_flat_display.drop(columns=[c for c in ["id", "created_at"] if c in df_flat_display.columns])
+
                     st.dataframe(df_flat_preview, use_container_width=True, hide_index=True)
                     st.caption(f"{len(df_flat)} item-rows across {df_flat['transfer_id'].nunique()} transfers")
 
