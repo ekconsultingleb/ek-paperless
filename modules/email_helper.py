@@ -1,8 +1,9 @@
-import smtplib
+import json
+import resend
 import streamlit as st
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from supabase import create_client, Client
+
+SENDER = "EK Consulting <elie.k@ekconsulting.co>"
 
 
 @st.cache_resource
@@ -10,49 +11,20 @@ def get_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
 
-# ──────────────────────────────────────────────
-# SMTP CONNECTION
-# ──────────────────────────────────────────────
-
-def _get_smtp_connection():
-    """Open and return an authenticated SMTP connection to Microsoft 365."""
-    smtp_server   = st.secrets["EMAIL_SMTP_SERVER"]
-    smtp_port     = int(st.secrets["EMAIL_SMTP_PORT"])
-    sender_email  = st.secrets["EMAIL_SENDER"]
-    sender_pass   = st.secrets["EMAIL_PASSWORD"]
-
-    server = smtplib.SMTP(smtp_server, smtp_port)
-    server.ehlo()
-    server.starttls()
-    server.ehlo()
-    server.login(sender_email, sender_pass)
-    return server
-
-
-def _send(subject: str, html_body: str, recipients: list[str]) -> bool:
-    """
-    Core send function. Accepts a list of recipient emails.
-    Returns True if sent, False if failed.
-    """
+def _resend_send(subject: str, html_body: str, recipients: list[str]) -> bool:
+    """Send via Resend API. Returns True if sent, False on failure."""
     if not recipients:
         return False
-
-    sender_email = st.secrets["EMAIL_SENDER"]
-
     try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"]    = f"EK Consulting <{sender_email}>"
-        msg["To"]      = ", ".join(recipients)
-        msg.attach(MIMEText(html_body, "html"))
-
-        server = _get_smtp_connection()
-        server.sendmail(sender_email, recipients, msg.as_string())
-        server.quit()
+        resend.api_key = st.secrets["RESEND_API_KEY"]
+        resend.Emails.send({
+            "from":    SENDER,
+            "to":      recipients,
+            "subject": subject,
+            "html":    html_body,
+        })
         return True
-
     except Exception as e:
-        # Log silently — never crash the app because of an email failure
         print(f"[email_helper] Failed to send email: {e}")
         return False
 
@@ -63,26 +35,30 @@ def _send(subject: str, html_body: str, recipients: list[str]) -> bool:
 
 def _get_transfer_recipients(client_name: str, outlet: str) -> list[str]:
     """
-    Returns emails of all users in the outlet who have
-    transfer_notification = true and a non-empty email address.
+    Returns emails of all users who have transfer_notification = true and:
+    - client_name matches the transfer's client OR is "All"
+    - outlet matches the transfer's outlet OR is "All"
     """
     supabase = get_supabase()
     try:
         res = (
             supabase.table("users")
-            .select("email, full_name, outlet")
+            .select("email, full_name, client_name, outlet")
             .eq("transfer_notification", True)
-            .eq("client_name", client_name)
             .execute()
         )
         emails = []
         for u in (res.data or []):
-            email = (u.get("email") or "").strip()
-            # Also include users with outlet = "All" (managers with full visibility)
-            user_outlet = (u.get("outlet") or "").strip()
-            if email and (user_outlet.lower() in [outlet.lower(), "all"]):
+            email       = (u.get("email") or "").strip()
+            user_client = (u.get("client_name") or "").strip().lower()
+            user_outlet = (u.get("outlet") or "").strip().lower()
+            if not email:
+                continue
+            client_match = user_client in [client_name.lower(), "all"]
+            outlet_match = user_outlet in [outlet.lower(), "all"]
+            if client_match and outlet_match:
                 emails.append(email)
-        return list(set(emails))  # deduplicate
+        return list(set(emails))
     except Exception as e:
         print(f"[email_helper] Could not fetch recipients: {e}")
         return []
@@ -93,18 +69,11 @@ def _get_transfer_recipients(client_name: str, outlet: str) -> list[str]:
 # ──────────────────────────────────────────────
 
 def _transfer_email_html(transfer: dict) -> str:
-    """Build the HTML email body for a direct transfer notification."""
-
-    item_name  = ""
-    qty        = ""
-    unit       = ""
-
-    # Parse the details JSON to get item info
-    import json
+    item_name = qty = unit = ""
     try:
         items = json.loads(transfer.get("details") or "[]")
         if items and isinstance(items, list):
-            first = items[0]
+            first     = items[0]
             item_name = first.get("item_name", "")
             qty       = first.get("requested_qty", "")
             unit      = first.get("requested_unit", "")
@@ -127,7 +96,6 @@ def _transfer_email_html(transfer: dict) -> str:
       </div>
 
       <div style="background: #f9f8f6; padding: 24px 28px; border: 1px solid #e8e4de; border-top: none; border-radius: 0 0 8px 8px;">
-
         <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
           <tr>
             <td style="padding: 8px 0; color: #888; width: 40%;">Item</td>
@@ -157,7 +125,7 @@ def _transfer_email_html(transfer: dict) -> str:
             <td style="padding: 8px 0;">{action_by}</td>
           </tr>
           <tr>
-            <td style="padding: 8px 0; color: #888;">Date & time</td>
+            <td style="padding: 8px 0; color: #888;">Date &amp; time</td>
             <td style="padding: 8px 0;">{date}</td>
           </tr>
           <tr>
@@ -170,7 +138,6 @@ def _transfer_email_html(transfer: dict) -> str:
           This is an automated notification from EK Paperless.
           You are receiving this because transfer notifications are enabled for your account.
         </p>
-
       </div>
     </div>
     """
@@ -183,19 +150,17 @@ def _transfer_email_html(transfer: dict) -> str:
 def send_transfer_notification(transfer: dict, client_name: str = "") -> bool:
     """
     Send a direct transfer notification email to all eligible users
-    in the outlet who have transfer_notification = true.
+    who have transfer_notification = true.
 
     Args:
-        transfer:    the dict that was just inserted into supabase transfers table
-        client_name: the client name (branch) — must be passed explicitly
+        transfer:    the dict just inserted into the transfers table
+        client_name: the client/branch name (pass final_client from the UI)
 
     Returns:
         True if at least one email was sent, False otherwise.
     """
     outlet    = transfer.get("from_outlet", "")
     item_name = ""
-
-    import json
     try:
         items = json.loads(transfer.get("details") or "[]")
         if items:
@@ -208,4 +173,4 @@ def send_transfer_notification(transfer: dict, client_name: str = "") -> bool:
     subject   = f"Direct Transfer — {item_name} · {transfer.get('from_location', '')} → {transfer.get('to_location', '')}"
     html_body = _transfer_email_html(transfer)
 
-    return _send(subject, html_body, recipients)
+    return _resend_send(subject, html_body, recipients)
