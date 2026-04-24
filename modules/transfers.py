@@ -7,6 +7,7 @@ import json
 from supabase import create_client, Client
 from modules.nav_helper import build_outlet_location_sidebar, get_nav_data, get_all_clients, get_outlets_for_client
 from modules.arabizi import arabizi_translate
+from modules.email_helper import send_transfer_notification
 
 # --- SAFELY INITIALIZE SUPABASE ---
 @st.cache_resource
@@ -311,9 +312,6 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                     with col_tl:
                         dt_to_loc = st.selectbox("📥 To Location", all_outlet_locs, key="dt_to_loc")
 
-                    if dt_from_loc == dt_to_loc:
-                        st.warning("⚠️ From and To locations are the same.")
-
                     st.divider()
 
                     # Item search — same arabizi pattern as standard request
@@ -381,9 +379,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                         col_rec, col_cancel = st.columns([3, 1])
                         with col_rec:
                             if st.button("⚡ Record Direct Transfer", type="primary", use_container_width=True, key="dt_submit"):
-                                if dt_from_loc == dt_to_loc:
-                                    st.error("❌ From and To locations cannot be the same.")
-                                elif dt_qty <= 0:
+                                if dt_qty <= 0:
                                     st.error("❌ Qty must be greater than 0.")
                                 elif dt_remark_sel in ["+ Add New...", ""]:
                                     st.error("❌ Please select a remark.")
@@ -417,6 +413,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                                         "remarks":       dt_remark_sel,
                                     }
                                     supabase.table("transfers").insert(new_direct).execute()
+                                    send_transfer_notification(new_direct)
                                     st.session_state['tr_direct_staged'] = None
                                     st.success(f"✅ Direct transfer recorded — {dt_qty} {unit_to_use} of {staged['item_name']} → {dt_to_loc} ({dt_remark_sel})")
                                     st.rerun()

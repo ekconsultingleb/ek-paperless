@@ -658,6 +658,7 @@ def render_main(conn, sheet_link, user, role):
                         st.write("")
                         e_inv_reminder = st.checkbox("📅 Inv. Reminder", value=bool(u_data.get('inv_reminder', False)), key=f"e_inv_reminder_{u_sel}")
                         e_cost_reminder = st.checkbox("💰 Cost Reminder", value=bool(u_data.get('cost_reminder', False)), key=f"e_cost_reminder_{u_sel}")
+                        e_transfer_notif = st.checkbox("🔄 Transfer Notif.", value=bool(u_data.get('transfer_notification', False)), key=f"e_transfer_notif_{u_sel}")
 
                     col3, col4, col5 = st.columns(3)
                     with col3:
@@ -691,6 +692,7 @@ def render_main(conn, sheet_link, user, role):
                             "phone": e_phone.strip() or None,
                             "inv_reminder": e_inv_reminder,
                             "cost_reminder": e_cost_reminder,
+                            "transfer_notification": e_transfer_notif,
                         }
                         supabase.table("users").update(update_payload).eq("username", u_sel).execute()
                         st.success(f"✅ User '{u_sel}' updated successfully!")
@@ -788,4 +790,3 @@ def render_main(conn, sheet_link, user, role):
     if t_clients:
         with t_clients:
             render_clients(supabase)
-
