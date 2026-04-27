@@ -278,7 +278,7 @@ st.markdown(custom_css, unsafe_allow_html=True)
 # --- SESSION STATE INITIALIZATION ---
 if 'logged_in' not in st.session_state:
     st.session_state.update({
-        'logged_in': False, 'user': None, 'module': None, 'link': None,
+        'logged_in': False, 'user': None, 'full_name': '', 'module': None, 'link': None,
         'role': None, 'assigned_outlet': 'All', 'assigned_location': 'All',
         'client_name': 'All', 'current_page': 'home'
     })
@@ -339,6 +339,7 @@ if not st.session_state.get('logged_in', False):
                         st.session_state.update({
                             'logged_in': True,
                             'user': match.get('username', u_input),
+                            'full_name': (match.get('full_name') or '').strip() or match.get('username', u_input).title(),
                             'role': str(match.get('role', 'staff')).lower().strip(),
                             'module': match.get('module', 'All'),
                             'link': None,
@@ -361,7 +362,8 @@ if not st.session_state.get('logged_in', False):
 
 else:
     # --- SIDEBAR & USER INFO ---
-    st.sidebar.title(f"👤 {st.session_state['user'].title()}")
+    _display_name = st.session_state.get('full_name') or st.session_state['user'].title()
+    st.sidebar.title(f"👤 {_display_name}")
     st.sidebar.write(f"**Role:** {st.session_state['role'].title()}")
 
     if st.session_state['client_name'].lower() != 'all':
@@ -457,7 +459,7 @@ else:
                 border:1px solid rgba(227,197,173,0.15);
             ">
                 <div style="color:#E3C5AD;font-size:22px;font-weight:600;margin-bottom:4px;">
-                    Welcome back, {user.title()} 👋
+                    Welcome back, {st.session_state.get('full_name') or user.title()} 👋
                 </div>
                 <div style="color:#8a9eaa;font-size:14px;">
                     {role.title()}{client_label}
