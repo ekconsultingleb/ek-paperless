@@ -588,6 +588,7 @@ def render_main(conn, sheet_link, user, role):
                 st.write("")
                 new_inv_reminder = st.checkbox("📅 Inv. Reminder", value=False, key="c_inv_reminder")
                 new_cost_reminder = st.checkbox("💰 Cost Reminder", value=False, key="c_cost_reminder")
+                new_transfer_notif = st.checkbox("🔄 Transfer Notif.", value=False, key="c_transfer_notif")
 
             col3, col4, col5 = st.columns(3)
             with col3:
@@ -613,6 +614,7 @@ def render_main(conn, sheet_link, user, role):
                         "phone": new_phone.strip() or None,
                         "inv_reminder": new_inv_reminder,
                         "cost_reminder": new_cost_reminder,
+                        "transfer_notification": new_transfer_notif,
                     }
                     supabase.table("users").insert([new_user_data]).execute()
                     st.success("✅ User created!")
