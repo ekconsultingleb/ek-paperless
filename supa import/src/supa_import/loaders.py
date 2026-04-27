@@ -1,6 +1,6 @@
 import pandas as pd
 from supa_import.modeling import normalize_column_name, clean_value
-import pandas as pd
+import numpy as np
 from psycopg2.extras import execute_values
 from psycopg2 import sql as psql
 
@@ -22,15 +22,17 @@ def extract_sheets_and_client(file_path, sheet_config):
             name: pd.read_excel(xls, sheet_name=name)
             for name in common_names
         }
-
+        
         info_df = pd.read_excel(xls, sheet_name="Info")
-        real_client = info_df.iloc[0,1]
-        cur = info_df.iloc[0,3]
+        row = info_df.loc[0]
+
+        real_client = row.get('Restaurant Name')
+        cur = row.get('Currency')
         if isinstance(cur,str):
             currency = cur.strip().lower()
         else:
-            currency = None
-        rate = info_df.iloc[0,4]
+            currency = np.nan
+        rate = row.get('Rate')
 
         info = {
             "status": 'ok',
@@ -41,7 +43,8 @@ def extract_sheets_and_client(file_path, sheet_config):
         }
 
         if info['missing_in_workbook']:
-            errors.append(", ".join(info['missing_in_workbook']))
+            missing_str = (", ".join(info['missing_in_workbook']))
+            errors.append('Missing sheets: ' + missing_str)
 
         if pd.isna(real_client):
             errors.append('Invalid client name')
@@ -51,8 +54,7 @@ def extract_sheets_and_client(file_path, sheet_config):
 
         if pd.isna(rate):
             errors.append('Invalid rate')
-
-        if rate == 1:
+        elif rate == 1:
             errors.append('⚠️ Rate = 1')
 
         if errors:
