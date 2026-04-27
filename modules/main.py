@@ -604,12 +604,12 @@ def render_main(conn, sheet_link, user, role):
                     st.error("❌ Username and password are required.")
                 else:
                     new_user_data = {
-                        "username": new_username.strip(),
+                        "username": new_username.strip().lower(),
                         "password": hash_password(new_password.strip()),
                         "full_name": new_fullname.strip(),
                         "role": new_role, "client_name": new_client, "outlet": new_outlet,
                         "location": ", ".join(new_locations), "module": ", ".join(new_modules),
-                        "email": new_email.strip() or None,
+                        "email": new_email.strip().lower() or None,
                         "phone": new_phone.strip() or None,
                         "inv_reminder": new_inv_reminder,
                         "cost_reminder": new_cost_reminder,

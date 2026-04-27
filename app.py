@@ -311,7 +311,7 @@ if not st.session_state.get('logged_in', False):
     """, unsafe_allow_html=True)
 
     with st.container(border=True):
-        u_input = st.text_input("Username").strip()
+        u_input = st.text_input("Username").strip().lower()
         p_input = st.text_input("Password", type="password").strip()
 
         # Show lockout message above button if active
@@ -328,12 +328,12 @@ if not st.session_state.get('logged_in', False):
             else:
                 try:
                     # Fetch by username only — verify password in Python (supports hashing)
-                    response = supabase.table("users").select("*").eq("username", u_input).execute()
+                    response = supabase.table("users").select("*").ilike("username", u_input).execute()
                     match = next((u for u in (response.data or []) if verify_password(p_input, u.get('password', ''))), None)
                     if match:
                         # Auto-upgrade legacy plaintext password to hash on first login
                         if not str(match.get('password', '')).startswith('pbkdf2:'):
-                            supabase.table("users").update({"password": hash_password(p_input)}).eq("username", u_input).execute()
+                            supabase.table("users").update({"password": hash_password(p_input)}).ilike("username", u_input).execute()
                         st.session_state['login_attempts'] = 0
                         st.session_state['login_locked_until'] = 0
                         st.session_state.update({
