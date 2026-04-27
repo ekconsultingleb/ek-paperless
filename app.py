@@ -311,7 +311,7 @@ if not st.session_state.get('logged_in', False):
     """, unsafe_allow_html=True)
 
     with st.container(border=True):
-        u_input = st.text_input("Username").strip().lower()
+        u_input = st.text_input("Username").strip()
         p_input = st.text_input("Password", type="password").strip()
 
         # Show lockout message above button if active
