@@ -143,6 +143,102 @@ def _transfer_email_html(transfer: dict) -> str:
     """
 
 
+def _request_email_html(transfer: dict) -> str:
+    items_html = ""
+    try:
+        items = json.loads(transfer.get("details") or "[]")
+        if items and isinstance(items, list):
+            for item in items:
+                name = item.get("item_name", "")
+                qty  = item.get("requested_qty", "")
+                unit = item.get("requested_unit", "")
+                items_html += f"<tr><td style='padding:6px 12px;font-weight:600;border-bottom:1px solid #eee;'>{name}</td><td style='padding:6px 12px;color:#555;border-bottom:1px solid #eee;'>{qty} {unit}</td></tr>"
+    except Exception:
+        pass
+
+    requester = transfer.get("requester", "")
+    from_loc  = transfer.get("from_location", "")
+    to_loc    = transfer.get("to_location", "")
+    date      = transfer.get("date", "")
+    tid       = transfer.get("transfer_id", "")
+
+    return f"""
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#1B252C;">
+      <div style="background:#1B252C;padding:20px 28px;border-radius:8px 8px 0 0;">
+        <p style="color:#E3C5AD;font-size:13px;margin:0;letter-spacing:0.04em;text-transform:uppercase;">EK Consulting · Paperless</p>
+        <p style="color:#fff;font-size:18px;font-weight:600;margin:6px 0 0;">New Transfer Request</p>
+      </div>
+      <div style="background:#f9f8f6;padding:24px 28px;border:1px solid #e8e4de;border-top:none;border-radius:0 0 8px 8px;">
+        <table style="width:100%;border-collapse:collapse;font-size:14px;">
+          <tr><td style="padding:8px 0;color:#888;width:40%;">Requested by</td><td style="padding:8px 0;font-weight:600;">{requester}</td></tr>
+          <tr><td style="padding:8px 0;color:#888;">Dispatch from</td><td style="padding:8px 0;">{from_loc}</td></tr>
+          <tr><td style="padding:8px 0;color:#888;">Deliver to</td><td style="padding:8px 0;">{to_loc}</td></tr>
+          <tr><td style="padding:8px 0;color:#888;">Date &amp; time</td><td style="padding:8px 0;">{date}</td></tr>
+          <tr><td style="padding:8px 0;color:#888;">Transfer ID</td><td style="padding:8px 0;font-family:monospace;font-size:13px;color:#888;">#{tid}</td></tr>
+        </table>
+        <p style="font-size:13px;font-weight:600;margin:20px 0 8px;">Items requested:</p>
+        <table style="width:100%;border-collapse:collapse;font-size:14px;border:1px solid #e8e4de;border-radius:6px;">
+          <thead><tr style="background:#1B252C;color:#E3C5AD;">
+            <th style="padding:8px 12px;text-align:left;font-size:12px;">Item</th>
+            <th style="padding:8px 12px;text-align:left;font-size:12px;">Qty</th>
+          </tr></thead>
+          <tbody>{items_html}</tbody>
+        </table>
+        <p style="font-size:12px;color:#aaa;margin-top:24px;border-top:1px solid #e8e4de;padding-top:16px;">
+          Automated notification from EK Paperless. Log in to dispatch this request.
+        </p>
+      </div>
+    </div>"""
+
+
+def _dispatch_email_html(transfer: dict) -> str:
+    items_html = ""
+    try:
+        items = json.loads(transfer.get("details") or "[]")
+        if items and isinstance(items, list):
+            for item in items:
+                name     = item.get("item_name", "")
+                ful_qty  = item.get("fulfilled_qty", "")
+                ful_unit = item.get("fulfilled_unit", item.get("db_unit", ""))
+                items_html += f"<tr><td style='padding:6px 12px;font-weight:600;border-bottom:1px solid #eee;'>{name}</td><td style='padding:6px 12px;color:#555;border-bottom:1px solid #eee;'>{ful_qty} {ful_unit}</td></tr>"
+    except Exception:
+        pass
+
+    from_loc  = transfer.get("from_location", "")
+    to_loc    = transfer.get("to_location", "")
+    action_by = transfer.get("action_by", "").replace("Sent by ", "")
+    date      = transfer.get("date", "")
+    tid       = transfer.get("transfer_id", "")
+
+    return f"""
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#1B252C;">
+      <div style="background:#1B252C;padding:20px 28px;border-radius:8px 8px 0 0;">
+        <p style="color:#E3C5AD;font-size:13px;margin:0;letter-spacing:0.04em;text-transform:uppercase;">EK Consulting · Paperless</p>
+        <p style="color:#fff;font-size:18px;font-weight:600;margin:6px 0 0;">Transfer Dispatched</p>
+      </div>
+      <div style="background:#f9f8f6;padding:24px 28px;border:1px solid #e8e4de;border-top:none;border-radius:0 0 8px 8px;">
+        <table style="width:100%;border-collapse:collapse;font-size:14px;">
+          <tr><td style="padding:8px 0;color:#888;width:40%;">Dispatched by</td><td style="padding:8px 0;font-weight:600;">{action_by}</td></tr>
+          <tr><td style="padding:8px 0;color:#888;">From</td><td style="padding:8px 0;">{from_loc}</td></tr>
+          <tr><td style="padding:8px 0;color:#888;">To</td><td style="padding:8px 0;">{to_loc}</td></tr>
+          <tr><td style="padding:8px 0;color:#888;">Date &amp; time</td><td style="padding:8px 0;">{date}</td></tr>
+          <tr><td style="padding:8px 0;color:#888;">Transfer ID</td><td style="padding:8px 0;font-family:monospace;font-size:13px;color:#888;">#{tid}</td></tr>
+        </table>
+        <p style="font-size:13px;font-weight:600;margin:20px 0 8px;">Items dispatched:</p>
+        <table style="width:100%;border-collapse:collapse;font-size:14px;border:1px solid #e8e4de;border-radius:6px;">
+          <thead><tr style="background:#1B252C;color:#E3C5AD;">
+            <th style="padding:8px 12px;text-align:left;font-size:12px;">Item</th>
+            <th style="padding:8px 12px;text-align:left;font-size:12px;">Dispatched Qty</th>
+          </tr></thead>
+          <tbody>{items_html}</tbody>
+        </table>
+        <p style="font-size:12px;color:#aaa;margin-top:24px;border-top:1px solid #e8e4de;padding-top:16px;">
+          Automated notification from EK Paperless. Log in to confirm receipt.
+        </p>
+      </div>
+    </div>"""
+
+
 # ──────────────────────────────────────────────
 # PUBLIC FUNCTIONS — imported by other modules
 # ──────────────────────────────────────────────
@@ -174,3 +270,35 @@ def send_transfer_notification(transfer: dict, client_name: str = "") -> bool:
     html_body = _transfer_email_html(transfer)
 
     return _resend_send(subject, html_body, recipients)
+
+
+def send_request_notification(transfer: dict, client_name: str = "") -> bool:
+    """Notify dispatchers at from_outlet that a new transfer request needs fulfilling."""
+    outlet = transfer.get("from_outlet", "")
+    try:
+        items   = json.loads(transfer.get("details") or "[]")
+        summary = items[0].get("item_name", "") if items else ""
+        if len(items) > 1:
+            summary += f" +{len(items) - 1} more"
+    except Exception:
+        summary = ""
+
+    recipients = _get_transfer_recipients(client_name=client_name, outlet=outlet)
+    subject    = f"New Transfer Request — {summary} → {transfer.get('to_location', '')}"
+    return _resend_send(subject, _request_email_html(transfer), recipients)
+
+
+def send_dispatch_notification(transfer: dict, client_name: str = "") -> bool:
+    """Notify receivers at to_outlet that their transfer has been dispatched."""
+    outlet = transfer.get("to_outlet", "")
+    try:
+        items   = json.loads(transfer.get("details") or "[]")
+        summary = items[0].get("item_name", "") if items else ""
+        if len(items) > 1:
+            summary += f" +{len(items) - 1} more"
+    except Exception:
+        summary = ""
+
+    recipients = _get_transfer_recipients(client_name=client_name, outlet=outlet)
+    subject    = f"Transfer Dispatched — {summary} → {transfer.get('to_location', '')}"
+    return _resend_send(subject, _dispatch_email_html(transfer), recipients)

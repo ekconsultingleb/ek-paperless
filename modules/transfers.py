@@ -7,7 +7,7 @@ import json
 from supabase import create_client, Client
 from modules.nav_helper import build_outlet_location_sidebar, get_nav_data, get_all_clients, get_outlets_for_client
 from modules.arabizi import arabizi_translate
-from modules.email_helper import send_transfer_notification
+from modules.email_helper import send_transfer_notification, send_request_notification, send_dispatch_notification
 
 # --- SAFELY INITIALIZE SUPABASE ---
 @st.cache_resource
@@ -303,15 +303,27 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
 
                     st.divider()
 
-                    # All locations for this outlet (allow LoR → LoR)
-                    df_outlet_items = df_inv[(df_inv['client_name'] == final_client) & (df_inv['outlet'] == final_outlet)] if not df_inv.empty else pd.DataFrame()
-                    all_outlet_locs = sorted(list(df_outlet_items['location'].dropna().unique())) if not df_outlet_items.empty else (db_locs if db_locs else ["Main Store"])
+                    # Outlet + location selectors — cross-outlet direct transfers allowed
+                    outlets_in_client = sorted(df_inv['outlet'].unique().tolist()) if not df_inv.empty else [final_outlet]
+                    default_idx = outlets_in_client.index(final_outlet) if final_outlet in outlets_in_client else 0
+
+                    col_fo, col_to_o = st.columns(2)
+                    with col_fo:
+                        dt_from_outlet = st.selectbox("📤 From Outlet", outlets_in_client, index=default_idx, key="dt_from_outlet")
+                    with col_to_o:
+                        dt_to_outlet = st.selectbox("📥 To Outlet", outlets_in_client, index=default_idx, key="dt_to_outlet")
+
+                    df_from_outlet_items = df_inv[(df_inv['client_name'] == final_client) & (df_inv['outlet'] == dt_from_outlet)] if not df_inv.empty else pd.DataFrame()
+                    from_outlet_locs = sorted(list(df_from_outlet_items['location'].dropna().unique())) if not df_from_outlet_items.empty else ["Main Store"]
+
+                    df_to_outlet_items = df_inv[(df_inv['client_name'] == final_client) & (df_inv['outlet'] == dt_to_outlet)] if not df_inv.empty else pd.DataFrame()
+                    to_outlet_locs = sorted(list(df_to_outlet_items['location'].dropna().unique())) if not df_to_outlet_items.empty else ["Main Store"]
 
                     col_fl, col_tl = st.columns(2)
                     with col_fl:
-                        dt_from_loc = st.selectbox("📤 From Location", all_outlet_locs, key="dt_from_loc")
+                        dt_from_loc = st.selectbox("📤 From Location", from_outlet_locs, key="dt_from_loc")
                     with col_tl:
-                        dt_to_loc = st.selectbox("📥 To Location", all_outlet_locs, key="dt_to_loc")
+                        dt_to_loc = st.selectbox("📥 To Location", to_outlet_locs, key="dt_to_loc")
 
                     st.divider()
 
@@ -320,7 +332,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
 
                     df_direct_source = df_inv[
                         (df_inv['client_name'] == final_client) &
-                        (df_inv['outlet'] == final_outlet) &
+                        (df_inv['outlet'] == dt_from_outlet) &
                         (df_inv['location'].str.title() == dt_from_loc)
                     ] if not df_inv.empty else pd.DataFrame()
 
@@ -406,9 +418,9 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                                         "date":          now_str,
                                         "status":        "Direct",
                                         "requester":     user,
-                                        "from_outlet":   final_outlet,
+                                        "from_outlet":   dt_from_outlet,
                                         "from_location": dt_from_loc,
-                                        "to_outlet":     final_outlet,
+                                        "to_outlet":     dt_to_outlet,
                                         "to_location":   dt_to_loc,
                                         "request_type":  "Direct",
                                         "details":       details_json,
@@ -554,6 +566,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                                 "remarks":       "",
                             }
                             supabase.table("transfers").insert(new_req).execute()
+                            send_request_notification(new_req, client_name=final_client)
                             st.session_state['tr_cart'] = []
                             st.session_state['tr_staged'] = None
                             st.success("✅ Request submitted!")
@@ -604,11 +617,13 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                                     for idx, item in enumerate(items):
                                         item['fulfilled_qty']  = fulfill_qtys[idx]
                                         item['fulfilled_unit'] = item.get('db_unit', 'pcs')
-                                    supabase.table("transfers").update({
+                                    updated = {
                                         "details":   json.dumps(items),
                                         "status":    "In Transit",
-                                        "action_by": f"Sent by {user}"
-                                    }).eq("transfer_id", tid).execute()
+                                        "action_by": f"Sent by {user}",
+                                    }
+                                    supabase.table("transfers").update(updated).eq("transfer_id", tid).execute()
+                                    send_dispatch_notification({**row.to_dict(), **updated}, client_name=final_client)
                                     st.rerun()
                             else:
                                 edited = st.text_area("Details:", value=row['details'], key=f"e_{tid}", height=120)
