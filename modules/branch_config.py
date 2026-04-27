@@ -188,8 +188,7 @@ def render_branch_config(user, role):
 
     # ── Management Fees ───────────────────────────────────────────────────────
     st.markdown("##### 💼 Management Fees")
-    st.caption("EK consulting commission. Calculated automatically on reports — "
-               "the cashier never sees this.")
+    st.caption("Calculated automatically on reports as a percentage of sales.")
     col7, col8, col9 = st.columns([1, 1, 1.3])
     with col7:
         mgt_fees_enabled = st.checkbox("Mgt fees enabled",
