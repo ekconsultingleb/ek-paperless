@@ -4,6 +4,7 @@ from supabase import create_client, Client
 from modules.clients import render_clients
 from modules.nav_helper import hash_password
 from modules.push_to_database import render_push_to_database
+from modules.branch_config import render_branch_config
 
 # — SAFELY INITIALIZE SUPABASE —
 
@@ -68,19 +69,19 @@ def render_main(conn, sheet_link, user, role):
     # ==========================================
     if is_super_admin:
         st.info("👑 Super Admin Mode: Full access to all database and user controls.")
-        tabs = st.tabs(["📤 Master Sync", "🗄️ Push to Database", "➕ Create User", "👥 Manage Users", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients"])
-        t_sync, t_push_db, t_create, t_view, t_supp, t_edit, t_clients = tabs
+        tabs = st.tabs(["📤 Master Sync", "🗄️ Push to Database", "➕ Create User", "👥 Manage Users", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients", "⚙️ Branch Config"])
+        t_sync, t_push_db, t_create, t_view, t_supp, t_edit, t_clients, t_branch_config = tabs
         t_ac = None
     elif is_normal_admin:
         st.info("🛡️ Admin Mode: Access to sync and onboard users/suppliers.")
-        tabs = st.tabs(["📤 Master Sync", "🗄️ Push to Database", "➕ Create User", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients"])
-        t_sync, t_push_db, t_create, t_supp, t_edit, t_clients = tabs[0], tabs[1], tabs[2], tabs[3], tabs[4], tabs[5]
+        tabs = st.tabs(["📤 Master Sync", "🗄️ Push to Database", "➕ Create User", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients", "⚙️ Branch Config"])
+        t_sync, t_push_db, t_create, t_supp, t_edit, t_clients, t_branch_config = tabs[0], tabs[1], tabs[2], tabs[3], tabs[4], tabs[5], tabs[6]
         t_view = t_ac = None
     else:
         st.info("🏢 HQ Manager Mode: Access to sync the Master Items database.")
         tabs = st.tabs(["📤 Master Sync"])
         t_sync = tabs[0]
-        t_push_db = t_create = t_view = t_supp = t_edit = t_clients = t_ac = None
+        t_push_db = t_create = t_view = t_supp = t_edit = t_clients = t_ac = t_branch_config = None
 
     # ==========================================
     # TAB: MASTER ITEMS SYNC
@@ -790,3 +791,10 @@ def render_main(conn, sheet_link, user, role):
     if t_clients:
         with t_clients:
             render_clients(supabase)
+
+    # ==========================================
+    # TAB: BRANCH CONFIG
+    # ==========================================
+    if t_branch_config:
+        with t_branch_config:
+            render_branch_config(user, role)
