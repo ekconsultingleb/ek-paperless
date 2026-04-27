@@ -31,6 +31,8 @@ DEFAULT_CONFIG = {
     "multi_currency_enabled": True,
     "lbp_rate": 90000,
     "mgt_fees_enabled": False,
+    "mgt_fees_rate": 0.05,
+    "mgt_fees_include_third_party": True,
     "void_tracking_enabled": False,
     "expenses_tracking_enabled": True,
     "base_currency": "USD",
@@ -167,8 +169,6 @@ def _render_entry_form(supabase, user, role, final_client, final_outlet):
         active_features.append(cfg["third_party_label"])
     if cfg["multi_currency_enabled"]:
         active_features.append("USD + LBP cards")
-    if cfg["mgt_fees_enabled"]:
-        active_features.append("Mgt fees")
     if active_features:
         st.caption("Active for this branch: " + " · ".join(active_features))
 
@@ -276,16 +276,11 @@ def _render_entry_form(supabase, user, role, final_client, final_outlet):
         help="Sales recorded as credit / not yet collected.",
     )
 
-    # ── Mgt Fees ──────────────────────────────────────────────────────────────
-    if cfg["mgt_fees_enabled"]:
-        mgt_fees = st.number_input(
-            "💼 Management Fees (USD)",
-            min_value=0.0, step=1.0, format="%.2f",
-            key="dc_mgt",
-            help="Daily management fee (EK consulting).",
-        )
-    else:
-        mgt_fees = 0.0
+    # ── Mgt Fees: now calculated in Reports tab, not entered manually ─────────
+    # (kept here as 0 placeholder for the submission dict — the daily_cash row
+    # still has a mgt_fees column from Phase 1 but we leave it at 0 since the
+    # actual fee is derived from main_reading × rate at report time.)
+    mgt_fees = 0.0
 
     # ══════════════════════════════════════════════════════════════════════════
     # LIVE MATH — Closing Balance & Variance
@@ -455,28 +450,52 @@ def _render_reports(supabase, role, sidebar_client, sidebar_outlet):
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
+    # ── Calculate Mgt Fees per row from each row's form_config snapshot ───────
+    # Why use the snapshot (not the live branch config)? So historical rows
+    # keep their original rate even if the agreement changes later.
+    def _calc_mgt(row):
+        fc = row.get("form_config") or {}
+        if not isinstance(fc, dict) or not fc.get("mgt_fees_enabled"):
+            return 0.0
+        rate = float(fc.get("mgt_fees_rate", 0))
+        base = float(row.get("main_reading", 0) or 0)
+        if fc.get("mgt_fees_include_third_party", True):
+            base += float(row.get("third_party", 0) or 0)
+        return round(base * rate, 2)
+
+    if "form_config" in df.columns:
+        df["mgt_fees_calc"] = df.apply(_calc_mgt, axis=1)
+    else:
+        df["mgt_fees_calc"] = 0.0
+
     total_rev = df["revenue"].sum() if "revenue" in df.columns else 0
     total_exp = df["expenses"].sum() if "expenses" in df.columns else 0
     total_var = df["over_short"].sum() if "over_short" in df.columns else 0
     total_vat = df["vat"].sum() if "vat" in df.columns else 0
+    total_mgt = df["mgt_fees_calc"].sum()
 
-    m1, m2, m3, m4 = st.columns(4)
+    m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Total Revenue", f"{total_rev:,.2f}")
     m2.metric("Total Expenses", f"{total_exp:,.2f}")
     m3.metric("Total VAT", f"{total_vat:,.2f}")
+    m4.metric("Mgt Fees Due", f"{total_mgt:,.2f}",
+              help="Calculated from each day's snapshot rate × base.")
     delta_color = "normal" if abs(total_var) < 1 else "inverse"
-    m4.metric("Net Variance", f"{total_var:+,.2f}",
+    m5.metric("Net Variance", f"{total_var:+,.2f}",
               delta=f"{total_var:+,.2f}", delta_color=delta_color)
 
     st.write("###")
 
     # ── Display table ─────────────────────────────────────────────────────────
-    drop_cols = [c for c in ("id", "created_at", "form_config") if c in df.columns]
+    # Drop internal columns + the legacy (always-zero) mgt_fees column;
+    # the calculated mgt_fees_calc column stays.
+    drop_cols = [c for c in ("id", "created_at", "form_config", "mgt_fees")
+                 if c in df.columns]
     df_show = df.drop(columns=drop_cols).copy()
     st.dataframe(df_show, use_container_width=True, hide_index=True)
     st.caption(f"{len(df_show)} entries · {start_d} → {end_d}")
 
-    # ── CSV download ──────────────────────────────────────────────────────────
+    # ── CSV download (full data, including form_config for audit) ─────────────
     csv_bytes = df.to_csv(index=False).encode("utf-8-sig")
     st.download_button(
         "⬇️ Download CSV",

@@ -24,6 +24,8 @@ DEFAULT_CONFIG = {
     "multi_currency_enabled": True,
     "lbp_rate": 90000,
     "mgt_fees_enabled": False,
+    "mgt_fees_rate": 0.05,
+    "mgt_fees_include_third_party": True,
     "void_tracking_enabled": False,
     "expenses_tracking_enabled": True,
     "base_currency": "USD",
@@ -184,20 +186,40 @@ def render_branch_config(user, role):
                                     key="bcfg_void_on",
                                     help="Adds the voids & discounts sub-form.")
 
-    # ── Other ─────────────────────────────────────────────────────────────────
-    st.markdown("##### 🧾 Other")
-    col7, col8 = st.columns(2)
+    # ── Management Fees ───────────────────────────────────────────────────────
+    st.markdown("##### 💼 Management Fees")
+    st.caption("EK consulting commission. Calculated automatically on reports — "
+               "the cashier never sees this.")
+    col7, col8, col9 = st.columns([1, 1, 1.3])
     with col7:
-        mgt_fees_enabled = st.checkbox("Management fees",
+        mgt_fees_enabled = st.checkbox("Mgt fees enabled",
                                         value=cfg["mgt_fees_enabled"],
-                                        key="bcfg_mgt_on",
-                                        help="Adds a daily mgt fee field for EK consulting fees.")
+                                        key="bcfg_mgt_on")
     with col8:
-        base_currency = st.radio("Base currency",
-                                  ["USD", "LBP"],
-                                  index=0 if cfg["base_currency"] == "USD" else 1,
-                                  horizontal=True,
-                                  key="bcfg_base_cur")
+        mgt_fees_rate_pct = st.number_input("Rate (%)",
+                                              value=float(cfg["mgt_fees_rate"]) * 100,
+                                              min_value=0.0, max_value=100.0,
+                                              step=0.5, format="%.2f",
+                                              disabled=not mgt_fees_enabled,
+                                              key="bcfg_mgt_rate",
+                                              help="Percentage of the base. Typical agreements: 5–7%.")
+    with col9:
+        mgt_fees_include_3p = st.checkbox(
+            "Include third-party in base",
+            value=cfg["mgt_fees_include_third_party"],
+            disabled=not mgt_fees_enabled,
+            key="bcfg_mgt_inc3p",
+            help="If checked: base = Main Reading + Third Party. If not: base = Main Reading only.",
+        )
+
+    # ── Base Currency ─────────────────────────────────────────────────────────
+    st.markdown("##### 💱 Base Currency")
+    base_currency = st.radio("POS base currency",
+                              ["USD", "LBP"],
+                              index=0 if cfg["base_currency"] == "USD" else 1,
+                              horizontal=True,
+                              key="bcfg_base_cur",
+                              label_visibility="collapsed")
 
     # ══════════════════════════════════════════════════════════════════════════
     # 4. BUILD NEW CONFIG DICT
@@ -210,6 +232,8 @@ def render_branch_config(user, role):
         "multi_currency_enabled": multi_currency,
         "lbp_rate": int(lbp_rate),
         "mgt_fees_enabled": mgt_fees_enabled,
+        "mgt_fees_rate": round(mgt_fees_rate_pct / 100, 4),
+        "mgt_fees_include_third_party": mgt_fees_include_3p,
         "void_tracking_enabled": void_enabled,
         "expenses_tracking_enabled": expenses_enabled,
         "base_currency": base_currency,
