@@ -60,6 +60,219 @@ def get_branch_config(outlet: str) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# EXPENSE LINE-ITEM HELPERS
+# ══════════════════════════════════════════════════════════════════════════════
+
+@st.cache_data(ttl=300)
+def get_recent_suppliers(outlet: str, lookback_days: int = 90) -> list:
+    """Most-frequent suppliers for an outlet over the last N days. Cached 5 min."""
+    from datetime import date as _date
+    from collections import Counter
+    cutoff = (_date.today() - timedelta(days=lookback_days)).isoformat()
+    try:
+        res = (get_supabase().table("daily_expenses")
+               .select("supplier")
+               .eq("outlet", outlet)
+               .gte("date", cutoff)
+               .limit(2000)
+               .execute())
+        names = [r["supplier"] for r in (res.data or [])
+                 if r.get("supplier") and str(r["supplier"]).strip()]
+        return [s for s, _ in Counter(names).most_common(20)]
+    except Exception:
+        return []
+
+
+def get_existing_expense_lines(outlet: str, entry_date) -> list:
+    """Load existing daily_expenses rows for a given outlet+date (edit mode)."""
+    try:
+        res = (get_supabase().table("daily_expenses")
+               .select("*")
+               .eq("outlet", outlet)
+               .eq("date", str(entry_date))
+               .order("id")
+               .execute())
+        return res.data or []
+    except Exception:
+        return []
+
+
+def _empty_expense_line() -> dict:
+    return {
+        "supplier": "",
+        "invoice_ref": "",
+        "description": "",
+        "amount_usd": 0.0,
+        "amount_lbp": 0.0,
+        "amount_lbp_to_usd": 0.0,
+    }
+
+
+def _render_expenses_subform(supabase, outlet, client_name, entry_date, cfg):
+    """
+    Repeating sub-form for daily petty cash expenses.
+
+    State lives in st.session_state['dc_expense_lines'] as a list of dicts.
+    Returns (expense_lines, total_usd) — total_usd is what feeds Closing Balance math.
+    """
+    state_key = "dc_expense_lines"
+    state_loaded_for_key = "dc_expense_lines_loaded_for"
+    current_key = f"{outlet}|{entry_date}"
+
+    # ── Load existing lines from DB the FIRST time we see this (outlet,date) ──
+    # If the user changes outlet/date, reload. If they're already editing, leave alone.
+    if st.session_state.get(state_loaded_for_key) != current_key:
+        existing = get_existing_expense_lines(outlet, entry_date)
+        if existing:
+            st.session_state[state_key] = [
+                {
+                    "supplier":          row.get("supplier") or "",
+                    "invoice_ref":       row.get("invoice_ref") or "",
+                    "description":       row.get("description") or "",
+                    "amount_usd":        float(row.get("amount_usd") or 0),
+                    "amount_lbp":        float(row.get("amount_lbp") or 0),
+                    "amount_lbp_to_usd": float(row.get("amount_lbp_to_usd") or 0),
+                }
+                for row in existing
+            ]
+        else:
+            st.session_state[state_key] = []
+        st.session_state[state_loaded_for_key] = current_key
+
+    lines = st.session_state[state_key]
+    suppliers = get_recent_suppliers(outlet)
+    multi_currency = cfg.get("multi_currency_enabled", True)
+    lbp_rate_default = int(cfg.get("lbp_rate", 90000))
+
+    st.markdown("##### 💸 Daily Expenses")
+    if lines:
+        st.caption(f"{len(lines)} line(s). Description is required when amount > 0.")
+    else:
+        st.caption("No expenses yet. Click **+ Add line** below.")
+
+    # ── Render each line as its own row ───────────────────────────────────────
+    to_delete = None
+    for idx, line in enumerate(lines):
+        if multi_currency:
+            cols = st.columns([2, 1.4, 3, 1.3, 1.6, 0.5])
+        else:
+            cols = st.columns([2, 1.4, 3.5, 1.5, 0.5])
+
+        # Supplier — selectbox of recent + free text fallback
+        with cols[0]:
+            supplier_options = ["— none —"] + suppliers + ["✏️ Type new..."]
+            current = line.get("supplier", "")
+            if current and current in suppliers:
+                default_idx = supplier_options.index(current)
+            elif current:
+                # Free-text value not in dropdown; prepend it
+                supplier_options = [current] + supplier_options
+                default_idx = 0
+            else:
+                default_idx = 0
+            choice = st.selectbox(
+                "Supplier" if idx == 0 else " ",
+                supplier_options,
+                index=default_idx,
+                key=f"dc_exp_sup_{idx}",
+                label_visibility="visible" if idx == 0 else "collapsed",
+            )
+            if choice == "✏️ Type new...":
+                line["supplier"] = st.text_input(
+                    " ",
+                    value="",
+                    key=f"dc_exp_sup_new_{idx}",
+                    placeholder="Type supplier name",
+                    label_visibility="collapsed",
+                )
+            elif choice == "— none —":
+                line["supplier"] = ""
+            else:
+                line["supplier"] = choice
+
+        with cols[1]:
+            line["invoice_ref"] = st.text_input(
+                "Invoice #" if idx == 0 else " ",
+                value=line.get("invoice_ref", ""),
+                key=f"dc_exp_inv_{idx}",
+                placeholder="—",
+                label_visibility="visible" if idx == 0 else "collapsed",
+            )
+
+        with cols[2]:
+            line["description"] = st.text_input(
+                "Description *" if idx == 0 else " ",
+                value=line.get("description", ""),
+                key=f"dc_exp_desc_{idx}",
+                placeholder="What was this for?",
+                label_visibility="visible" if idx == 0 else "collapsed",
+            )
+
+        with cols[3]:
+            line["amount_usd"] = st.number_input(
+                "Amount USD" if idx == 0 else " ",
+                value=float(line.get("amount_usd", 0) or 0),
+                min_value=0.0, step=10.0, format="%.2f",
+                key=f"dc_exp_usd_{idx}",
+                label_visibility="visible" if idx == 0 else "collapsed",
+            )
+
+        if multi_currency:
+            with cols[4]:
+                line["amount_lbp"] = st.number_input(
+                    "Amount LBP" if idx == 0 else " ",
+                    value=float(line.get("amount_lbp", 0) or 0),
+                    min_value=0.0, step=10000.0, format="%.0f",
+                    key=f"dc_exp_lbp_{idx}",
+                    label_visibility="visible" if idx == 0 else "collapsed",
+                )
+            line["amount_lbp_to_usd"] = (
+                line["amount_lbp"] / lbp_rate_default if lbp_rate_default > 0 else 0.0
+            )
+            with cols[5]:
+                if idx == 0:
+                    st.write(" ")
+                    st.write(" ")
+                if st.button("✕", key=f"dc_exp_del_{idx}", help="Remove this line"):
+                    to_delete = idx
+        else:
+            line["amount_lbp"] = 0.0
+            line["amount_lbp_to_usd"] = 0.0
+            with cols[4]:
+                if idx == 0:
+                    st.write(" ")
+                    st.write(" ")
+                if st.button("✕", key=f"dc_exp_del_{idx}", help="Remove this line"):
+                    to_delete = idx
+
+    # ── Apply deletion (if any) — done outside the loop to keep indices stable ─
+    if to_delete is not None:
+        lines.pop(to_delete)
+        # Clear the deleted row's widget keys so Streamlit doesn't restore them
+        for prefix in ("dc_exp_sup_", "dc_exp_sup_new_", "dc_exp_inv_",
+                       "dc_exp_desc_", "dc_exp_usd_", "dc_exp_lbp_", "dc_exp_del_"):
+            for k in list(st.session_state.keys()):
+                if k.startswith(prefix):
+                    del st.session_state[k]
+        st.rerun()
+
+    # ── Add line button ───────────────────────────────────────────────────────
+    if st.button("➕ Add line", key="dc_exp_add", help="Add a new expense line"):
+        lines.append(_empty_expense_line())
+        st.rerun()
+
+    # ── Total ─────────────────────────────────────────────────────────────────
+    total_usd = sum(
+        float(l.get("amount_usd", 0) or 0) + float(l.get("amount_lbp_to_usd", 0) or 0)
+        for l in lines
+    )
+    if lines:
+        st.markdown(f"**💵 Total expenses: `{total_usd:,.2f}` USD**")
+
+    return lines, total_usd
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MAIN RENDER FUNCTION
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -204,20 +417,17 @@ def _render_entry_form(supabase, user, role, final_client, final_outlet):
         sales_ht = main_reading
         vat_amount = 0.0
 
-    st.markdown("##### 💵 Cash & Expenses")
-    col_cash, col_exp = st.columns(2)
+    st.markdown("##### 💵 Cash")
+    col_cash = st.columns(1)[0]
     with col_cash:
         cash_val = st.number_input(
             "Cash in Drawer (USD)",
             min_value=0.0, step=10.0, format="%.2f",
             key="dc_cash",
         )
-    with col_exp:
-        exp_val = st.number_input(
-            "Expenses (Petty Cash)",
-            min_value=0.0, step=10.0, format="%.2f",
-            key="dc_exp",
-        )
+
+    # Note: exp_val (total expenses) is computed later from the sub-form lines
+    # if expenses_tracking_enabled, OR from a single input if not.
 
     # ── Credit Cards ──────────────────────────────────────────────────────────
     st.markdown("##### 💳 Credit Cards")
@@ -276,6 +486,20 @@ def _render_entry_form(supabase, user, role, final_client, final_outlet):
         help="Sales recorded as credit / not yet collected.",
     )
 
+    # ── Expenses (line items if enabled, else single input) ───────────────────
+    if cfg["expenses_tracking_enabled"]:
+        expense_lines, exp_val = _render_expenses_subform(
+            supabase, final_outlet, final_client, entry_date, cfg,
+        )
+    else:
+        # Branches with expenses_tracking_enabled=false get the legacy single input
+        exp_val = st.number_input(
+            "Expenses (Petty Cash, USD)",
+            min_value=0.0, step=10.0, format="%.2f",
+            key="dc_exp_single",
+        )
+        expense_lines = []
+
     # ── Mgt Fees: now calculated in Reports tab, not entered manually ─────────
     # (kept here as 0 placeholder for the submission dict — the daily_cash row
     # still has a mgt_fees column from Phase 1 but we leave it at 0 since the
@@ -303,12 +527,9 @@ def _render_entry_form(supabase, user, role, final_client, final_outlet):
                           key="dc_notes", height=80)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # SUBMIT — with duplicate check & confirmation flow
+    # SUBMIT — load existing record if any, else insert fresh
     # ══════════════════════════════════════════════════════════════════════════
     st.divider()
-
-    if "dc_confirm_dup" not in st.session_state:
-        st.session_state["dc_confirm_dup"] = False
 
     submission = {
         # ── identifiers
@@ -338,44 +559,104 @@ def _render_entry_form(supabase, user, role, final_client, final_outlet):
         "over_short": round(over_short, 2),
     }
 
-    # ── Confirmation flow for duplicates ──────────────────────────────────────
-    if st.session_state["dc_confirm_dup"]:
-        st.warning(f"⚠️ A report already exists for **{final_outlet}** "
-                   f"on **{entry_date}**. Submit anyway?")
-        c_yes, c_no = st.columns(2)
-        with c_yes:
-            if st.button("Yes, submit anyway", type="primary",
-                         use_container_width=True, key="dc_dup_yes"):
-                _do_insert(supabase, submission, final_outlet, over_short)
-                st.session_state["dc_confirm_dup"] = False
-        with c_no:
-            if st.button("Cancel", use_container_width=True, key="dc_dup_no"):
-                st.session_state["dc_confirm_dup"] = False
-                st.rerun()
-    else:
-        if st.button("🚀 Submit Daily Report", type="primary",
-                     use_container_width=True, key="dc_submit"):
-            try:
-                existing = (supabase.table("daily_cash").select("id")
-                            .eq("date", str(entry_date))
-                            .eq("outlet", final_outlet)
-                            .execute())
-                if existing.data:
-                    st.session_state["dc_confirm_dup"] = True
-                    st.rerun()
-                else:
-                    _do_insert(supabase, submission, final_outlet, over_short)
-            except Exception as e:
-                st.error(f"❌ Database error: {e}")
-
-
-def _do_insert(supabase, submission, final_outlet, over_short):
+    # Check if a report already exists for (outlet, date) → edit mode if yes
     try:
-        supabase.table("daily_cash").insert([submission]).execute()
-        st.success(f"✅ Saved for {final_outlet} — Variance: {over_short:+,.2f}")
-        st.balloons()
+        existing = (supabase.table("daily_cash").select("id")
+                    .eq("date", str(entry_date))
+                    .eq("outlet", final_outlet)
+                    .limit(1)
+                    .execute())
+        existing_id = existing.data[0]["id"] if existing.data else None
+    except Exception:
+        existing_id = None
+
+    if existing_id:
+        st.info(f"ℹ️ A report already exists for **{final_outlet}** on **{entry_date}**. "
+                f"Submitting will **update** the existing record (and replace its expense lines).")
+        btn_label = "💾 Update Daily Report"
+    else:
+        btn_label = "🚀 Submit Daily Report"
+
+    if st.button(btn_label, type="primary",
+                 use_container_width=True, key="dc_submit"):
+        _save_daily_cash(
+            supabase, submission, expense_lines,
+            existing_id, final_outlet, over_short,
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SAVE / UPDATE — parent + child expense lines, atomic-ish
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _save_daily_cash(supabase, submission, expense_lines,
+                     existing_id, final_outlet, over_short):
+    """
+    Insert or update the daily_cash parent row, then replace its expense lines.
+
+    For child lines we use the simple delete-and-insert pattern instead of
+    diffing — fewer code paths, fewer bugs. The parent row is the system of
+    record either way.
+    """
+    try:
+        # ── 1. Upsert parent ──────────────────────────────────────────────────
+        if existing_id:
+            (supabase.table("daily_cash")
+             .update(submission)
+             .eq("id", existing_id)
+             .execute())
+            parent_id = existing_id
+        else:
+            ins = supabase.table("daily_cash").insert([submission]).execute()
+            if not ins.data:
+                st.error("❌ Failed to insert daily_cash row (no data returned).")
+                return
+            parent_id = ins.data[0]["id"]
+
+        # ── 2. Replace child expense lines ────────────────────────────────────
+        # Always delete first (handles update case where lines were removed/edited)
+        (supabase.table("daily_expenses")
+         .delete()
+         .eq("daily_cash_id", parent_id)
+         .execute())
+
+        if expense_lines:
+            child_rows = [
+                {
+                    "daily_cash_id":     parent_id,
+                    "date":              submission["date"],
+                    "client_name":       submission["client_name"],
+                    "outlet":            submission["outlet"],
+                    "supplier":          line.get("supplier") or None,
+                    "invoice_ref":       line.get("invoice_ref") or None,
+                    "description":       line.get("description"),
+                    "amount_usd":        round(float(line.get("amount_usd", 0)), 2),
+                    "amount_lbp":        round(float(line.get("amount_lbp", 0)), 2),
+                    "amount_lbp_to_usd": round(float(line.get("amount_lbp_to_usd", 0)), 2),
+                    "reported_by":       submission["reported_by"],
+                }
+                for line in expense_lines
+                if line.get("description") and (
+                    float(line.get("amount_usd", 0) or 0) > 0
+                    or float(line.get("amount_lbp", 0) or 0) > 0
+                )
+            ]
+            if child_rows:
+                supabase.table("daily_expenses").insert(child_rows).execute()
+
+        # ── 3. Success ────────────────────────────────────────────────────────
+        action = "Updated" if existing_id else "Saved"
+        st.success(
+            f"✅ {action} {final_outlet} — Variance: {over_short:+,.2f} · "
+            f"{len(expense_lines)} expense line(s)"
+        )
+        # Clear in-progress lines so the form is fresh on next visit
+        st.session_state["dc_expense_lines"] = []
+        if not existing_id:
+            st.balloons()
+
     except Exception as e:
-        st.error(f"❌ Insert failed: {e}")
+        st.error(f"❌ Save failed: {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
