@@ -64,6 +64,7 @@ def _explode_transfers(df: pd.DataFrame) -> pd.DataFrame:
         if items:
             for item in items:
                 rows.append({**base,
+                    "product_code":   item.get("product_code", ""),
                     "item_name":      item.get("item_name", ""),
                     "requested_qty":  item.get("requested_qty", ""),
                     "requested_unit": item.get("requested_unit", ""),
@@ -182,14 +183,14 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
         page_size, start_row = 1000, 0
         if final_client != "Select Branch":
             while True:
-                res = supabase.table("master_items").select("client_name, outlet, location, item_name, count_unit").ilike("client_name", f"%{final_client}%").range(start_row, start_row + page_size - 1).execute()
+                res = supabase.table("master_items").select("client_name, outlet, location, item_name, product_code, count_unit").ilike("client_name", f"%{final_client}%").range(start_row, start_row + page_size - 1).execute()
                 if not res.data: break
                 all_items.extend(res.data)
                 if len(res.data) < page_size: break
                 start_row += page_size
 
         if not all_items:
-            df_inv = pd.DataFrame(columns=['client_name', 'outlet', 'location', 'item_name', 'count_unit'])
+            df_inv = pd.DataFrame(columns=['client_name', 'outlet', 'location', 'item_name', 'product_code', 'count_unit'])
         else:
             df_inv = pd.DataFrame(all_items)
             df_inv['client_name'] = df_inv['client_name'].astype(str).str.strip().str.title()
@@ -342,8 +343,9 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                                 label = f"{item_row['item_name']}\n({item_row.get('count_unit','pcs')})"
                                 if st.button(label, key=f"dt_sel_{item_row['item_name']}_{i}", use_container_width=True):
                                     st.session_state['tr_direct_staged'] = {
-                                        'item_name': item_row['item_name'],
-                                        'db_unit':   str(item_row.get('count_unit', 'pcs'))
+                                        'item_name':    item_row['item_name'],
+                                        'product_code': str(item_row.get('product_code', '')),
+                                        'db_unit':      str(item_row.get('count_unit', 'pcs'))
                                     }
                                     st.rerun()
 
@@ -391,6 +393,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                                     now_str = datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).strftime("%Y-%m-%d %H:%M")
                                     details_json = json.dumps([{
                                         "item_name":      staged['item_name'],
+                                        "product_code":   staged.get('product_code', ''),
                                         "db_unit":        staged['db_unit'],
                                         "requested_qty":  dt_qty,
                                         "requested_unit": unit_to_use,
@@ -475,8 +478,9 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                                 label = f"{item_row['item_name']}\n({item_row.get('count_unit','pcs')})"
                                 if st.button(label, key=f"sel_{item_row['item_name']}_{i}", use_container_width=True):
                                     st.session_state['tr_staged'] = {
-                                        'item_name': item_row['item_name'],
-                                        'db_unit':   str(item_row.get('count_unit', 'pcs'))
+                                        'item_name':    item_row['item_name'],
+                                        'product_code': str(item_row.get('product_code', '')),
+                                        'db_unit':      str(item_row.get('count_unit', 'pcs'))
                                     }
                                     st.rerun()
 
@@ -506,6 +510,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
                                     ]
                                     st.session_state['tr_cart'].append({
                                         'item_name':      staged['item_name'],
+                                        'product_code':   staged.get('product_code', ''),
                                         'db_unit':        staged['db_unit'],
                                         'requested_qty':  req_qty,
                                         'requested_unit': unit_to_use,
@@ -775,7 +780,7 @@ def render_transfers(conn, sheet_link, user, role, assigned_client, assigned_out
 
                     # Reorder columns to surface remarks
                     col_order = ["transfer_id", "date", "status", "remarks", "from_location",
-                                 "to_location", "item_name", "requested_qty", "requested_unit",
+                                 "to_location", "product_code", "item_name", "requested_qty", "requested_unit",
                                  "fulfilled_qty", "fulfilled_unit", "received_qty", "issue_note",
                                  "requester", "action_by", "from_outlet", "to_outlet"]
                     col_order = [c for c in col_order if c in df_flat_display.columns]
