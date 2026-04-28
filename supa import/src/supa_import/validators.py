@@ -274,17 +274,32 @@ def delete_existing_data(conn, sheet_config, branch_id, report_date):
 #             if not unique_key:
 #                 continue
 
-#             items = (
+#             df_display = (
 #                 duplicate_rows[unique_key]
 #                 .drop_duplicates()
 #                 .astype(str)
-#                 .agg(" | ".join, axis=1)
-#                 .tolist()
 #             )
-#             header = " | ".join(unique_key)
-#             rows_text = header + "  \n" + "  \n".join(items)
-#             # rows_text = "  \n".join(items)
 
+#             col_widths = {
+#                 col: max(df_display[col].map(len).max(), len(col))
+#                 for col in unique_key
+#             }
+
+#             header = " | ".join(
+#                 col.ljust(col_widths[col]) for col in unique_key
+#             )
+
+#             separator = "-+-".join("-" * col_widths[col] for col in unique_key)
+
+#             rows = [
+#                 " | ".join(
+#                     row[col].ljust(col_widths[col]) for col in unique_key
+#                 )
+#                 for _, row in df_display.iterrows()
+#             ]
+
+#             rows_text = header + "  \n" + separator + "  \n" + "  \n".join(rows)
+            
 #             block = (
 #                 f"⚠️ {sheet_name}: {len(duplicate_rows)} duplicate rows found  \n"
 #                 f"{rows_text}"
@@ -347,29 +362,36 @@ def check_duplicates(SHEET_CONFIG, sheets):
             df_display = (
                 duplicate_rows[unique_key]
                 .drop_duplicates()
+                .fillna("")
                 .astype(str)
             )
 
             col_widths = {
-                col: max(df_display[col].map(len).max(), len(col))
+                col: max(
+                    df_display[col].astype(str).str.len().max(),
+                    len(str(col))
+                )
                 for col in unique_key
             }
 
             header = " | ".join(
-                col.ljust(col_widths[col]) for col in unique_key
+                str(col).ljust(col_widths[col]) for col in unique_key
             )
 
-            separator = "-+-".join("-" * col_widths[col] for col in unique_key)
+            separator = "-+-".join(
+                "-" * col_widths[col] for col in unique_key
+            )
 
             rows = [
                 " | ".join(
-                    row[col].ljust(col_widths[col]) for col in unique_key
+                    str(row[col]).ljust(col_widths[col])
+                    for col in unique_key
                 )
                 for _, row in df_display.iterrows()
             ]
 
             rows_text = header + "  \n" + separator + "  \n" + "  \n".join(rows)
-            
+
             block = (
                 f"⚠️ {sheet_name}: {len(duplicate_rows)} duplicate rows found  \n"
                 f"{rows_text}"
