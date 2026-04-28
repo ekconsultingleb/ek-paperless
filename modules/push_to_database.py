@@ -67,6 +67,7 @@ def render_push_to_database(user: str):
             validate_report_period,
             find_existing_data,
             delete_existing_data,
+            check_duplicates,
         )
     except Exception as e:
         st.error(f"Failed to load supa_import package: {e}")
@@ -101,10 +102,6 @@ def render_push_to_database(user: str):
         sheets_dict, file_client_name, currency, rate, info = extract_sheets_and_client(
             uploaded_file, SHEET_CONFIG
         )
-        # if info.get("missing_in_workbook"):
-        #     st.error(f"Missing sheets: {info.get('missing_str', '')}")
-        #     extract_st.update(label="Extracting Sheets", state="error", expanded=True)
-        #     return
         if info['status'] != 'ok':
             st.error(info['msg'])
             extract_st.update(label="Extracting Sheets", state="error", expanded=True)
@@ -219,6 +216,19 @@ def render_push_to_database(user: str):
         sheets_dict = clean_numeric_values(sheets_dict)
 
         pro_st.update(label="Processing Data", state="complete", expanded=True)
+
+
+
+    with st.status("Checking constraints...", expanded=True) as cons_st:
+        cons_res = check_duplicates(SHEET_CONFIG, sheets_dict)
+        if cons_res['status'] != 'ok':
+            st.code(cons_res['msg'], language=None)
+            cons_st.update(label="Checking constraints", state="error", expanded=True)
+            return
+        st.write(cons_res['msg'])
+        cons_st.update(label="Checking constraints", state="complete", expanded=True)
+        
+
 
     with st.status("Writing to Database...", expanded=True) as write_st:
         try:

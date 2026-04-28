@@ -232,3 +232,157 @@ def delete_existing_data(conn, sheet_config, branch_id, report_date):
         }
 
 
+
+# def check_duplicates(SHEET_CONFIG, sheets):
+
+#     duplicates_report = {}
+
+#     for sheet_name, config in SHEET_CONFIG.items():
+
+#         if sheet_name not in sheets:
+#             continue
+
+#         data = sheets[sheet_name]
+#         unique_key = config.get("unique_key", [])
+
+#         if not unique_key:
+#             continue
+
+#         missing_cols = [col for col in unique_key if col not in data.columns]
+
+#         if missing_cols:
+#             continue
+
+#         duplicate_mask = data.duplicated(subset=unique_key, keep=False)
+#         duplicate_rows = data[duplicate_mask].sort_values(by=unique_key)
+
+#         if not duplicate_rows.empty:
+#             duplicates_report[sheet_name] = {
+#                 "rows": duplicate_rows,
+#                 "unique_key": unique_key
+#             }
+
+#     if duplicates_report:
+
+#         msgs = []
+
+#         for sheet_name, result in duplicates_report.items():
+
+#             duplicate_rows = result["rows"]
+#             unique_key = result.get("unique_key", [])
+
+#             if not unique_key:
+#                 continue
+
+#             items = (
+#                 duplicate_rows[unique_key]
+#                 .drop_duplicates()
+#                 .astype(str)
+#                 .agg(" | ".join, axis=1)
+#                 .tolist()
+#             )
+#             header = " | ".join(unique_key)
+#             rows_text = header + "  \n" + "  \n".join(items)
+#             # rows_text = "  \n".join(items)
+
+#             block = (
+#                 f"⚠️ {sheet_name}: {len(duplicate_rows)} duplicate rows found  \n"
+#                 f"{rows_text}"
+#             )
+
+#             msgs.append(block)
+
+#         return {
+#             "status": "error",
+#             "msg": "  \n  \n".join(msgs)
+#         }
+
+#     return {
+#         "status": "ok",
+#         "msg": "All constraints are satisfied"
+#     }
+
+
+def check_duplicates(SHEET_CONFIG, sheets):
+
+    duplicates_report = {}
+
+    for sheet_name, config in SHEET_CONFIG.items():
+
+        if sheet_name not in sheets:
+            continue
+
+        data = sheets[sheet_name]
+        unique_key = config.get("unique_key", [])
+
+        if not unique_key:
+            continue
+
+        missing_cols = [col for col in unique_key if col not in data.columns]
+
+        if missing_cols:
+            continue
+
+        duplicate_mask = data.duplicated(subset=unique_key, keep=False)
+        duplicate_rows = data[duplicate_mask].sort_values(by=unique_key)
+
+        if not duplicate_rows.empty:
+            duplicates_report[sheet_name] = {
+                "rows": duplicate_rows,
+                "unique_key": unique_key
+            }
+
+    if duplicates_report:
+
+        msgs = []
+
+        for sheet_name, result in duplicates_report.items():
+
+            duplicate_rows = result["rows"]
+            unique_key = result.get("unique_key", [])
+
+            if not unique_key:
+                continue
+
+            df_display = (
+                duplicate_rows[unique_key]
+                .drop_duplicates()
+                .astype(str)
+            )
+
+            col_widths = {
+                col: max(df_display[col].map(len).max(), len(col))
+                for col in unique_key
+            }
+
+            header = " | ".join(
+                col.ljust(col_widths[col]) for col in unique_key
+            )
+
+            separator = "-+-".join("-" * col_widths[col] for col in unique_key)
+
+            rows = [
+                " | ".join(
+                    row[col].ljust(col_widths[col]) for col in unique_key
+                )
+                for _, row in df_display.iterrows()
+            ]
+
+            rows_text = header + "  \n" + separator + "  \n" + "  \n".join(rows)
+            
+            block = (
+                f"⚠️ {sheet_name}: {len(duplicate_rows)} duplicate rows found  \n"
+                f"{rows_text}"
+            )
+
+            msgs.append(block)
+
+        return {
+            "status": "error",
+            "msg": "  \n  \n".join(msgs)
+        }
+
+    return {
+        "status": "ok",
+        "msg": "All constraints are satisfied"
+    }

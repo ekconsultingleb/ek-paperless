@@ -170,34 +170,3 @@ def push_sheets(sheets: dict, sheet_config: dict, conn):
 
 
 
-
-
-
-
-
-
-# def extract_sheets_and_client(file_path, sheet_config):
-
-#     with pd.ExcelFile(file_path) as xls:
-
-#         common_names = [s for s in xls.sheet_names if s in sheet_config]
-#         sheets_dict = {
-#             name: pd.read_excel(xls, sheet_name=name)
-#             for name in common_names
-#         }
-
-#         info_df = pd.read_excel(xls, sheet_name="Info")
-#         real_client = info_df.iloc[0,1]
-#         currency = info_df.iloc[0,3].strip().lower()
-#         rate = info_df.iloc[0,4]
-
-#         info = {
-#             "common_sheet_names": common_names,
-#             "missing_in_workbook": [s for s in sheet_config if s not in xls.sheet_names],
-#             "extra_in_workbook": [s for s in xls.sheet_names if s not in sheet_config]
-#         }
-
-#         if info['missing_in_workbook']:
-#             info['missing_str'] = ", ".join(info['missing_in_workbook'])
-
-#     return sheets_dict, real_client, currency, rate, info
