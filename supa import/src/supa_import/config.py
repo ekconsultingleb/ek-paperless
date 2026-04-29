@@ -575,6 +575,13 @@ SHEET_CONFIG = {
             'avgpurusacost'
         ],
 
+        "unique_key": [
+            'branch_id',
+            'report_date',
+            'menu_items',
+            'product_description'
+        ],
+
         "load_mode": "insert",
     },
 
