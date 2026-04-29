@@ -614,6 +614,13 @@ SHEET_CONFIG = {
             'adjustment'
         ],
 
+        "unique_key": [
+            'branch_id',
+            'report_date',
+            'production_name',
+            'product_description'
+        ],
+
         "load_mode": "insert",
     },
 
