@@ -68,7 +68,18 @@ def add_inventory_qty(item_key, row_dict, input_key):
     added_val = st.session_state.get(input_key, 0.0)
     if added_val > 0:
         if item_key not in st.session_state['mobile_counts']:
-            st.session_state['mobile_counts'][item_key] = {'row_data': row_dict, 'qty': 0.0}
+            # Store only the fields needed for submission, all cast to str.
+            # row.to_dict() returns numpy types (int64, float64) which break
+            # json.dumps — this was silently swallowing every draft save.
+            safe_row = {
+                'item_name':    str(row_dict.get('item_name', item_key)),
+                'product_code': str(row_dict.get('product_code', '')),
+                'item_type':    str(row_dict.get('item_type', '')),
+                'category':     str(row_dict.get('category', '')),
+                'sub_category': str(row_dict.get('sub_category', '')),
+                'count_unit':   str(row_dict.get('count_unit', 'pcs')),
+            }
+            st.session_state['mobile_counts'][item_key] = {'row_data': safe_row, 'qty': 0.0}
         st.session_state['mobile_counts'][item_key]['qty'] += added_val
         st.session_state[input_key] = 0.0
         # Mark draft as dirty — actual save is debounced (max 1 API call per 30s)
@@ -108,8 +119,9 @@ def save_draft(supabase, user, client, outlet, location, counts):
         supabase.table("inventory_drafts")            .upsert(draft, on_conflict="user_name,client_name,outlet")            .execute()
         st.session_state['_draft_dirty'] = False
         st.session_state['_draft_last_saved'] = datetime.now().timestamp()
+        st.session_state['_draft_save_error'] = False
     except Exception:
-        pass  # Draft save is best-effort — never block the user
+        st.session_state['_draft_save_error'] = True  # Surface to UI so user knows
 
 def maybe_save_draft(supabase, user, client, outlet, location, counts):
     """Debounced save — hits Supabase immediately on first item, then every 30s.
@@ -182,6 +194,8 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
         st.session_state['_pending_draft'] = {}
     if '_pending_draft_time' not in st.session_state:
         st.session_state['_pending_draft_time'] = ''
+    if '_draft_save_error' not in st.session_state:
+        st.session_state['_draft_save_error'] = False
 
     def lock_submit():
         st.session_state['submit_lock'] = True
@@ -418,13 +432,21 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                 supabase, user, final_client, final_outlet,
                 loc_filter, st.session_state['mobile_counts']
             )
+            if st.session_state.get('_draft_save_error'):
+                st.warning("⚠️ **Auto-save failed** — your progress is NOT being backed up. Check your connection. If this persists, submit your count now or contact support.", icon="⚠️")
 
         # Reset category/group filters when outlet changes so stale session state
-        # values don't fall back to "All" on the new outlet's item list
+        # values don't fall back to "All" on the new outlet's item list.
+        # Also reset draft state and rerun so the draft check above sees the fresh
+        # outlet immediately (without waiting for the next user interaction).
         if st.session_state.get('_last_inv_outlet') != final_outlet:
             st.session_state.pop('cat_filter', None)
             st.session_state.pop('sub_filter', None)
+            st.session_state['draft_checked'] = False
+            st.session_state['_pending_draft'] = {}
+            st.session_state['_pending_draft_time'] = ''
             st.session_state['_last_inv_outlet'] = final_outlet
+            st.rerun()
 
         count_date = st.date_input("📅 Date", datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")), key="count_date")
         st.divider()
