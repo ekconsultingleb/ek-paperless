@@ -116,7 +116,10 @@ def save_draft(supabase, user, client, outlet, location, counts):
             "draft_data":  json.dumps(counts),
             "updated_at":  datetime.now(zoneinfo.ZoneInfo("Asia/Beirut")).isoformat()
         }
-        supabase.table("inventory_drafts")            .upsert(draft, on_conflict="user_name,client_name,outlet")            .execute()
+        # DELETE + INSERT instead of upsert — avoids needing a unique constraint
+        # on (user_name, client_name, outlet) which wasn't present in the DB.
+        supabase.table("inventory_drafts").delete().eq("user_name", user).eq("client_name", client).eq("outlet", outlet).execute()
+        supabase.table("inventory_drafts").insert(draft).execute()
         st.session_state['_draft_dirty'] = False
         st.session_state['_draft_last_saved'] = datetime.now().timestamp()
         st.session_state['_draft_save_error'] = False
