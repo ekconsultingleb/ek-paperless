@@ -120,8 +120,9 @@ def save_draft(supabase, user, client, outlet, location, counts):
         st.session_state['_draft_dirty'] = False
         st.session_state['_draft_last_saved'] = datetime.now().timestamp()
         st.session_state['_draft_save_error'] = False
-    except Exception:
-        st.session_state['_draft_save_error'] = True  # Surface to UI so user knows
+    except Exception as e:
+        st.session_state['_draft_save_error'] = True
+        st.session_state['_draft_save_error_msg'] = str(e)
 
 def maybe_save_draft(supabase, user, client, outlet, location, counts):
     """Debounced save — hits Supabase immediately on first item, then every 30s.
@@ -433,7 +434,8 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                 loc_filter, st.session_state['mobile_counts']
             )
             if st.session_state.get('_draft_save_error'):
-                st.warning("⚠️ **Auto-save failed** — your progress is NOT being backed up. Check your connection. If this persists, submit your count now or contact support.", icon="⚠️")
+                err_msg = st.session_state.get('_draft_save_error_msg', '')
+                st.warning(f"⚠️ **Auto-save failed** — your progress is NOT being backed up. Check your connection. If this persists, submit your count now or contact support.\n\n`{err_msg}`", icon="⚠️")
 
         # Reset category/group filters when outlet changes so stale session state
         # values don't fall back to "All" on the new outlet's item list.
