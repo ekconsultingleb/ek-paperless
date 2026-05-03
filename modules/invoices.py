@@ -627,7 +627,12 @@ def render_invoices(conn, sheet_link, user, role):
             elif fast_mode:
                 st.session_state.pop('ai_invoice_data', None)
 
-            ai          = st.session_state.get('ai_invoice_data', {}) if not fast_mode else {}
+            ai = st.session_state.get('ai_invoice_data', {}) if not fast_mode else {}
+            # Defensive unwrap — Gemini occasionally wraps in a list
+            if isinstance(ai, list) and len(ai) > 0:
+                ai = ai[0]
+            if not isinstance(ai, dict):
+                ai = {}
             ai_supplier = ai.get("supplier")
             ai_total    = ai.get("total")
             ai_currency = ai.get("currency")
