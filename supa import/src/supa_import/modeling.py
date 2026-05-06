@@ -167,13 +167,21 @@ def normalize_string_columns(sheets_dict):
 
         for col in str_cols:
             try:
-                df[col] = (
-                    df[col]
-                    .astype(str)
-                    .str.strip()
-                    .str.replace(r"\s+", " ", regex=True)
-                    .str.replace(r"[’']", "", regex=True)
-                    .str.title()
+                # df[col] = (
+                #     df[col]
+                #     .astype(str)
+                #     .str.strip()
+                #     .str.replace(r"\s+", " ", regex=True)
+                #     .str.replace(r"[’']", "", regex=True)
+                #     .str.title()
+                # )
+                df[col] = df[col].apply(
+                    lambda x: (
+                        str(x).strip()
+                        .replace("’", "")
+                        .replace("'", "")
+                        if isinstance(x, str) else x
+                    )
                 )
             except Exception as e:
                 errors.append(f"⚠️ {sheet_name}[{col}]: {e}")

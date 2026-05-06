@@ -68,6 +68,7 @@ def render_push_to_database(user: str):
             find_existing_data,
             delete_existing_data,
             check_duplicates,
+            check_rows
         )
     except Exception as e:
         st.error(f"Failed to load supa_import package: {e}")
@@ -195,6 +196,13 @@ def render_push_to_database(user: str):
         val_st.update(label="Validating Client and Date", state="complete", expanded=True)
 
     with st.status("Processing Data...", expanded=True) as pro_st:
+
+        rows_res = check_rows(sheets_dict, SHEET_CONFIG)
+        if rows_res['status'] != 'ok':
+            st.write(rows_res['msg'])
+            pro_st.update(label="Processing Data", state="error", expanded=True)
+            return
+
         grp_res = apply_grouping(sheets_dict, SHEET_CONFIG)
         if grp_res["status"] != "ok":
             st.write(grp_res["message"])
@@ -214,22 +222,24 @@ def render_push_to_database(user: str):
         st.write(meta_res["message"])
 
         sheets_dict = clean_numeric_values(sheets_dict)
-
+        
         pro_st.update(label="Processing Data", state="complete", expanded=True)
 
 
 
     with st.status("Checking constraints...", expanded=True) as cons_st:
+        
         cons_res = check_duplicates(SHEET_CONFIG, sheets_dict)
         if cons_res['status'] != 'ok':
             st.code(cons_res['msg'], language=None)
             cons_st.update(label="Checking constraints", state="error", expanded=True)
             return
         st.write(cons_res['msg'])
+
         cons_st.update(label="Checking constraints", state="complete", expanded=True)
-        
 
 
+    
     with st.status("Writing to Database...", expanded=True) as write_st:
         try:
             load_res = push_sheets(sheets_dict, SHEET_CONFIG, conn)
