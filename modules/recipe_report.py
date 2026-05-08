@@ -53,13 +53,27 @@ def _get_branch_id(supabase: Client, outlet: str):
 
 def _get_dates(supabase: Client, branch_id: int) -> list:
     try:
-        res = supabase.table("ac_recipes").select("report_date").eq(
+        # 1. Get dates from menu items (ac_recipes)
+        res_recipes = supabase.table("ac_recipes").select("report_date").eq(
             "branch_id", branch_id
         ).execute()
-        return sorted({r["report_date"] for r in (res.data or [])}, reverse=True)
-    except Exception:
-        return []
+        dates_recipes = {r["report_date"] for r in (res_recipes.data or [])}
 
+        # 2. Get dates from productions (ac_sub_recipes)
+        res_subs = supabase.table("ac_sub_recipes").select("report_date").eq(
+            "branch_id", branch_id
+        ).execute()
+        dates_subs = {r["report_date"] for r in (res_subs.data or [])}
+
+        # 3. Combine them so NO dates are left behind!
+        all_dates = dates_recipes.union(dates_subs)
+        
+        # Sort them from newest to oldest
+        return sorted(list(all_dates), reverse=True)
+        
+    except Exception as e:
+        st.error(f"Error loading dates: {e}")
+        return []
 
 def _load_recipes(supabase: Client, branch_id: int, report_date: str) -> list:
     try:
@@ -271,21 +285,6 @@ def render_recipe_report(supabase: Client, user: str, role: str,
     st.markdown("### 🍽️ Recipe Cards")
     st.caption("Productions & Menu Items from Auto Calc data.")
 
-    # --- ADD THIS TEST CODE ---
-    st.write("🔍 Testing Supabase Connection...")
-    try:
-        # Try to just get the count of branches
-        test_res = supabase.table("branches").select("id", count="exact").limit(1).execute()
-        st.success(f"Connected! Found {test_res.count} branches in the database.")
-        
-        # Test pulling ONE row from ac_recipes to see if it reads anything
-        test_recipes = supabase.table("ac_recipes").select("report_date, branch_id").limit(1).execute()
-        st.write("Sample date from ac_recipes:", test_recipes.data)
-        
-    except Exception as e:
-        st.error(f"Supabase Connection Failed: {e}")
-
-
     if not REPORTLAB_OK:
         st.warning("reportlab not installed — PDF export unavailable.")
 
@@ -300,10 +299,6 @@ def render_recipe_report(supabase: Client, user: str, role: str,
 
     branch_id = _get_branch_id(supabase, outlet)
 
-    # --- ADD THIS DEBUG LINE ---
-    st.write(f"👀 Debug: Outlet '{outlet}' mapped to branch_id: {branch_id}")
-    # ---------------------------
-    
     if not branch_id:
         st.warning(f"Outlet **{outlet}** not found in branches table.")
         return
