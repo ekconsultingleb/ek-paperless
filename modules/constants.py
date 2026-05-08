@@ -20,7 +20,7 @@ PAGE_MAIN           = "main"
 PAGE_PRICING_STUDIO = "pricing studio"
 
 # ── Module access keys (must match values stored in users.module column) ──────
-MOD_CASH           = "cash"
+MOD_CASH           = "daily-cash"
 MOD_INVENTORY      = "inventory"
 MOD_WASTE          = "waste"
 MOD_INVOICES       = "invoices"
@@ -45,4 +45,4 @@ ALL_MODULES = [
 
 # ── App config ────────────────────────────────────────────────────────────────
 LOGO_URL    = "https://hgvubaohmgvesblfvdps.supabase.co/storage/v1/object/public/assets/EK-Logo.png"
-APP_VERSION = "2.10.7"
+APP_VERSION = "2.10.8"
