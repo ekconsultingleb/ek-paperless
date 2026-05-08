@@ -299,6 +299,11 @@ def render_recipe_report(supabase: Client, user: str, role: str,
         return
 
     branch_id = _get_branch_id(supabase, outlet)
+
+    # --- ADD THIS DEBUG LINE ---
+    st.write(f"👀 Debug: Outlet '{outlet}' mapped to branch_id: {branch_id}")
+    # ---------------------------
+    
     if not branch_id:
         st.warning(f"Outlet **{outlet}** not found in branches table.")
         return
