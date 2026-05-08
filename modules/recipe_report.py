@@ -271,6 +271,21 @@ def render_recipe_report(supabase: Client, user: str, role: str,
     st.markdown("### 🍽️ Recipe Cards")
     st.caption("Productions & Menu Items from Auto Calc data.")
 
+    # --- ADD THIS TEST CODE ---
+    st.write("🔍 Testing Supabase Connection...")
+    try:
+        # Try to just get the count of branches
+        test_res = supabase.table("branches").select("id", count="exact").limit(1).execute()
+        st.success(f"Connected! Found {test_res.count} branches in the database.")
+        
+        # Test pulling ONE row from ac_recipes to see if it reads anything
+        test_recipes = supabase.table("ac_recipes").select("report_date, branch_id").limit(1).execute()
+        st.write("Sample date from ac_recipes:", test_recipes.data)
+        
+    except Exception as e:
+        st.error(f"Supabase Connection Failed: {e}")
+
+
     if not REPORTLAB_OK:
         st.warning("reportlab not installed — PDF export unavailable.")
 
