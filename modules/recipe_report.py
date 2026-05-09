@@ -34,6 +34,7 @@ EK_MID    = colors.HexColor("#8C7B6E")
 EK_WHITE  = colors.white
 EK_GREY   = colors.HexColor("#D3D1C7")
 EK_ACCENT = colors.HexColor("#C4A882")
+EK_AMBER  = colors.HexColor("#D97706")
 
 # item_groups to auto-untick
 _REMARK_GROUPS = {"bar remarks", "kitchen remarks", "gls add on"}
@@ -49,6 +50,22 @@ def _get_branch_id(supabase: Client, outlet: str):
         return res.data["id"] if res.data else None
     except Exception:
         return None
+
+
+def _load_selling_prices(supabase: Client, branch_id: int, report_date: str) -> dict:
+    """Returns dict keyed by menu_items name → sp_exc_vat value."""
+    try:
+        res = supabase.table("ac_selling_prices").select(
+            "menu_items,sp_exc_vat"
+        ).eq("branch_id", branch_id).eq("report_date", report_date).execute()
+        return {
+            r["menu_items"]: r["sp_exc_vat"]
+            for r in (res.data or [])
+            if r.get("menu_items") and r.get("sp_exc_vat") is not None
+        }
+    except Exception as e:
+        st.warning(f"Could not load selling prices: {e}")
+        return {}
 
 
 def _get_dates(supabase: Client, branch_id: int) -> list:
@@ -308,7 +325,7 @@ def render_recipe_report(supabase: Client, user: str, role: str,
         st.info("No Auto Calc data found for this outlet.")
         return
 
-    col_d, col_c = st.columns([2, 1])
+    col_d, col_c, col_sp = st.columns([2, 1, 1])
     with col_d:
         selected_date = st.selectbox(
             "📅 Report month", dates,
@@ -317,11 +334,14 @@ def render_recipe_report(supabase: Client, user: str, role: str,
         )
     with col_c:
         show_cost = st.toggle("💰 Show cost", value=False, key="rr_show_cost")
+    with col_sp:
+        show_sp = st.toggle("🏷️ Selling price", value=False, key="rr_show_sp")
 
     # Load
     with st.spinner("Loading…"):
         raw_recipes = _load_recipes(supabase, branch_id, selected_date)
         raw_subs    = _load_subs(supabase, branch_id, selected_date)
+        sp_map      = _load_selling_prices(supabase, branch_id, selected_date) if show_sp else {}
 
     if not raw_recipes and not raw_subs:
         st.warning("No data found for this period.")
@@ -386,7 +406,8 @@ def render_recipe_report(supabase: Client, user: str, role: str,
                              width="stretch", key="exp_menu"):
                     with st.spinner("Building PDF…"):
                         pdf = _build_menu_pdf(
-                            selected_menu, outlet, selected_date, show_cost
+                            selected_menu, outlet, selected_date, show_cost,
+                            show_sp=show_sp, sp_map=sp_map
                         )
                     if pdf:
                         fname = f"MenuCards_{outlet.replace(' ','_')}_{_fmt_date(selected_date)}.pdf"
@@ -401,11 +422,11 @@ def render_recipe_report(supabase: Client, user: str, role: str,
         st.divider()
         if st.button("📦 Export All (Productions + Menu Items)", type="secondary",
                      width="stretch", key="exp_all"):
-            # Use whatever is selected in each tab's editor — fall back to all non-excluded
             sel_p = [i for i in productions if not i.get("auto_exclude", False)]
             sel_m = [i for i in menu_items  if not i.get("auto_exclude", False)]
             with st.spinner("Building full PDF…"):
-                pdf = _build_all_pdf(sel_p, sel_m, outlet, selected_date, show_cost)
+                pdf = _build_all_pdf(sel_p, sel_m, outlet, selected_date, show_cost,
+                                     show_sp=show_sp, sp_map=sp_map)
             if pdf:
                 fname = f"RecipeCards_{outlet.replace(' ','_')}_{_fmt_date(selected_date)}.pdf"
                 st.success("Ready!")
@@ -450,6 +471,9 @@ def _make_styles():
         "card_meta": ParagraphStyle(
             "card_meta", fontSize=8, textColor=EK_MID,
             fontName="Helvetica", spaceAfter=4),
+        "card_meta_amber": ParagraphStyle(
+            "card_meta_amber", fontSize=8, textColor=EK_AMBER,
+            fontName="Helvetica-Bold", spaceAfter=4),
         "ing_name": ParagraphStyle(
             "ing_name", fontSize=8, textColor=EK_DARK, fontName="Helvetica"),
         "ing_prod": ParagraphStyle(
@@ -565,7 +589,7 @@ def _pdf_production_card(prod: dict, styles: dict, show_cost: bool) -> list:
                     Paragraph(ing["name"], styles["ing_name"]),
                     Paragraph(qty_str, styles["ing_num"]),
                     Paragraph(ing["unit"] or "—", styles["ing_name"]),
-                    Paragraph(f"{ac:,.4f}" if ac is not None else "—", styles["ing_num"]),
+                    Paragraph(f"{ac:,.1f}" if ac is not None else "—", styles["ing_num"]),
                 ]
             else:
                 row = [
@@ -575,11 +599,10 @@ def _pdf_production_card(prod: dict, styles: dict, show_cost: bool) -> list:
                 ]
             rows.append(row)
 
-        tbl = Table(rows, colWidths=col_w, repeatRows=1)
-        tbl.setStyle(TableStyle([
+        prod_style_cmds = [
             ("BACKGROUND",     (0,0), (-1,0),  EK_DARK),
             ("TEXTCOLOR",      (0,0), (-1,0),  EK_WHITE),
-            ("ROWBACKGROUNDS", (0,1), (-1,-1), [EK_WHITE, EK_LIGHT]),
+            ("ROWBACKGROUNDS", (0,1), (-1,-2 if show_cost else -1), [EK_WHITE, EK_LIGHT]),
             ("GRID",           (0,0), (-1,-1), 0.3, EK_GREY),
             ("FONTSIZE",       (0,0), (-1,-1), 7),
             ("LEFTPADDING",    (0,0), (-1,-1), 4),
@@ -588,7 +611,26 @@ def _pdf_production_card(prod: dict, styles: dict, show_cost: bool) -> list:
             ("BOTTOMPADDING",  (0,0), (-1,-1), 3),
             ("VALIGN",         (0,0), (-1,-1), "MIDDLE"),
             ("ALIGN",          (1,1), (-1,-1), "RIGHT"),
-        ]))
+        ]
+
+        if show_cost:
+            sum_ac = sum((ing.get("cost") or 0) for ing in ings)
+            sum_row_idx = len(rows)
+            sum_r = ParagraphStyle("psum_r", fontSize=7, textColor=EK_WHITE,
+                                   fontName="Helvetica-Bold", alignment=TA_RIGHT)
+            sum_l = ParagraphStyle("psum_l", fontSize=7, textColor=EK_WHITE,
+                                   fontName="Helvetica-Bold")
+            rows.append([
+                Paragraph("TOTAL", sum_l),
+                Paragraph("", sum_r),
+                Paragraph("", sum_r),
+                Paragraph(f"{sum_ac:,.1f}", sum_r),
+            ])
+            prod_style_cmds.append(("BACKGROUND", (0, sum_row_idx), (-1, sum_row_idx), EK_DARK))
+            prod_style_cmds.append(("LINEABOVE",  (0, sum_row_idx), (-1, sum_row_idx), 1, EK_SAND))
+
+        tbl = Table(rows, colWidths=col_w, repeatRows=1)
+        tbl.setStyle(TableStyle(prod_style_cmds))
         elements.append(tbl)
 
     elements.append(Spacer(1, 0.5*cm))
@@ -597,12 +639,24 @@ def _pdf_production_card(prod: dict, styles: dict, show_cost: bool) -> list:
 
 # ── Menu item card PDF ─────────────────────────────────────────────────────────
 
-def _pdf_menu_card(dish: dict, styles: dict, show_cost: bool) -> list:
+def _pdf_menu_card(dish: dict, styles: dict, show_cost: bool,
+                   show_sp: bool = False, sp_map: dict = None) -> list:
     elements = []
+    sp_map = sp_map or {}
 
     meta_parts = [dish.get("category", ""), dish.get("item_group", "")]
     if show_cost and dish.get("total_cost"):
-        meta_parts.append(f"Cost: {dish['total_cost']:,.3f}")
+        meta_parts.append(f"Cost: {dish['total_cost']:,.1f}")
+
+    # Build name bar — cost meta left, SP+Cost% meta right in amber
+    sp_val     = sp_map.get(dish["name"]) if show_sp else None
+    total_cost = dish.get("total_cost") or 0
+
+    if show_sp and sp_val:
+        cost_pct   = (total_cost / sp_val * 100) if sp_val else 0
+        amber_text = f"SP: {sp_val:,.1f}  ·  Cost%: {cost_pct:.1f}%"
+    else:
+        amber_text = ""
 
     name_data = [[
         Paragraph(dish["name"], styles["card_title"]),
@@ -617,6 +671,11 @@ def _pdf_menu_card(dish: dict, styles: dict, show_cost: bool) -> list:
         ("BOTTOMPADDING", (0,0), (-1,-1), 2),
     ]))
     elements.append(name_tbl)
+
+    # Amber SP + Cost% line (only when show_sp is on and data exists)
+    if amber_text:
+        elements.append(Paragraph(amber_text, styles["card_meta_amber"]))
+
     elements.append(HRFlowable(width="100%", thickness=0.5, color=EK_SAND, spaceAfter=4))
 
     ings = dish.get("ingredients", [])
@@ -654,8 +713,8 @@ def _pdf_menu_card(dish: dict, styles: dict, show_cost: bool) -> list:
                     Paragraph(ing["name"], name_style),
                     Paragraph(qty_str, styles["ing_num"]),
                     Paragraph(ing["unit"] or "—", styles["ing_name"]),
-                    Paragraph(f"{ac:,.4f}" if ac is not None else "—", styles["ing_num"]),
-                    Paragraph(f"{tc:,.3f}" if tc is not None else "—", styles["ing_num"]),
+                    Paragraph(f"{ac:,.1f}" if ac is not None else "—", styles["ing_num"]),
+                    Paragraph(f"{tc:,.1f}" if tc is not None else "—", styles["ing_num"]),
                 ]
             else:
                 row = [
@@ -690,7 +749,7 @@ def _pdf_menu_card(dish: dict, styles: dict, show_cost: bool) -> list:
                 Paragraph("", sum_style_r),
                 Paragraph("", sum_style_r),
                 Paragraph("", sum_style_r),
-                Paragraph(f"{sum_tc:,.3f}", sum_style_r),
+                Paragraph(f"{sum_tc:,.1f}", sum_style_r),
             ])
             style_cmds.append(("BACKGROUND", (0, sum_row_idx), (-1, sum_row_idx), EK_DARK))
             style_cmds.append(("LINEABOVE",  (0, sum_row_idx), (-1, sum_row_idx), 1, EK_SAND))
@@ -734,9 +793,11 @@ def _build_productions_pdf(productions: list, outlet: str,
 
 
 def _build_menu_pdf(menu_items: list, outlet: str,
-                    report_date: str, show_cost: bool):
+                    report_date: str, show_cost: bool,
+                    show_sp: bool = False, sp_map: dict = None):
     if not REPORTLAB_OK or not menu_items:
         return None
+    sp_map = sp_map or {}
     try:
         buf = io.BytesIO()
         doc = SimpleDocTemplate(buf, pagesize=A4,
@@ -758,7 +819,9 @@ def _build_menu_pdf(menu_items: list, outlet: str,
                 story.append(Paragraph(
                     (current_group or "").upper(), styles["group_header"]
                 ))
-            story.append(KeepTogether(_pdf_menu_card(dish, styles, show_cost)))
+            story.append(KeepTogether(_pdf_menu_card(
+                dish, styles, show_cost, show_sp=show_sp, sp_map=sp_map
+            )))
 
         doc.build(story, onFirstPage=_add_footer, onLaterPages=_add_footer)
         buf.seek(0)
@@ -769,9 +832,11 @@ def _build_menu_pdf(menu_items: list, outlet: str,
 
 
 def _build_all_pdf(productions: list, menu_items: list,
-                   outlet: str, report_date: str, show_cost: bool):
+                   outlet: str, report_date: str, show_cost: bool,
+                   show_sp: bool = False, sp_map: dict = None):
     if not REPORTLAB_OK:
         return None
+    sp_map = sp_map or {}
     try:
         buf = io.BytesIO()
         doc = SimpleDocTemplate(buf, pagesize=A4,
@@ -808,7 +873,9 @@ def _build_all_pdf(productions: list, menu_items: list,
                     story.append(Paragraph(
                         (current_group or "").upper(), styles["group_header"]
                     ))
-                story.append(KeepTogether(_pdf_menu_card(dish, styles, show_cost)))
+                story.append(KeepTogether(_pdf_menu_card(
+                    dish, styles, show_cost, show_sp=show_sp, sp_map=sp_map
+                )))
 
         doc.build(story, onFirstPage=_add_footer, onLaterPages=_add_footer)
         buf.seek(0)
