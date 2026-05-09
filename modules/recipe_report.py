@@ -565,7 +565,7 @@ def _pdf_production_card(prod: dict, styles: dict, show_cost: bool) -> list:
                     Paragraph(ing["name"], styles["ing_name"]),
                     Paragraph(qty_str, styles["ing_num"]),
                     Paragraph(ing["unit"] or "—", styles["ing_name"]),
-                    Paragraph(f"${ac:,.4f}" if ac is not None else "—", styles["ing_num"]),
+                    Paragraph(f"{ac:,.4f}" if ac is not None else "—", styles["ing_num"]),
                 ]
             else:
                 row = [
@@ -602,7 +602,7 @@ def _pdf_menu_card(dish: dict, styles: dict, show_cost: bool) -> list:
 
     meta_parts = [dish.get("category", ""), dish.get("item_group", "")]
     if show_cost and dish.get("total_cost"):
-        meta_parts.append(f"Cost: ${dish['total_cost']:,.3f}")
+        meta_parts.append(f"Cost: {dish['total_cost']:,.3f}")
 
     name_data = [[
         Paragraph(dish["name"], styles["card_title"]),
@@ -654,8 +654,8 @@ def _pdf_menu_card(dish: dict, styles: dict, show_cost: bool) -> list:
                     Paragraph(ing["name"], name_style),
                     Paragraph(qty_str, styles["ing_num"]),
                     Paragraph(ing["unit"] or "—", styles["ing_name"]),
-                    Paragraph(f"${ac:,.4f}" if ac is not None else "—", styles["ing_num"]),
-                    Paragraph(f"${tc:,.3f}" if tc is not None else "—", styles["ing_num"]),
+                    Paragraph(f"{ac:,.4f}" if ac is not None else "—", styles["ing_num"]),
+                    Paragraph(f"{tc:,.3f}" if tc is not None else "—", styles["ing_num"]),
                 ]
             else:
                 row = [
@@ -670,6 +670,30 @@ def _pdf_menu_card(dish: dict, styles: dict, show_cost: bool) -> list:
                 style_cmds.append(("BACKGROUND", (0, row_idx), (-1, row_idx), EK_SAND))
                 style_cmds.append(("TEXTCOLOR",  (0, row_idx), (-1, row_idx), EK_DARK))
                 style_cmds.append(("FONTNAME",   (0, row_idx), (0, row_idx),  "Helvetica-Bold"))
+
+        # ── Sum row (cost mode only) ──────────────────────────────────────
+        if show_cost:
+            sum_tc = sum(
+                (ing.get("total_cost") or 0) for ing in ings
+            )
+            sum_row_idx = len(rows)  # index of the sum row after append
+            sum_style_r = ParagraphStyle(
+                "sum_r", fontSize=7, textColor=EK_WHITE,
+                fontName="Helvetica-Bold", alignment=TA_RIGHT
+            )
+            sum_style_l = ParagraphStyle(
+                "sum_l", fontSize=7, textColor=EK_WHITE,
+                fontName="Helvetica-Bold"
+            )
+            rows.append([
+                Paragraph("TOTAL", sum_style_l),
+                Paragraph("", sum_style_r),
+                Paragraph("", sum_style_r),
+                Paragraph("", sum_style_r),
+                Paragraph(f"{sum_tc:,.3f}", sum_style_r),
+            ])
+            style_cmds.append(("BACKGROUND", (0, sum_row_idx), (-1, sum_row_idx), EK_DARK))
+            style_cmds.append(("LINEABOVE",  (0, sum_row_idx), (-1, sum_row_idx), 1, EK_SAND))
 
         tbl = Table(rows, colWidths=col_w, repeatRows=1)
         tbl.setStyle(TableStyle(style_cmds))
