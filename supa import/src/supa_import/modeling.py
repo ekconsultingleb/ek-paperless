@@ -180,6 +180,7 @@ def normalize_string_columns(sheets_dict):
                         str(x).strip()
                         .replace("’", "")
                         .replace("'", "")
+                        .title()
                         if isinstance(x, str) else x
                     )
                 )
