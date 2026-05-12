@@ -570,10 +570,17 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
 
                 if st.button("🚀 SUBMIT ALL COUNTS TO CLOUD", type="primary", width="stretch", key="submit_cloud_btn", on_click=lock_submit, disabled=st.session_state['submit_lock']):
                     with st.spinner("Saving to database... Please wait! Do not refresh."):
+                        # Generate one submission_id shared across this batch
+                        import uuid as _uuid
+                        submission_id = str(_uuid.uuid4())
+
                         logs = []
+
+                        # Regular master_items counts
                         for i_name, data in st.session_state['mobile_counts'].items():
                             r_data = data['row_data']
                             logs.append({
+                                "submission_id": submission_id,
                                 "date": str(count_date),
                                 "client_name": final_client,
                                 "outlet": final_outlet,
@@ -586,6 +593,26 @@ def render_inventory(conn, sheet_link, user, role, assigned_client, assigned_out
                                 "sub_category": r_data.get('sub_category', ''),
                                 "quantity": float(data['qty']),
                                 "count_unit": r_data.get('count_unit', 'pcs')
+                            })
+
+                        # Ad-hoc items — save them to inventory_logs too, with sentinel item_type/category
+                        for m in st.session_state.get('missing_items', []):
+                            if not m.get('name', '').strip():
+                                continue
+                            logs.append({
+                                "submission_id": submission_id,
+                                "date": str(count_date),
+                                "client_name": final_client,
+                                "outlet": final_outlet,
+                                "location": loc_filter,
+                                "counted_by": user,
+                                "item_name": m['name'].strip(),
+                                "product_code": None,
+                                "item_type": "ad_hoc",
+                                "category": "Ad-Hoc",
+                                "sub_category": None,
+                                "quantity": float(m.get('qty', 0) or 0),
+                                "count_unit": "pcs",
                             })
 
                         if logs:
