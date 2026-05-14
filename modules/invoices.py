@@ -484,6 +484,8 @@ def render_invoices(conn, sheet_link, user, role):
     # =========================================================================
     # TAB 4 — UPLOAD INVOICE
     # =========================================================================
+    UPLOADS_PAUSED = True  # set False to re-enable uploads
+
     with tab_upload:
         # ── My Month Summary (metric cards) ───────────────────────────────────
         try:
@@ -517,6 +519,9 @@ def render_invoices(conn, sheet_link, user, role):
                 st.divider()
         except Exception:
             pass
+
+        if UPLOADS_PAUSED:
+            st.warning("⏸️ Invoice uploads are temporarily paused. Contact management for assistance.")
 
         st.info("💡 **Mobile Users:** Tap 'Browse files' to open your camera.")
 
@@ -563,7 +568,8 @@ def render_invoices(conn, sheet_link, user, role):
         browse_files = st.file_uploader(
             "📸 Take a Photo or Upload PDF",
             type=['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'pdf'],
-            accept_multiple_files=True
+            accept_multiple_files=True,
+            disabled=UPLOADS_PAUSED
         )
 
         # accept_multiple_files always returns a list (empty when nothing uploaded)
@@ -687,7 +693,7 @@ def render_invoices(conn, sheet_link, user, role):
 
         already_submitted = st.session_state.get('invoice_submitted', False)
 
-        if st.button("🚀 Submit Invoice to Accounting", type="primary", width="stretch", disabled=already_submitted):
+        if st.button("🚀 Submit Invoice to Accounting", type="primary", width="stretch", disabled=already_submitted or UPLOADS_PAUSED):
             if not uploaded_file:
                 st.error("❌ Please upload or take a photo.")
             elif not final_supplier_name:
