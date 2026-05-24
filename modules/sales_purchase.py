@@ -7,11 +7,12 @@ import streamlit as st
 
 
 def _bootstrap_imports() -> bool:
-    root = Path(r"C:\Users\Gianni Habchi\Desktop\EKC")
+    root = Path(__file__).resolve().parents[1]
+    ekc_root = root.parent
 
     paths = [
-        root / "etl" / "src",
-        root / "ek-paperless" / "supa import" / "src",
+        ekc_root / "etl" / "src",
+        root / "supa import" / "src",
     ]
 
     for path in paths:
@@ -87,26 +88,25 @@ def push_sales_purchase(user: str):
         st.error(f"Failed to load supa_import package: {e}")
         return
 
-    if "ptdb_supabase_client" not in st.session_state:
-        st.session_state.ptdb_supabase_client = init_supabase()
-    supabase = st.session_state.ptdb_supabase_client
+    if "psp_supabase_client" not in st.session_state:
+        st.session_state.psp_supabase_client = init_supabase()
+    supabase = st.session_state.psp_supabase_client
 
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
-#       uploaded_file = st.file_uploader("Upload Excel Report", type=["xlsx"], key="ptdb_upload")
-        sales = st.file_uploader("Upload Sales file", type=["xlsx", "xls"], key="ptdb_upload_sales")
+        sales = st.file_uploader("Upload Sales file", type=["xlsx", "xls"], key="psp_upload_sales")
     with col2:
-        purchase = st.file_uploader("Upload Purchase file", type=["xlsx", "xls"], key="ptdb_upload_purchase")
+        purchase = st.file_uploader("Upload Purchase file", type=["xlsx", "xls"], key="psp_upload_purchase")
     with col3:
         client_options = get_client_list(supabase)
-        selected_client = st.selectbox("Select Branch", options=client_options, key="ptdb_client")
+        selected_client = st.selectbox("Select Branch", options=client_options, key="psp_client")
     with col4:
         period_options = get_period_options()
-        selected_period = st.selectbox("Select Reporting Period", options=period_options, key="ptdb_period")
+        selected_period = st.selectbox("Select Reporting Period", options=period_options, key="psp_period")
     with col5:
-        mode = st.selectbox("Select Mode", options=["cloud", "local"], index=0, key="ptdb_mode")
+        mode = st.selectbox("Select Mode", options=["cloud", "local"], index=0, key="psp_mode")
 
-    if not st.button("Run", type="primary", use_container_width=True, key="ptdb_run"):
+    if not st.button("Run", type="primary", use_container_width=True, key="psp_run"):
         return
 
     if not sales or not purchase or not mode:
