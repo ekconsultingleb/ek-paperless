@@ -564,11 +564,17 @@ def render_main(conn, sheet_link, user, role):
     # ==========================================
     if t_push_db:
         with t_push_db:
-            render_push_to_database(user)
+            try:
+                render_push_to_database(user)
+            except Exception as e:
+                st.error(f"Push to Database failed: {e}")
 
     if t_sales_purchase:
         with t_sales_purchase:
-            push_sales_purchase(user)
+            try:
+                push_sales_purchase(user)
+            except Exception as e:
+                st.error(f"Sales & Purchase failed: {e}")
 
     if t_create:
         with t_create:

@@ -1,9 +1,11 @@
 import os
-from supabase import create_client as supabase_init
-import psycopg2
+
 import streamlit as st
 
+
 def get_pg_connection():
+    import psycopg2
+
     return psycopg2.connect(
         host=os.getenv("host"),
         dbname=os.getenv("dbname", "postgres"),
@@ -15,6 +17,8 @@ def get_pg_connection():
 
 
 def init_supabase():
+    from supabase import create_client as supabase_init
+
     url: str = os.getenv("url")
     key: str = os.getenv("key")
     return supabase_init(url, key)

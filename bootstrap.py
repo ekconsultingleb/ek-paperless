@@ -6,7 +6,11 @@ def bootstrap_src():
     root = Path(__file__).resolve().parent
     src = root / "gianni" / "src"
 
-    if str(src) not in sys.path:
-        sys.path.insert(0, str(src))
+    if not src.is_dir():
+        return False
 
-    return root
+    src_str = str(src)
+    if src_str not in sys.path:
+        sys.path.insert(0, src_str)
+
+    return True

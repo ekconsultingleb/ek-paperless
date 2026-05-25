@@ -8,15 +8,14 @@ def render_push_to_database(user: str):
     st.caption("Upload Auto Calc report files and push validated data into the database.")
 
     if not bootstrap_src():
+        st.error("Backend package path not found. Ensure `gianni/src` is deployed with the app.")
         return
-    
-    from supa_import.db import _ensure_supa_env_from_secrets
-
-    _ensure_supa_env_from_secrets()
 
     try:
+        from supa_import.db import _ensure_supa_env_from_secrets, get_pg_connection, init_supabase, get_branch_id
         from supa_import.config import SHEET_CONFIG
-        from supa_import.db import get_pg_connection, init_supabase, get_branch_id
+
+        _ensure_supa_env_from_secrets()
         from supa_import.loaders import extract_sheets_and_client, push_sheets
         from supa_import.streamlit_functions import get_client_list, get_period_options
         from supa_import.modeling import (
