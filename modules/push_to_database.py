@@ -1,50 +1,16 @@
-import os
-import sys
-from pathlib import Path
-
+from bootstrap import bootstrap_src
 import pandas as pd
 import streamlit as st
-
-
-def _bootstrap_supa_import() -> bool:
-    root = Path(__file__).resolve().parents[1]
-    src_dir = root / "supa import" / "src"
-    if not src_dir.exists():
-        st.error("`supa import/src` was not found in the project root.")
-        return False
-
-    src_dir_str = str(src_dir)
-    if src_dir_str not in sys.path:
-        sys.path.insert(0, src_dir_str)
-    return True
-
-
-def _ensure_supa_env_from_secrets():
-    # Bridge app secrets to the legacy env-based supa_import package.
-    # secret_key = key name in secrets.toml, env_key = what db.py reads via os.getenv()
-    mapping = {
-        "SUPABASE_URL": "url",
-        "SUPABASE_KEY": "key",
-        "host":         "host",
-        "name":         "dbname",   # secrets uses "name", psycopg2 expects "dbname"
-        "user":         "user",
-        "password":     "password",
-        "port":         "port",
-    }
-    for secret_key, env_key in mapping.items():
-        if os.getenv(env_key):
-            continue
-        val = st.secrets.get(secret_key)
-        if val:
-            os.environ[env_key] = str(val)
 
 
 def render_push_to_database(user: str):
     st.markdown("#### Push to Database")
     st.caption("Upload Auto Calc report files and push validated data into the database.")
 
-    if not _bootstrap_supa_import():
+    if not bootstrap_src():
         return
+    
+    from supa_import.db import _ensure_supa_env_from_secrets
 
     _ensure_supa_env_from_secrets()
 

@@ -1,0 +1,19 @@
+import pandas as pd
+from etl.utils import read 
+from etl.utils import keep_cols_by_index
+from etl.utils import drop_na_by_name
+from etl.utils import make_columns_numeric
+from etl.utils import remove_repeated_headers
+from etl.utils import clean_check
+
+def preprocess(path):
+    data = read(path)
+    data = keep_cols_by_index(data,[0,8,12])
+    data.columns = ['Check','Discount','Amount']
+    data = drop_na_by_name(data,['Check','Discount'])
+    data = remove_repeated_headers(data,'Discount')
+    data = make_columns_numeric(data,['Discount','Amount'])
+    data = clean_check(data,['Check'])
+    data['Discount_Percentage'] = data['Discount'] / data['Amount']
+    data.columns = ['check', 'discount', 'amount', 'discount_percentage']
+    return data 

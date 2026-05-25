@@ -2,3 +2,29 @@
 __pycache__/
 notebooks/
 push.py
+
+# virtual env
+.venv/
+venv/
+env/
+
+# python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# notebook junk
+notebooks/
+.ipynb_checkpoints/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# logs + outputs (if you have them)
+*.log
+*.egg-info/
+
+gianni/src/etl/paths.py

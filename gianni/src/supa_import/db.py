@@ -1,6 +1,7 @@
 import os
 from supabase import create_client as supabase_init
 import psycopg2
+import streamlit as st
 
 def get_pg_connection():
     return psycopg2.connect(
@@ -59,3 +60,22 @@ def get_branch_id(branch_name, supabase):
             "status": "ok",
             "branch_id": rows[0]["id"]
         }
+
+
+def _ensure_supa_env_from_secrets():
+
+    mapping = {
+        "SUPABASE_URL": "url",
+        "SUPABASE_KEY": "key",
+        "host":         "host",
+        "name":         "dbname",   # secrets uses "name", psycopg2 expects "dbname"
+        "user":         "user",
+        "password":     "password",
+        "port":         "port",
+    }
+    for secret_key, env_key in mapping.items():
+        if os.getenv(env_key):
+            continue
+        val = st.secrets.get(secret_key)
+        if val:
+            os.environ[env_key] = str(val)

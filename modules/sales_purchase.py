@@ -1,59 +1,16 @@
-import os
-import sys
-from pathlib import Path
-
+from bootstrap import bootstrap_src
 import pandas as pd
 import streamlit as st
-
-
-def _bootstrap_imports() -> bool:
-    root = Path(__file__).resolve().parents[1]
-    ekc_root = root.parent
-
-    paths = [
-        ekc_root / "etl" / "src",
-        root / "supa import" / "src",
-    ]
-
-    for path in paths:
-        if not path.exists():
-            st.error(f"Path not found: {path}")
-            return False
-
-        path_str = str(path)
-        if path_str not in sys.path:
-            sys.path.insert(0, path_str)
-
-    return True
-
-
-def _ensure_supa_env_from_secrets():
-    # Bridge app secrets to the legacy env-based supa_import package.
-    # secret_key = key name in secrets.toml, env_key = what db.py reads via os.getenv()
-    mapping = {
-        "SUPABASE_URL": "url",
-        "SUPABASE_KEY": "key",
-        "host":         "host",
-        "name":         "dbname",   # secrets uses "name", psycopg2 expects "dbname"
-        "user":         "user",
-        "password":     "password",
-        "port":         "port",
-    }
-    for secret_key, env_key in mapping.items():
-        if os.getenv(env_key):
-            continue
-        val = st.secrets.get(secret_key)
-        if val:
-            os.environ[env_key] = str(val)
 
 
 def push_sales_purchase(user: str):
     st.markdown("#### Push Sales-Purchase")
     st.caption("Upload Sales and Purchase files.")
 
-    if not _bootstrap_imports():
+    if not bootstrap_src():
         return
 
+    from supa_import.db import _ensure_supa_env_from_secrets
     _ensure_supa_env_from_secrets()
 
     try:
@@ -129,5 +86,5 @@ def push_sales_purchase(user: str):
             'Purchase': purchase,
         }
 
-        save_cleaned_data(sheets_dict, 'C:/Users/Gianni Habchi/Desktop/fix')
+        save_cleaned_data(sheets_dict, 'C:/Users/Gianni Habchi/Desktop/sales puch')
         st.write('Done heheeee')
