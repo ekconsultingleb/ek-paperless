@@ -1,4 +1,4 @@
-from bootstrap import bootstrap_src
+from bootstrap import bootstrap_src, ensure_supa_env_from_secrets
 import pandas as pd
 import streamlit as st
 
@@ -11,11 +11,11 @@ def push_sales_purchase(user: str):
         st.error("Backend package path not found. Ensure `gianni/src` is deployed with the app.")
         return
 
-    try:
-        from supa_import.db import _ensure_supa_env_from_secrets, get_pg_connection, init_supabase, get_branch_id
-        from supa_import.config import SHEET_CONFIG
+    ensure_supa_env_from_secrets()
 
-        _ensure_supa_env_from_secrets()
+    try:
+        from supa_import.db import get_pg_connection, init_supabase, get_branch_id
+        from supa_import.config import SHEET_CONFIG
 
         from etl.preprocessors.local.sales_by_menu_by_items import preprocess as local_sales
         from etl.preprocessors.local.purchase_with_all_details import preprocess as local_purchase
@@ -42,7 +42,18 @@ def push_sales_purchase(user: str):
         )
         from supa_import.saver import save_cleaned_data
     except Exception as e:
-        st.error(f"Failed to load supa_import package: {e}")
+        try:
+            import supa_import
+
+            loaded_from = getattr(supa_import, "__file__", "unknown")
+        except Exception:
+            loaded_from = "not importable"
+        st.error(
+            f"Failed to load supa_import package: {e}\n\n"
+            f"Python resolved `supa_import` from: `{loaded_from}`\n\n"
+            "Expected code under `gianni/src/supa_import/`. "
+            "If the repo also contains a `supa import/` copy, remove it or redeploy after pulling the latest bootstrap fix."
+        )
         return
 
     if "psp_supabase_client" not in st.session_state:
