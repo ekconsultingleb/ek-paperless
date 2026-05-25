@@ -1,3 +1,6 @@
+from bootstrap import bootstrap_src
+bootstrap_src()
+
 import streamlit as st
 import pandas as pd
 import time
@@ -29,8 +32,6 @@ from modules.constants import (
     MOD_RECIPES_REPORT,
     ALL_MODULES, LOGO_URL, APP_VERSION,
 )
-from bootstrap import bootstrap_src
-bootstrap_src()
 
 # --- INITIALIZE SUPABASE ---
 @st.cache_resource
