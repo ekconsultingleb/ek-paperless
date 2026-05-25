@@ -1,4 +1,3 @@
-from hehee import heheeeee
 from bootstrap import bootstrap_src
 import pandas as pd
 import streamlit as st
