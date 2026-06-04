@@ -512,25 +512,74 @@ else:
     # ==========================================
     else:
 
+        _is_admin = role in ["admin", "admin_all"]
+
+        def _render_moved_message():
+            st.markdown(
+                """
+                <div style="
+                    background:linear-gradient(135deg,#1B252C 0%,#2E3D47 100%);
+                    border-radius:16px; padding:40px 36px; margin:40px auto;
+                    border:1px solid rgba(227,197,173,0.2); max-width:520px; text-align:center;
+                ">
+                    <div style="font-size:40px; margin-bottom:16px;">📦</div>
+                    <div style="color:#E3C5AD; font-size:20px; font-weight:600; margin-bottom:12px;">
+                        This module has moved to Paperless.
+                    </div>
+                    <div style="color:#c9a98a; font-size:15px; margin-bottom:8px;">
+                        Please log in at:
+                    </div>
+                    <div style="color:#E3C5AD; font-size:17px; font-weight:700; margin-bottom:16px;">
+                        paperless.ekconsulting.co
+                    </div>
+                    <div style="color:#8a9eaa; font-size:13px;">
+                        Use your same username and password.
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
         if st.session_state['current_page'] == PAGE_DASHBOARD:
             render_dashboard(None, None, user, role, client, outlet, location)
-        elif st.session_state['current_page'] == PAGE_CASH:
-            render_daily_cash(None, None, user, role, client, outlet, location)
-        elif st.session_state['current_page'] == PAGE_INVENTORY:
-            render_inventory(None, None, user, role, client, outlet, location)
-        elif st.session_state['current_page'] == PAGE_WASTE:
-            render_waste(None, None, user, role, client, outlet, location)
-        elif st.session_state['current_page'] == PAGE_TRANSFERS:
-            render_transfers(None, None, user, role, client, outlet, location)
-        elif st.session_state['current_page'] == PAGE_INVOICES:
-            render_invoices(None, None, user, role)
-        elif st.session_state['current_page'] == PAGE_LEDGER:
-            render_ledger(None, None, user, role, client, outlet, location)
-        elif st.session_state['current_page'] == PAGE_MAIN:
-            render_main(None, None, user, role)
-        elif st.session_state['current_page'] == PAGE_RECIPES:
-            render_recipes(supabase, user, role, client, outlet, location)
         elif st.session_state['current_page'] == PAGE_RECIPES_REPORT:
             render_recipe_report(supabase, user, role, client, outlet, location)
+        elif st.session_state['current_page'] == PAGE_CASH:
+            if _is_admin:
+                render_daily_cash(None, None, user, role, client, outlet, location)
+            else:
+                _render_moved_message()
+        elif st.session_state['current_page'] == PAGE_INVENTORY:
+            if _is_admin:
+                render_inventory(None, None, user, role, client, outlet, location)
+            else:
+                _render_moved_message()
+        elif st.session_state['current_page'] == PAGE_WASTE:
+            if _is_admin:
+                render_waste(None, None, user, role, client, outlet, location)
+            else:
+                _render_moved_message()
+        elif st.session_state['current_page'] == PAGE_TRANSFERS:
+            if _is_admin:
+                render_transfers(None, None, user, role, client, outlet, location)
+            else:
+                _render_moved_message()
+        elif st.session_state['current_page'] == PAGE_INVOICES:
+            if _is_admin:
+                render_invoices(None, None, user, role)
+            else:
+                _render_moved_message()
+        elif st.session_state['current_page'] == PAGE_LEDGER:
+            if _is_admin:
+                render_ledger(None, None, user, role, client, outlet, location)
+            else:
+                _render_moved_message()
+        elif st.session_state['current_page'] == PAGE_RECIPES:
+            if _is_admin:
+                render_recipes(supabase, user, role, client, outlet, location)
+            else:
+                _render_moved_message()
+        elif st.session_state['current_page'] == PAGE_MAIN:
+            render_main(None, None, user, role)
         elif st.session_state['current_page'] == PAGE_PRICING_STUDIO:
             show_dpos(supabase)
