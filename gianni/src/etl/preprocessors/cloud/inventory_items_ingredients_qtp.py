@@ -5,10 +5,10 @@ from etl.utils import remove_repeated_headers
 from etl.utils import make_columns_numeric
 
 
-def preprocess(path):
+def preprocess(path, location):
     data = read(path)
-    data = keep_cols_by_index(data,[1,2,4])
-    data.columns = ['Name', 'Product Description', 'Qty']
+    data = keep_cols_by_index(data,[1,2,4,5])
+    data.columns = ['Name', 'Product Description', 'Qty','unit']
     ids = data[data['Name'].notna()].index
     data.loc[ids,'Qty'] = data.loc[ids,'Qty'].str.replace('Ingredients to prepare ','',regex=False)
     data.loc[ids,'Production Name'] = data.loc[ids,'Qty'].str.split().apply(lambda x: ' '.join(x[3:]))
@@ -20,7 +20,8 @@ def preprocess(path):
     data = remove_repeated_headers(data,'Qty')
     data = drop_na_by_name(data,['Product Description','Qty'])
     data = make_columns_numeric(data,['Qty','Qty to be Prepared'])
-    cols = ['Production Name', 'Product Description', 'Qty','Qty to be Prepared', 'Prepared Unit']
+    cols = ['Production Name', 'Product Description', 'Qty','unit','Qty to be Prepared', 'Prepared Unit']
     data = data[cols].copy()
-    data.columns = ['production name', 'product description', 'qty','qty to prepared', 'prepared unit']
+    data['location'] = location
+    data.columns = ['production name', 'product description', 'qty','unit','qty to prepared', 'prepared unit', 'location']
     return data

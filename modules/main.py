@@ -3,7 +3,6 @@ import pandas as pd
 from supabase import create_client, Client
 from modules.clients import render_clients
 from modules.nav_helper import hash_password
-from modules.push_to_database import render_push_to_database
 from modules.sales_purchase import push_sales_purchase
 from modules.branch_config import render_branch_config
 
@@ -70,12 +69,12 @@ def render_main(conn, sheet_link, user, role):
     # ==========================================
     if is_super_admin:
         st.info("👑 Super Admin Mode: Full access to all database and user controls.")
-        tabs = st.tabs(["📤 Master Sync", "🗄️ Push to Database", "📊 Sales & Purchase", "➕ Create User", "👥 Manage Users", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients", "⚙️ Branch Config"])
+        tabs = st.tabs(["📤 Master Sync", "📋 Push Sub Recipes", "📊 Sales & Purchase", "➕ Create User", "👥 Manage Users", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients", "⚙️ Branch Config"])
         t_sync, t_push_db, t_sales_purchase, t_create, t_view, t_supp, t_edit, t_clients, t_branch_config = tabs
         t_ac = None
     elif is_normal_admin:
         st.info("🛡️ Admin Mode: Access to sync and onboard users/suppliers.")
-        tabs = st.tabs(["📤 Master Sync", "🗄️ Push to Database", "📊 Sales & Purchase", "➕ Create User", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients", "⚙️ Branch Config"])
+        tabs = st.tabs(["📤 Master Sync", "📋 Push Sub Recipes", "📊 Sales & Purchase", "➕ Create User", "🚚 Manage Suppliers", "📝 Edit Data", "🏢 Clients", "⚙️ Branch Config"])
         t_sync, t_push_db, t_sales_purchase, t_create, t_supp, t_edit, t_clients, t_branch_config = tabs[0], tabs[1], tabs[2], tabs[3], tabs[4], tabs[5], tabs[6], tabs[7]
         t_view = t_ac = None
     else:
@@ -564,10 +563,156 @@ def render_main(conn, sheet_link, user, role):
     # ==========================================
     if t_push_db:
         with t_push_db:
-            try:
-                render_push_to_database(user)
-            except Exception as e:
-                st.error(f"Push to Database failed: {e}")
+            st.markdown("#### 📋 Push Sub Recipes")
+
+            data_source = st.radio(
+                "Select Data Source", ["☁️ Cloud", "💾 Local"],
+                horizontal=True, key="sr_data_source"
+            )
+
+            st.markdown("##### 1. Select Client & Location")
+            col_sc1, col_sc2, col_sc3 = st.columns(3)
+            with col_sc1:
+                sr_client = st.selectbox("🏢 Client", clients_list, key="sr_client")
+            with col_sc2:
+                sr_outlets = get_outlets_for_client(sr_client)
+                sr_outlet = st.selectbox("🏠 Outlet", sr_outlets if sr_outlets else ["Main"], key="sr_outlet")
+            with col_sc3:
+                sr_areas = get_areas_for_outlet(sr_outlet)
+                sr_location = st.selectbox("📍 Location", sr_areas if sr_areas else ["Main Store"], key="sr_location")
+
+            st.markdown("##### 2. Upload Sub Recipes File")
+            sr_file = st.file_uploader("📄 Ingredients QTP Report (.xlsx)", type=["xlsx"], key="sr_file")
+
+            if sr_file:
+                try:
+                    import numpy as _np
+                    import math as _math
+
+                    def _sr_empty(v):
+                        if v is None: return True
+                        if isinstance(v, float) and _math.isnan(v): return True
+                        return str(v).strip() in ("", "nan", "NaT", "None", "NaN")
+
+                    def _sr_numeric(v):
+                        if _sr_empty(v): return False
+                        try: float(str(v)); return True
+                        except: return False
+
+                    def _json_safe(v):
+                        if v is None: return None
+                        try:
+                            if isinstance(v, float) and _math.isnan(v): return None
+                        except: pass
+                        return v
+
+                    raw = pd.read_excel(sr_file, header=None)
+
+                    if data_source == "☁️ Cloud":
+                        # Cloud: cols B,C,E,F  → index [1,2,4,5]
+                        df_sr = raw.iloc[:, [1, 2, 4, 5]].copy()
+                        df_sr.columns = ["Name", "Product Description", "Qty", "unit"]
+
+                        # Header rows: Name col is not empty
+                        ids = df_sr[df_sr["Name"].apply(lambda x: not _sr_empty(x))].index
+                        df_sr.loc[ids, "Qty"] = df_sr.loc[ids, "Qty"].astype(str).str.replace(
+                            "Ingredients to prepare ", "", regex=False)
+                        df_sr.loc[ids, "Production Name"] = df_sr.loc[ids, "Qty"].str.split().apply(
+                            lambda x: " ".join(x[3:]) if len(x) > 3 else "")
+                        df_sr["Production Name"] = df_sr["Production Name"].ffill()
+                        df_sr.loc[ids, "_tp"] = df_sr.loc[ids, "Qty"].str.split().apply(lambda x: x[:2])
+                        df_sr.loc[ids, "Qty to be Prepared"] = df_sr.loc[ids, "_tp"].apply(
+                            lambda x: x[0] if isinstance(x, list) and len(x) > 0 else "")
+                        df_sr.loc[ids, "Prepared Unit"] = df_sr.loc[ids, "_tp"].apply(
+                            lambda x: x[1] if isinstance(x, list) and len(x) > 1 else "")
+                        df_sr[["Qty to be Prepared", "Prepared Unit"]] = df_sr[["Qty to be Prepared", "Prepared Unit"]].ffill()
+
+                        # Remove repeated header rows and blank rows
+                        df_sr = df_sr[df_sr["Qty"].astype(str).str.strip() != "Qty"]
+                        df_sr = df_sr[df_sr["Product Description"].apply(lambda x: not _sr_empty(x))]
+                        df_sr = df_sr[df_sr["Qty"].apply(lambda x: not _sr_empty(x))]
+
+                        # Make numeric
+                        df_sr["Qty"] = pd.to_numeric(df_sr["Qty"], errors="coerce")
+                        df_sr["Qty to be Prepared"] = pd.to_numeric(df_sr["Qty to be Prepared"], errors="coerce")
+
+                        df_sr = df_sr[["Production Name", "Product Description", "Qty", "unit",
+                                       "Qty to be Prepared", "Prepared Unit"]].copy()
+
+                    else:  # Local
+                        # Local: cols C,F,G  → index [2,5,6]
+                        df_sr = raw.iloc[:, [2, 5, 6]].copy()
+                        df_sr.columns = ["Product Description", "Qty", "unit"]
+
+                        # Remove repeated header rows and blank rows
+                        df_sr = df_sr[df_sr["Qty"].astype(str).str.strip() != "Qty"]
+                        df_sr = df_sr[df_sr["Product Description"].apply(lambda x: not _sr_empty(x))]
+                        df_sr = df_sr[df_sr["Qty"].apply(lambda x: not _sr_empty(x))]
+
+                        # Non-numeric Qty rows are the recipe header rows
+                        df_sr["_num"] = pd.to_numeric(df_sr["Qty"], errors="coerce")
+                        ids = df_sr[df_sr["_num"].isna()].index
+                        df_sr.loc[ids, "Qty"] = df_sr.loc[ids, "Qty"].astype(str).str.replace(
+                            "Ingredients to prepare ", "", regex=False)
+                        df_sr.loc[ids, "Production Name"] = df_sr.loc[ids, "Qty"].str.split().apply(
+                            lambda x: " ".join(x[3:]) if len(x) > 3 else "")
+                        df_sr["Production Name"] = df_sr["Production Name"].ffill()
+                        df_sr.loc[ids, "_tp"] = df_sr.loc[ids, "Qty"].str.split().apply(lambda x: x[:2])
+                        df_sr.loc[ids, "Qty to be Prepared"] = df_sr.loc[ids, "_tp"].apply(
+                            lambda x: x[0] if isinstance(x, list) and len(x) > 0 else "")
+                        df_sr.loc[ids, "Prepared Unit"] = df_sr.loc[ids, "_tp"].apply(
+                            lambda x: x[1] if isinstance(x, list) and len(x) > 1 else "")
+                        df_sr[["Qty to be Prepared", "Prepared Unit"]] = df_sr[["Qty to be Prepared", "Prepared Unit"]].ffill()
+
+                        # Drop the header rows — keep only ingredient rows
+                        df_sr = df_sr.drop(index=ids)
+
+                        df_sr = df_sr[["Production Name", "Product Description", "Qty", "unit",
+                                       "Qty to be Prepared", "Prepared Unit"]].copy()
+                        df_sr["Qty"] = pd.to_numeric(df_sr["Qty"], errors="coerce")
+                        df_sr["Qty to be Prepared"] = pd.to_numeric(df_sr["Qty to be Prepared"], errors="coerce")
+
+                    df_sr = df_sr.reset_index(drop=True)
+                    df_sr.columns = ["production_name", "product_description", "qty", "unit",
+                                     "qty_to_prepared", "prepared_unit"]
+                    df_sr["client_name"] = sr_client
+                    df_sr["location"] = sr_location
+
+                    st.markdown(f"##### 3. Preview — {len(df_sr)} records")
+                    st.dataframe(df_sr, use_container_width=True, hide_index=True)
+
+                    if len(df_sr) > 0:
+                        st.markdown("##### 4. Push to Supabase")
+                        if st.button("🚀 Push Sub Recipes", type="primary", width="stretch", key="sr_push"):
+                            with st.spinner("Looking up branch and pushing..."):
+                                try:
+                                    b_res = supabase.table("branches").select("id").eq(
+                                        "client_name", sr_client).eq("outlet", sr_outlet).limit(1).execute()
+                                    if not b_res.data:
+                                        st.error(f"❌ No branch found for {sr_client} / {sr_outlet}. Verify in Branch Config.")
+                                    else:
+                                        branch_id = b_res.data[0]["id"]
+                                        push_df = df_sr.copy()
+                                        push_df["branch_id"] = branch_id
+                                        push_df["last_modified_by"] = user
+                                        rec_list = [
+                                            {k: _json_safe(v) for k, v in row.items()}
+                                            for row in push_df.to_dict(orient="records")
+                                        ]
+                                        pushed = 0
+                                        for i in range(0, len(rec_list), 500):
+                                            supabase.table("production_recipes").upsert(
+                                                rec_list[i:i + 500],
+                                                on_conflict="branch_id,production_name,product_description"
+                                            ).execute()
+                                            pushed += len(rec_list[i:i + 500])
+                                        st.success(f"✅ Done! {pushed} sub-recipe records pushed for {sr_client} / {sr_outlet}.")
+                                        st.balloons()
+                                except Exception as e:
+                                    st.error(f"❌ Push failed: {e}")
+
+                except Exception as e:
+                    st.error(f"❌ File processing error: {e}")
 
     if t_sales_purchase:
         with t_sales_purchase:
