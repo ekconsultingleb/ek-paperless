@@ -103,7 +103,7 @@ def clean_folder(folder: str | Path, source: Literal["cloud", "local"] = "cloud"
 
             continue
 
-        entry = cleaners.get(p.name)
+        entry = cleaners.get(p.name) or cleaners.get(p.name.lower())
         if entry is None:
             continue
 

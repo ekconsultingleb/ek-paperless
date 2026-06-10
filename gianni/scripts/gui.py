@@ -81,7 +81,7 @@ if st.button("▶ Run Pipeline", type="primary", use_container_width=True):
             lines = []
             folder_files = [f.name for f in base_folder.iterdir() if f.is_file()]
             for i, j in cleaner_by_code[source].items():
-                emoji = "✅" if any(i in f for f in folder_files) else "❌"
+                emoji = "✅" if any(i.lower() in f.lower() for f in folder_files) else "❌"
                 lines.append(f"{j[0]} {emoji} {'-'*((70-len(j[0]))-2)} {i}")
 
             st.code("\n".join(lines), language=None)
