@@ -1,7 +1,9 @@
 import pandas as pd
 
-def read(path, header = None):
-    return pd.read_excel(path, header = header)
+def read(path, header=None):
+    from pathlib import Path
+    engine = "xlrd" if Path(path).suffix.lower() == ".xls" else None
+    return pd.read_excel(path, header=header, engine=engine)
 
 
 def keep_cols_by_index(data, indices):
