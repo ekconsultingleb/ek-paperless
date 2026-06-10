@@ -143,11 +143,11 @@ def render_main(conn, sheet_link, user, role):
             st.markdown("##### 2. Upload Omega Files")
             col_f1, col_f2 = st.columns(2)
             with col_f1:
-                inv_file  = st.file_uploader("📦 Programming Summary — Inventory — Rep_I_0044", 
-                                              type=["xlsx"], key="omega_inv")
+                inv_file  = st.file_uploader("📦 Programming Summary — Inventory — Rep_I_0044",
+                                              type=["xlsx", "xls"], key="omega_inv")
             with col_f2:
-                menu_file = st.file_uploader("🍽️ Programming Summary — Menu Items — Rep_S_00178", 
-                                              type=["xlsx"], key="omega_menu")
+                menu_file = st.file_uploader("🍽️ Programming Summary — Menu Items — Rep_S_00178",
+                                              type=["xlsx", "xls"], key="omega_menu")
 
             # ── Shared helpers ────────────────────────────────────────────
             from datetime import datetime as _dt
@@ -228,7 +228,8 @@ def render_main(conn, sheet_link, user, role):
 
                 _SKIP = {"lucy lu", "programming summary (inventory items)", "item id"}
 
-                raw = pd.read_excel(f, header=None)
+                _engine = "xlrd" if getattr(f, "name", "").lower().endswith(".xls") else None
+                raw = pd.read_excel(f, header=None, engine=_engine)
                 df  = raw.copy().astype(object)
                 n   = len(df)
                 records     = []
@@ -315,7 +316,8 @@ def render_main(conn, sheet_link, user, role):
                     try: float(str(v)); return True
                     except (ValueError, TypeError): return False
             
-                raw = pd.read_excel(f, header=None)
+                _engine = "xlrd" if getattr(f, "name", "").lower().endswith(".xls") else None
+                raw = pd.read_excel(f, header=None, engine=_engine)
                 df  = raw.copy().astype(object)
                 n   = len(df)
                 records      = []
