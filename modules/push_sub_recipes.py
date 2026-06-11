@@ -4,8 +4,8 @@ import streamlit as st
 
 
 def render_push_to_database(user: str):
-    st.markdown("#### Push to Database")
-    st.caption("Upload Auto Calc report files and push validated data into the database.")
+    st.markdown("#### Push Sub Recipes")
+    st.caption("Upload Sub Recipes file and push data into the database.")
 
     if not bootstrap_src():
         st.error("Backend package path not found. Ensure `gianni/src` is deployed with the app.")
@@ -35,6 +35,8 @@ def render_push_to_database(user: str):
             check_duplicates,
             check_rows
         )
+        from etl.preprocessors.cloud.inventory_items_ingredients_qtp import preprocess as cloud_sub
+        from etl.preprocessors.local.inventory_items_ingredients_qtp import preprocess as local_sub
     except Exception as e:
         try:
             import supa_import
@@ -56,19 +58,30 @@ def render_push_to_database(user: str):
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        uploaded_file = st.file_uploader("Upload Excel Report", type=["xlsx"], key="ptdb_upload")
+        sub = st.file_uploader("Upload Sub-Recipes", type=["xlsx", "xls"], key="ptdb_upload")
     with col2:
         client_options = get_client_list(supabase)
         selected_client = st.selectbox("Select Branch", options=client_options, key="ptdb_client")
     with col3:
-        period_options = get_period_options()
-        selected_period = st.selectbox("Select Reporting Period", options=period_options, key="ptdb_period")
-    with col4:
-        mode = st.selectbox("Select Mode", options=["Do not overwrite", "Overwrite"], index=0, key="ptdb_mode")
+        source = st.selectbox("Select Source", options=["cloud", "local"], index=0, key="ptdb_mode")
 
     if not st.button("Run", type="primary", use_container_width=True, key="ptdb_run"):
         return
 
-    if not uploaded_file or not selected_client or not selected_period:
+    if not uploaded_file or not selected_client or not source:
         st.error("Please provide a file, a client and a date.")
         return
+
+
+    with st.status("Processing data...", expanded=True) as process_st:
+        if source == 'cloud':
+            data = cloud_sub(sub)
+        else:
+            data = local_sub(sub)
+
+        sheets_dict = {
+            'sub recipes': sub,
+        }
+
+        st.write(sheets_dict['sub recipes'].head())
+        st.write('Done heheeee')
