@@ -584,7 +584,7 @@ def render_main(conn, sheet_link, user, role):
                 sr_location = st.selectbox("📍 Location", sr_areas if sr_areas else ["Main Store"], key="sr_location")
 
             st.markdown("##### 2. Upload Sub Recipes File")
-            sr_file = st.file_uploader("📄 Ingredients QTP Report (.xlsx)", type=["xlsx"], key="sr_file")
+            sr_file = st.file_uploader("📄 Ingredients QTP Report (.xlsx / .xls)", type=["xlsx", "xls"], key="sr_file")
 
             if sr_file:
                 try:
