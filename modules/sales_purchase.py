@@ -97,5 +97,5 @@ def push_sales_purchase(user: str):
             'Purchase': purchase,
         }
 
-        save_cleaned_data(sheets_dict, 'C:/Users/Gianni Habchi/Desktop/sales puch')
+        save_cleaned_data(sheets_dict, 'C:/Users/eliek/Desktop/test sales pur/test.xlsx')
         st.write('Done heheeee')
