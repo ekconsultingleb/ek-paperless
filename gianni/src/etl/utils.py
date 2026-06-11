@@ -1,9 +1,25 @@
 import pandas as pd
+from pathlib import Path
 
-def read(path, header=None):
-    from pathlib import Path
-    engine = "xlrd" if Path(path).suffix.lower() == ".xls" else None
-    return pd.read_excel(path, header=header, engine=engine)
+# def read(path, header=None):
+#     from pathlib import Path
+#     engine = "xlrd" if Path(path).suffix.lower() == ".xls" else None
+#     return pd.read_excel(path, header=header, engine=engine)
+
+def read(file, header=None):
+    engine = None
+
+    # if it's a filepath string
+    if isinstance(file, (str, Path)):
+        suffix = Path(file).suffix.lower()
+    else:
+        # Streamlit UploadedFile
+        suffix = Path(file.name).suffix.lower()
+
+    if suffix == ".xls":
+        engine = "xlrd"
+
+    return pd.read_excel(file, header=header, engine=engine)
 
 
 def keep_cols_by_index(data, indices):
