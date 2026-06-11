@@ -16,6 +16,9 @@ def render_push_to_database(user: str):
     try:
         from supa_import.db import get_pg_connection, init_supabase, get_branch_id
         from supa_import.config import SHEET_CONFIG
+
+        from etl.preprocessors.cloud.inventory_items_ingredients_qtp import preprocess as cloud_sub
+        from etl.preprocessors.local.inventory_items_ingredients_qtp import preprocess as local_sub
         from supa_import.loaders import extract_sheets_and_client, push_sheets
         from supa_import.streamlit_functions import get_client_list, get_period_options
         from supa_import.modeling import (
@@ -35,8 +38,7 @@ def render_push_to_database(user: str):
             check_duplicates,
             check_rows
         )
-        from etl.preprocessors.cloud.inventory_items_ingredients_qtp import preprocess as cloud_sub
-        from etl.preprocessors.local.inventory_items_ingredients_qtp import preprocess as local_sub
+        from supa_import.saver import save_cleaned_data
     except Exception as e:
         try:
             import supa_import
@@ -52,11 +54,11 @@ def render_push_to_database(user: str):
         )
         return
 
-    if "ptdb_supabase_client" not in st.session_state:
-        st.session_state.ptdb_supabase_client = init_supabase()
-    supabase = st.session_state.ptdb_supabase_client
+    if "psp_supabase_client" not in st.session_state:
+        st.session_state.psp_supabase_client = init_supabase()
+    supabase = st.session_state.psp_supabase_client
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     with col1:
         sub = st.file_uploader("Upload Sub-Recipes", type=["xlsx", "xls"], key="ptdb_upload")
     with col2:
@@ -68,7 +70,7 @@ def render_push_to_database(user: str):
     if not st.button("Run", type="primary", use_container_width=True, key="ptdb_run"):
         return
 
-    if not uploaded_file or not selected_client or not source:
+    if not sub or not selected_client or not source:
         st.error("Please provide a file, a client and a date.")
         return
 
@@ -80,7 +82,7 @@ def render_push_to_database(user: str):
             data = local_sub(sub)
 
         sheets_dict = {
-            'sub recipes': sub,
+            'sub recipes': data,
         }
 
         st.write(sheets_dict['sub recipes'].head())
