@@ -60,7 +60,7 @@ def render_push_to_database(user: str):
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        sub = st.file_uploader("Upload Sub-Recipes", type=["xlsx", "xls"], key="ptdb_upload")
+        sub = st.file_uploader("Upload Sub-Recipes", type=["xlsx", "xls", "application/vnd.ms-excel"], key="ptdb_upload")
     with col2:
         client_options = get_client_list(supabase)
         selected_client = st.selectbox("Select Branch", options=client_options, key="ptdb_client")
