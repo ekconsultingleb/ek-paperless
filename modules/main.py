@@ -540,10 +540,10 @@ def render_main(conn, sheet_link, user, role):
         # ══════════════════════════════════════════════════════════════════════
         else:
             st.markdown("#### 📤 Smart Database Importer")
-            uploaded_file = st.file_uploader("Upload Master Items List", type=["csv", "xlsx"])
+            uploaded_file = st.file_uploader("Upload Master Items List", type=["xls", "xlsx"])
             if uploaded_file:
                 try:
-                    df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+                    df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.xls') else pd.read_excel(uploaded_file)
                     df.columns = [str(c).strip().lower() for c in df.columns]
                     st.dataframe(df.head(5), use_container_width=True)
                     required_cols = ['client_name', 'outlet', 'location', 'item_type', 'product_code', 'item_name']
