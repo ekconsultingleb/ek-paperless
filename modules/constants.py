@@ -18,6 +18,7 @@ PAGE_RECIPES        = "recipes"
 PAGE_RECIPES_REPORT = "recipes report"
 PAGE_MAIN           = "main"
 PAGE_PRICING_STUDIO = "pricing studio"
+PAGE_LIVE           = "live"
 
 # ── Module access keys (must match values stored in users.module column) ──────
 MOD_CASH           = "daily-cash"
@@ -29,6 +30,7 @@ MOD_DASHBOARD      = "dashboard"
 MOD_LEDGER         = "ledger"
 MOD_RECIPES        = "recipes"
 MOD_RECIPES_REPORT = "recipes report"
+MOD_LIVE           = "live"
 
 # Full module list for admin/admin_all roles
 ALL_MODULES = [
@@ -41,8 +43,9 @@ ALL_MODULES = [
     MOD_LEDGER,
     MOD_RECIPES,
     MOD_RECIPES_REPORT,
+    MOD_LIVE,
 ]
 
 # ── App config ────────────────────────────────────────────────────────────────
 LOGO_URL    = "https://hgvubaohmgvesblfvdps.supabase.co/storage/v1/object/public/assets/EK-Logo.png"
-APP_VERSION = "3.3.15"
+APP_VERSION = "3.3.16"

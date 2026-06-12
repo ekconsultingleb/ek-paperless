@@ -728,14 +728,14 @@ def render_main(conn, sheet_link, user, role):
             st.subheader("Account Details")
             col1, col2 = st.columns(2)
             with col1:
-                new_username = st.text_input("👤 Username", key="c_usr")
-                new_password = st.text_input("🔑 Password", key="c_pwd")
-                new_fullname = st.text_input("📝 Full Name", key="c_name")
+                new_username = st.text_input("Username", key="c_usr")
+                new_password = st.text_input("Password", key="c_pwd")
+                new_fullname = st.text_input("Full Name", key="c_name")
                 role_options = ["staff", "chef", "bar manager", "bartender", "storekeeper", "manager", "viewer", "admin", "admin_all"]
-                new_role = st.selectbox("🛡️ Role", role_options, key="c_role")
+                new_role = st.selectbox("Role", role_options, key="c_role")
             with col2:
-                available_modules = ["waste", "cash", "inventory", "transfers", "dashboard", "invoices", "ledger", "recipes", "recipes report", "production", "purchase-orders", "variance"]
-                new_modules = st.multiselect("📱 App Access", available_modules, default=["waste"], key="c_mod")
+                available_modules = ["waste", "cash", "inventory", "transfers", "dashboard", "invoices", "ledger", "recipes", "recipes report", "production", "purchase-orders", "variance", "live"]
+                new_modules = st.multiselect("App Access", available_modules, default=["waste"], key="c_mod")
 
             col_ce1, col_ce2, col_ce3 = st.columns([3, 3, 1])
             with col_ce1:
@@ -758,7 +758,7 @@ def render_main(conn, sheet_link, user, role):
                 areas_for_create = get_areas_for_outlet(new_outlet if new_outlet != "All" else None)
                 new_locations = st.multiselect("📍 Select Area(s)", ["All"] + areas_for_create, default=["All"], key="c_loc")
 
-            if st.button("🚀 CREATE USER", type="primary", width="stretch"):
+            if st.button("CREATE USER", type="primary", width="stretch"):
                 if not new_username.strip() or not new_password.strip():
                     st.error("❌ Username and password are required.")
                 else:
@@ -802,7 +802,7 @@ def render_main(conn, sheet_link, user, role):
                         e_role = st.selectbox("Role", role_options, index=e_role_index, key=f"e_role_{u_sel}")
 
                     with col2:
-                        available_modules = ["waste", "cash", "inventory", "transfers", "dashboard", "invoices", "ledger", "recipes", "recipes report", "production", "purchase-orders", "variance"]
+                        available_modules = ["waste", "cash", "inventory", "transfers", "dashboard", "invoices", "ledger", "recipes", "recipes report", "production", "purchase-orders", "variance","live"]
                         raw_mods = u_data.get('module', '') or ''
                         current_mods = [m.strip().lower() for m in str(raw_mods).split(',') if m.strip()]
                         if not current_mods:

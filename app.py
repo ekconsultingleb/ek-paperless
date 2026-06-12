@@ -23,13 +23,14 @@ from modules.invoices import render_invoices
 from modules.recipes import render_recipes
 from modules.dpos import show_dpos
 from modules.nav_helper import hash_password, verify_password
+from modules.live import render_live
 from modules.constants import (
     PAGE_HOME, PAGE_CASH, PAGE_INVENTORY, PAGE_WASTE, PAGE_INVOICES,
     PAGE_TRANSFERS, PAGE_DASHBOARD, PAGE_LEDGER,
-    PAGE_RECIPES, PAGE_RECIPES_REPORT, PAGE_MAIN, PAGE_PRICING_STUDIO,
+    PAGE_RECIPES, PAGE_RECIPES_REPORT, PAGE_MAIN, PAGE_PRICING_STUDIO, PAGE_LIVE,
     MOD_CASH, MOD_INVENTORY, MOD_WASTE, MOD_INVOICES, MOD_TRANSFERS,
     MOD_DASHBOARD, MOD_LEDGER, MOD_RECIPES,
-    MOD_RECIPES_REPORT,
+    MOD_RECIPES_REPORT, MOD_LIVE,
     ALL_MODULES, LOGO_URL, APP_VERSION,
 )
 
@@ -483,6 +484,7 @@ else:
             (MOD_LEDGER,         "💸\nDebt Control",   PAGE_LEDGER),
             (MOD_RECIPES,        "🍳\nRecipes",        PAGE_RECIPES),
             (MOD_RECIPES_REPORT, "📋\nRecipe Report",  PAGE_RECIPES_REPORT),
+            (MOD_LIVE,           "📡\nLive",            PAGE_LIVE),
         ]
 
         # Filter to only modules this user can access
@@ -581,5 +583,7 @@ else:
                 _render_moved_message()
         elif st.session_state['current_page'] == PAGE_MAIN:
             render_main(None, None, user, role)
+        elif st.session_state['current_page'] == PAGE_LIVE:
+            render_live(supabase, user, role, client, outlet, location)
         elif st.session_state['current_page'] == PAGE_PRICING_STUDIO:
             show_dpos(supabase)
