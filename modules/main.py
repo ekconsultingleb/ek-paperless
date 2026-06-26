@@ -748,15 +748,23 @@ def render_main(conn, sheet_link, user, role):
                 new_cost_reminder = st.checkbox("💰 Cost Reminder", value=False, key="c_cost_reminder")
                 new_transfer_notif = st.checkbox("🔄 Transfer Notif.", value=False, key="c_transfer_notif")
 
-            col3, col4, col5 = st.columns(3)
-            with col3:
-                new_client = st.selectbox("🏢 Select Client", ["All"] + clients_list, key="c_client")
-            with col4:
-                outlets_for_create = get_outlets_for_client(new_client if new_client != "All" else None)
-                new_outlet = st.selectbox("🏠 Select Outlet", ["All"] + outlets_for_create, key="c_outlet")
-            with col5:
-                areas_for_create = get_areas_for_outlet(new_outlet if new_outlet != "All" else None)
-                new_locations = st.multiselect("📍 Select Area(s)", ["All"] + areas_for_create, default=["All"], key="c_loc")
+            use_allowed = st.checkbox("🔓 Allowed Clients", key="c_use_allowed")
+            if use_allowed:
+                new_allowed_clients = st.multiselect("🏢 Allowed Clients", clients_list, key="c_allowed_clients")
+                new_client = "All"
+                new_outlet = "All"
+                new_locations = ["All"]
+            else:
+                new_allowed_clients = []
+                col3, col4, col5 = st.columns(3)
+                with col3:
+                    new_client = st.selectbox("🏢 Select Client", ["All"] + clients_list, key="c_client")
+                with col4:
+                    outlets_for_create = get_outlets_for_client(new_client if new_client != "All" else None)
+                    new_outlet = st.selectbox("🏠 Select Outlet", ["All"] + outlets_for_create, key="c_outlet")
+                with col5:
+                    areas_for_create = get_areas_for_outlet(new_outlet if new_outlet != "All" else None)
+                    new_locations = st.multiselect("📍 Select Area(s)", ["All"] + areas_for_create, default=["All"], key="c_loc")
 
             if st.button("CREATE USER", type="primary", width="stretch"):
                 if not new_username.strip() or not new_password.strip():
@@ -768,6 +776,7 @@ def render_main(conn, sheet_link, user, role):
                         "full_name": new_fullname.strip(),
                         "role": new_role, "client_name": new_client, "outlet": new_outlet,
                         "location": ", ".join(new_locations), "module": ", ".join(new_modules),
+                        "allowed_clients": ", ".join(new_allowed_clients),
                         "email": new_email.strip().lower() or None,
                         "phone": new_phone.strip() or None,
                         "inv_reminder": new_inv_reminder,
@@ -821,23 +830,35 @@ def render_main(conn, sheet_link, user, role):
                         e_cost_reminder = st.checkbox("💰 Cost Reminder", value=bool(u_data.get('cost_reminder', False)), key=f"e_cost_reminder_{u_sel}")
                         e_transfer_notif = st.checkbox("🔄 Transfer Notif.", value=bool(u_data.get('transfer_notification', False)), key=f"e_transfer_notif_{u_sel}")
 
-                    col3, col4, col5 = st.columns(3)
-                    with col3:
-                        c_index = (["All"] + clients_list).index(u_data['client_name']) if u_data['client_name'] in (["All"] + clients_list) else 0
-                        e_client = st.selectbox("🏢 Select Client", ["All"] + clients_list, index=c_index, key=f"e_client_{u_sel}")
+                    raw_allowed = u_data.get('allowed_clients', '') or ''
+                    current_allowed = [c.strip() for c in str(raw_allowed).split(',') if c.strip()]
+                    valid_allowed = [c for c in current_allowed if c in clients_list]
 
-                    outlets_for_edit = get_outlets_for_client(e_client if e_client != "All" else None)
-                    with col4:
-                        o_list   = ["All"] + outlets_for_edit
-                        o_index  = o_list.index(u_data['outlet']) if u_data['outlet'] in o_list else 0
-                        e_outlet = st.selectbox("🏠 Select Outlet", o_list, index=o_index, key=f"e_outlet_{u_sel}")
+                    e_use_allowed = st.checkbox("🔓 Allowed Clients", value=bool(valid_allowed), key=f"e_use_allowed_{u_sel}")
+                    if e_use_allowed:
+                        e_allowed_clients = st.multiselect("🏢 Allowed Clients", clients_list, default=valid_allowed, key=f"e_allowed_{u_sel}")
+                        e_client = "All"
+                        e_outlet = "All"
+                        e_locations = ["All"]
+                    else:
+                        e_allowed_clients = []
+                        col3, col4, col5 = st.columns(3)
+                        with col3:
+                            c_index = (["All"] + clients_list).index(u_data['client_name']) if u_data['client_name'] in (["All"] + clients_list) else 0
+                            e_client = st.selectbox("🏢 Select Client", ["All"] + clients_list, index=c_index, key=f"e_client_{u_sel}")
 
-                    areas_for_edit = get_areas_for_outlet(e_outlet if e_outlet != "All" else None)
-                    with col5:
-                        l_list       = ["All"] + areas_for_edit
-                        current_locs = [l.strip() for l in str(u_data.get('location', '')).split(',') if l.strip()]
-                        valid_locs   = [l for l in current_locs if l in l_list] or ["All"]
-                        e_locations  = st.multiselect("📍 Select Area(s)", l_list, default=valid_locs, key=f"e_loc_{u_sel}")
+                        outlets_for_edit = get_outlets_for_client(e_client if e_client != "All" else None)
+                        with col4:
+                            o_list   = ["All"] + outlets_for_edit
+                            o_index  = o_list.index(u_data['outlet']) if u_data['outlet'] in o_list else 0
+                            e_outlet = st.selectbox("🏠 Select Outlet", o_list, index=o_index, key=f"e_outlet_{u_sel}")
+
+                        areas_for_edit = get_areas_for_outlet(e_outlet if e_outlet != "All" else None)
+                        with col5:
+                            l_list       = ["All"] + areas_for_edit
+                            current_locs = [l.strip() for l in str(u_data.get('location', '')).split(',') if l.strip()]
+                            valid_locs   = [l for l in current_locs if l in l_list] or ["All"]
+                            e_locations  = st.multiselect("📍 Select Area(s)", l_list, default=valid_locs, key=f"e_loc_{u_sel}")
 
                     st.write("")
                     if st.button("💾 Save User Changes", type="primary", width="stretch"):
@@ -849,6 +870,7 @@ def render_main(conn, sheet_link, user, role):
                             "client_name": e_client,
                             "outlet": e_outlet,
                             "location": ", ".join(e_locations),
+                            "allowed_clients": ", ".join(e_allowed_clients),
                             "email": e_email.strip() or None,
                             "phone": e_phone.strip() or None,
                             "inv_reminder": e_inv_reminder,
