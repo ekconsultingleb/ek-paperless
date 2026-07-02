@@ -120,21 +120,21 @@ def render_main(conn, sheet_link, user, role):
             
             if client_mode == "Select existing":
                 with col_c1:
-                    sel_client = st.selectbox("🏢 Client", clients_list, key="omega_client")
+                    sel_client = st.selectbox("Client", clients_list, key="omega_client")
                 with col_c2:
                     outlets = get_outlets_for_client(sel_client)
-                    sel_outlet = st.selectbox("🏠 Outlet", outlets if outlets else ["Main"], key="omega_outlet")
+                    sel_outlet = st.selectbox("Outlet", outlets if outlets else ["Main"], key="omega_outlet")
                 with col_c3:
                     areas = get_areas_for_outlet(sel_outlet)
                     loc_list = areas if areas else ["Main Store"]
-                    sel_location = st.selectbox("📍 Location", loc_list, key="omega_location")
+                    sel_location = st.selectbox("Location", loc_list, key="omega_location")
                 final_client   = sel_client
                 final_outlet   = sel_outlet
                 final_location = sel_location
             else:
-                with col_c1: final_client   = st.text_input("🏢 New Client Name", key="omega_new_client").strip().title()
-                with col_c2: final_outlet   = st.text_input("🏠 Outlet Name",     key="omega_new_outlet").strip().title()
-                with col_c3: final_location = st.text_input("📍 Location Name",   key="omega_new_location").strip().title()
+                with col_c1: final_client   = st.text_input("New Client Name", key="omega_new_client").strip().title()
+                with col_c2: final_outlet   = st.text_input("Outlet Name",     key="omega_new_outlet").strip().title()
+                with col_c3: final_location = st.text_input("Location Name",   key="omega_new_location").strip().title()
 
             if not final_client or not final_outlet or not final_location:
                 st.warning("Please fill in Client, Outlet and Location before uploading files.")
@@ -205,171 +205,271 @@ def render_main(conn, sheet_link, user, role):
                     j += 1
                 return count
 
-                        # ── Parse Inventory file ───────────────────────────────────────────────────
-            def parse_inventory(f, client, outlet, location):
-                """
-                Parse Omega Programming Summary (Inventory Items).
-                Col 0 = item_id (internal, unused), Col 1 = product_code,
-                Col 2 = item_name, Col 3 = buying_unit (count_unit).
-                Major categories duplicated on consecutive rows (Title then UPPER).
-                Sub-categories are single text rows before items.
-                """
-                import datetime as _dt3
+            # ════════════════════════════════════════════════════════════════════════
+            # Omega Programming Summary parsers — v3 (run-based, category/division/group)
+            # Drop-in replacements for parse_inventory() and parse_menu_items() in the
+            # Omega Sync tab of main.py. Requires `proper()` in scope (already there).
+            #
+            # Hierarchy mapping (Omega → master_items columns):
+            #   Omega Category  (Food / Beverages / Tobacco)  →  category
+            #   Omega Division  (Gin, Burgers, Alcohol...)    →  division   (NEW, nullable)
+            #   Omega Group     (Les Gins, Bars & Bites...)   →  sub_category
+            #
+            # sub_category keeps its DB name so nothing breaks in Next.js — it now
+            # holds Omega's "Group" level. `division` must exist in master_items
+            # (text, nullable) before pushing. Inventory files have no division → NULL.
+            # ════════════════════════════════════════════════════════════════════════
+            import re
+            import datetime as _dt
+            import pandas as pd
 
-                def _inv_empty(v):
-                    if v is None: return True
-                    if isinstance(v, float) and pd.isna(v): return True
-                    return str(v).strip() in ("", "nan", "None", "NaN")
 
-                def _inv_numeric(v):
-                    if _inv_empty(v): return False
-                    try: float(str(v)); return True
-                    except: return False
-
-                _SKIP = {"lucy lu", "programming summary (inventory items)", "item id"}
-
-                _engine = "xlrd" if getattr(f, "name", "").lower().endswith(".xls") else None
-                raw = pd.read_excel(f, header=None, engine=_engine)
-                df  = raw.copy().astype(object)
-                n   = len(df)
-                records     = []
-                current_cat = ""
-                current_sub = ""
-
-                for i in range(n):
-                    a = df.iloc[i, 0]
-                    b = df.iloc[i, 1]
-                    c = df.iloc[i, 2] if df.shape[1] > 2 else None
-                    d = df.iloc[i, 3] if df.shape[1] > 3 else None
-
-                    # skip timestamps, titles, headers
-                    if isinstance(a, (_dt3.datetime, pd.Timestamp)): continue
-                    if str(a).strip().lower() in _SKIP: continue
-                    if str(a).strip().startswith("REP_I_"): continue
-
-                    b_empty = _inv_empty(b)
-
-                    # category / sub-category: col A text, col B empty
-                    if not _inv_empty(a) and not _inv_numeric(a) and b_empty:
-                        text   = str(a).strip()
-                        next_a = df.iloc[i+1, 0] if i+1 < n else None
-                        next_b = df.iloc[i+1, 1] if i+1 < n else None
-                        # major category: next row same text (Omega duplicates title→UPPER)
-                        if str(next_a).strip().upper() == text.upper() and _inv_empty(next_b):
-                            current_cat = proper(text)
-                            current_sub = ""
-                        else:
-                            # skip if this IS the UPPER duplicate
-                            prev_a = df.iloc[i-1, 0] if i > 0 else None
-                            prev_b = df.iloc[i-1, 1] if i > 0 else None
-                            if (not _inv_empty(prev_a) and
-                                    str(prev_a).strip().upper() == text.upper() and
-                                    _inv_empty(prev_b)):
-                                pass  # already set by title-case row above
-                            else:
-                                current_sub = proper(text)
-                        continue
-
-                    # item row: col A numeric, col B = product code
-                    if _inv_numeric(a) and not b_empty:
-                        product_code = proper(str(b))
-                        item_name    = proper(str(c)) if not _inv_empty(c) else ""
-                        count_unit   = proper(str(d)) if not _inv_empty(d) else ""
-
-                        if not item_name: continue
-                        if (product_code.lower().startswith("xxx") or
-                                item_name.lower().startswith("xxx") or
-                                current_cat.lower().startswith("xxx") or
-                                current_sub.lower().startswith("xxx")): continue
-
-                        records.append({
-                            "client_name":  client,
-                            "outlet":       outlet,
-                            "location":     location,
-                            "item_type":    "Inventory",
-                            "category":     current_cat,
-                            "sub_category": current_sub,
-                            "product_code": product_code,
-                            "item_name":    item_name,
-                            "count_unit":   count_unit,
-                        })
-
-                return pd.DataFrame(records)
-
-            # ── Parse Menu Items file ──────────────────────────────────────────────
+            # ── Parse Menu Items file (REP_S_00178) ─────────────────────────────────
             def parse_menu_items(f, client, outlet, location):
                 """
-                Parse Omega Programming Summary (Menu Items) — alternating-row format.
-                Name row: col A=NaN, col B=item name.
-                ID row:   col A=numeric, col B=NaN  (always follows its name row).
-                Major categories duplicated on consecutive rows.
+                Alternating rows: name row (col A empty, col B = name) then ID row
+                (col A numeric, col B empty).
+                Section headers = runs of consecutive text rows in col A:
+                run of 3 = (category, division, group)   e.g. FOOD / BURGERS / LES BURGERS
+                run of 2 = (division, group)             e.g. GIN / LES GINS
+                run of 1 = orphan group (pair split by page break) — division
+                            mirrored by stripping leading "LES ".
+                Division and group names usually DIFFER — never rely on
+                duplicate-consecutive-rows detection.
+                Page-break blocks (timestamp / "Description" / "Item ID") are transparent
+                so pairs split across pages re-join.
+                Excluded: DELETE * sections, REMARKS * / Doneness (modifier buttons),
+                xxx-prefixed, company-name header, REP_S_xxxxx copyright footer.
                 """
-                import datetime as _dt2
-            
-                def _mi_is_empty(v):
+                def _e(v):
                     if v is None: return True
                     if isinstance(v, float) and pd.isna(v): return True
                     return str(v).strip() in ("", "nan", "None", "NaN")
-            
-                def _mi_is_numeric(v):
-                    if _mi_is_empty(v): return False
+
+                def _n(v):
+                    if _e(v): return False
                     try: float(str(v)); return True
                     except (ValueError, TypeError): return False
-            
+
                 _engine = "xlrd" if getattr(f, "name", "").lower().endswith(".xls") else None
                 raw = pd.read_excel(f, header=None, engine=_engine)
-                df  = raw.copy().astype(object)
+                df  = raw.astype(object)
                 n   = len(df)
-                records      = []
-                current_cat  = ""
-                current_sub  = ""
-                pending_name = None
-            
+
+                # Pass 1 — classify rows
+                RT = []
                 for i in range(n):
-                    a = df.iloc[i, 0]
-                    b = df.iloc[i, 1] if df.shape[1] > 1 else None
-                    if isinstance(a, (_dt2.datetime, pd.Timestamp)):
-                        pending_name = None; continue
-                    if str(b).strip() == "Description":
-                        pending_name = None; continue
-                    if str(a).strip() == "Item ID":
-                        pending_name = None; continue
-                    if str(a).strip() == "Programming Summary" and _mi_is_empty(b):
+                    a  = df.iloc[i, 0]
+                    b  = df.iloc[i, 1] if df.shape[1] > 1 else None
+                    c  = df.iloc[i, 2] if df.shape[1] > 2 else None
+                    sa = str(a).strip()
+                    if (isinstance(a, (_dt.datetime, pd.Timestamp))
+                            or sa in ("Item ID", "Programming Summary")
+                            or str(b).strip() == "Description"
+                            or (_e(a) and _e(b))
+                            or "Copyright" in str(c)
+                            or re.match(r"^REP_[A-Z]_\d+$", sa)):
+                        RT.append("noise")
+                    elif not _e(a) and not _n(a):
+                        RT.append("text")
+                    elif _e(a) and not _e(b):
+                        RT.append("name")
+                    elif _n(a) and _e(b):
+                        RT.append("id")
+                    else:
+                        RT.append("noise")
+
+                # Company-name row: first text row before any item data → noise
+                for i in range(n):
+                    if RT[i] == "text":
+                        RT[i] = "noise"
+                        break
+                    if RT[i] in ("name", "id"):
+                        break
+
+                # Pass 2 — group text rows into runs (noise transparent → re-joins
+                # pairs split by page breaks, e.g. TEQUILA / LES TEQUILAS)
+                runs, cur = [], []
+                for i in range(n):
+                    if RT[i] == "text":
+                        cur.append(str(df.iloc[i, 0]).strip())
+                    elif RT[i] == "noise":
                         continue
-                    if not _mi_is_empty(a) and not _mi_is_numeric(a):
-                        text   = str(a).strip()
-                        next_a = df.iloc[i + 1, 0] if i + 1 < n else None
-                        if str(next_a).strip() == text:
-                            current_cat = proper(text); current_sub = ""
-                        else:
-                            current_sub = proper(text)
-                        pending_name = None; continue
-                    if _mi_is_empty(a) and not _mi_is_empty(b):
-                        name = str(b).strip()
-                        if name == "Description": continue
-                        pending_name = proper(name); continue
-                    if _mi_is_numeric(a) and _mi_is_empty(b):
-                        if pending_name:
-                            item_id = str(int(float(str(a))))
-                            if not (pending_name.lower().startswith("xxx") or
-                                    current_cat.lower().startswith("xxx") or
-                                    current_sub.lower().startswith("xxx")):
-                                records.append({
-                                    "client_name":  client,
-                                    "outlet":       outlet,
-                                    "location":     location,
-                                    "item_type":    "Menu Items",
-                                    "category":     current_cat,
-                                    "sub_category": current_sub,
-                                    "product_code": item_id,
-                                    "item_name":    pending_name,
-                                    "count_unit":   "Unit",
-                                })
-                        pending_name = None; continue
-            
+                    else:
+                        if cur: runs.append((i, cur)); cur = []
+                if cur:
+                    runs.append((n, cur))
+
+                resolved = {}
+                for pos, r in runs:
+                    if len(r) >= 3:
+                        resolved[pos] = (r[-3], r[-2], r[-1])
+                    elif len(r) == 2:
+                        resolved[pos] = (None, r[0], r[1])
+                    else:
+                        resolved[pos] = (None, re.sub(r"^les\s+", "", r[0], flags=re.I), r[0])
+
+                # Pass 3 — emit records
+                records = []
+                cat = div = grp = ""
+                pending = None
+                bounds = sorted(resolved)
+                bi = 0
+                for i in range(n):
+                    while bi < len(bounds) and i >= bounds[bi]:
+                        c, d, g = resolved[bounds[bi]]
+                        if c is not None:
+                            cat = proper(c)
+                        div, grp = proper(d), proper(g)
+                        pending = None
+                        bi += 1
+                    t = RT[i]
+                    if t in ("noise", "text"):
+                        continue
+                    if t == "name":
+                        pending = proper(str(df.iloc[i, 1]).strip())
+                        continue
+                    if t == "id" and pending:
+                        low = f"{cat}|{div}|{grp}|{pending}".lower()
+                        excluded = (
+                            low.startswith("xxx") or "|xxx" in low
+                            or div.lower().startswith("delete") or grp.lower().startswith("delete")
+                            or div.lower().startswith("remarks") or grp.lower().startswith("remarks")
+                            or grp.lower() == "doneness"
+                        )
+                        if not excluded:
+                            records.append({
+                                "client_name":  client,
+                                "outlet":       outlet,
+                                "location":     location,
+                                "item_type":    "Menu Item",
+                                "category":     cat,
+                                "division":     div,
+                                "sub_category": grp,
+                                "product_code": str(int(float(str(df.iloc[i, 0])))),
+                                "item_name":    pending,
+                                "count_unit":   "Unit",
+                            })
+                        pending = None
+
                 return pd.DataFrame(records)
-            
-# ── Modifier detection helpers ──────────────────────────────
+
+
+            # ── Parse Inventory file (REP_I_0044) ───────────────────────────────────
+            def parse_inventory(f, client, outlet, location):
+                """
+                Item rows: col A = internal Item Id (numeric), col B = Product Code,
+                col C = Product Description (item name), col D = Buying Unit.
+                Section headers = runs of text rows in col A:
+                duplicated adjacent pair (case-insensitive)   = category (Beverages/Food/...)
+                remaining single row                          = group → sub_category
+                No division level in this report → division = NULL.
+                Company-name header detected automatically (no hardcoded client names),
+                page-break blocks transparent, REP_I_xxxx copyright footer dropped.
+                """
+                def _e(v):
+                    if v is None: return True
+                    if isinstance(v, float) and pd.isna(v): return True
+                    return str(v).strip() in ("", "nan", "None", "NaN")
+
+                def _n(v):
+                    if _e(v): return False
+                    try: float(str(v)); return True
+                    except (ValueError, TypeError): return False
+
+                _engine = "xlrd" if getattr(f, "name", "").lower().endswith(".xls") else None
+                raw = pd.read_excel(f, header=None, engine=_engine)
+                df  = raw.astype(object)
+                n   = len(df)
+
+                RT = []
+                for i in range(n):
+                    a  = df.iloc[i, 0]
+                    b  = df.iloc[i, 1] if df.shape[1] > 1 else None
+                    d  = df.iloc[i, 3] if df.shape[1] > 3 else None
+                    sa = str(a).strip()
+                    if (isinstance(a, (_dt.datetime, pd.Timestamp))
+                            or sa.lower() in ("item id", "programming summary (inventory items)")
+                            or "Copyright" in str(d)
+                            or re.match(r"^REP_[A-Z]_\d+$", sa)
+                            or (_e(a) and _e(b))):
+                        RT.append("noise")
+                    elif not _e(a) and not _n(a) and _e(b):
+                        RT.append("text")
+                    elif _n(a) and not _e(b):
+                        RT.append("item")
+                    else:
+                        RT.append("noise")
+
+                # Company-name row → noise (automatic, replaces hardcoded "lucy lu")
+                for i in range(n):
+                    if RT[i] == "text":
+                        RT[i] = "noise"
+                        break
+                    if RT[i] == "item":
+                        break
+
+                runs, cur = [], []
+                for i in range(n):
+                    if RT[i] == "text":
+                        cur.append(str(df.iloc[i, 0]).strip())
+                    elif RT[i] == "noise":
+                        continue
+                    else:
+                        if cur: runs.append((i, cur)); cur = []
+                if cur:
+                    runs.append((n, cur))
+
+                resolved = {}
+                for pos, r in runs:
+                    c = None
+                    toks = list(r)
+                    if len(toks) >= 2 and toks[0].upper() == toks[1].upper():
+                        c = toks[0]
+                        toks = toks[2:]
+                    resolved[pos] = (c, toks[-1] if toks else None)
+
+                records = []
+                cat = sub = ""
+                bounds = sorted(resolved)
+                bi = 0
+                for i in range(n):
+                    while bi < len(bounds) and i >= bounds[bi]:
+                        c, s = resolved[bounds[bi]]
+                        if c is not None:
+                            cat = proper(c); sub = ""
+                        if s is not None:
+                            sub = proper(s)
+                        bi += 1
+                    if RT[i] != "item":
+                        continue
+                    b = df.iloc[i, 1]
+                    cdesc = df.iloc[i, 2] if df.shape[1] > 2 else None
+                    dunit = df.iloc[i, 3] if df.shape[1] > 3 else None
+                    product_code = proper(str(b))
+                    item_name    = proper(str(cdesc)) if not _e(cdesc) else ""
+                    count_unit   = proper(str(dunit)) if not _e(dunit) else ""
+                    if not item_name:
+                        continue
+                    low = f"{product_code}|{item_name}|{cat}|{sub}".lower()
+                    if low.startswith("xxx") or "|xxx" in low:
+                        continue
+                    records.append({
+                        "client_name":  client,
+                        "outlet":       outlet,
+                        "location":     location,
+                        "item_type":    "Inventory",
+                        "category":     cat,
+                        "division":     None,
+                        "sub_category": sub,
+                        "product_code": product_code,
+                        "item_name":    item_name,
+                        "count_unit":   count_unit,
+                    })
+
+                return pd.DataFrame(records)
+
+            # ── Modifier detection helpers ──────────────────────────────
             _MODIFIER_PREFIXES = (
                 "no ", "add ", "add-", "extra ", "without ", "w/o ", "w/ ",
                 "remove ", "less ", "more ", "sub ", "substitute ", "light ",
@@ -437,7 +537,7 @@ def render_main(conn, sheet_link, user, role):
                             df_inv_raw.loc[inv_mask, "include"] = False
 
                         edited_inv = st.data_editor(
-                            df_inv_raw[["include", "category", "sub_category", "product_code", "item_name", "count_unit"]],
+                            df_inv_raw[["include", "category", "division", "sub_category", "product_code", "item_name", "count_unit"]],
                             column_config={
                                 "include": st.column_config.CheckboxColumn("✅ Include", default=True, width="small"),
                             },
@@ -496,7 +596,7 @@ def render_main(conn, sheet_link, user, role):
                             df_menu_raw.loc[mask, "include"] = False
 
                         edited_menu = st.data_editor(
-                            df_menu_raw[["include", "category", "sub_category", "product_code", "item_name"]],
+                            df_menu_raw[["include", "category", "division", "sub_category", "product_code", "item_name"]],
                             column_config={
                                 "include": st.column_config.CheckboxColumn("✅ Include", default=True, width="small"),
                             },
@@ -521,7 +621,8 @@ def render_main(conn, sheet_link, user, role):
                                   width="stretch", key="omega_push"):
                         with st.spinner("Pushing to Supabase..."):
                             try:
-                                combined = combined.fillna("")
+                                cols = [c for c in combined.columns if c != "division"]
+                                combined[cols] = combined[cols].fillna("")
                                 records  = combined.to_dict(orient="records")
                                 pushed   = 0
                                 for i in range(0, len(records), 500):
