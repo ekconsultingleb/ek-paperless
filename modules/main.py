@@ -355,18 +355,21 @@ def render_main(conn, sheet_link, user, role):
                 return pd.DataFrame(records)
 
 
-            # ── Parse Inventory file (REP_I_0044) ───────────────────────────────────
+            # ── Parse Inventory file (REP_I_0044) — v4 ──────────────────────────────
+            # REPLACES parse_inventory v3 ONLY. parse_menu_items stays unchanged.
+            #
+            # Fix: inventory uses the SAME 3-level run structure as the menu file —
+            # NOT "duplicated pair = category". Verified on two clients:
+            #   Doupont: [BEVERAGES, AMAROS, AMAROS]  → cat, div, grp (div often = grp)
+            #   Fit Hub: [Beverages, Beverages, Bars & Bites] → cat, div, grp (div = cat)
+            # Run of 3+ = (category, division, group); run of 2 = (division, group);
+            # run of 1 = group only, division unchanged (e.g. WHISKY JAPANESE stays
+            # under division WHISKY). DELETE * sections now excluded here too.
             def parse_inventory(f, client, outlet, location):
-                """
-                Item rows: col A = internal Item Id (numeric), col B = Product Code,
-                col C = Product Description (item name), col D = Buying Unit.
-                Section headers = runs of text rows in col A:
-                duplicated adjacent pair (case-insensitive)   = category (Beverages/Food/...)
-                remaining single row                          = group → sub_category
-                No division level in this report → division = NULL.
-                Company-name header detected automatically (no hardcoded client names),
-                page-break blocks transparent, REP_I_xxxx copyright footer dropped.
-                """
+                import re
+                import datetime as _dt
+                import pandas as pd
+
                 def _e(v):
                     if v is None: return True
                     if isinstance(v, float) and pd.isna(v): return True
@@ -401,7 +404,7 @@ def render_main(conn, sheet_link, user, role):
                     else:
                         RT.append("noise")
 
-                # Company-name row → noise (automatic, replaces hardcoded "lucy lu")
+                # Company-name row → noise (automatic, works for any client)
                 for i in range(n):
                     if RT[i] == "text":
                         RT[i] = "noise"
@@ -409,6 +412,8 @@ def render_main(conn, sheet_link, user, role):
                     if RT[i] == "item":
                         break
 
+                # Group text rows into runs; page-break noise is transparent so
+                # label runs split across pages re-join.
                 runs, cur = [], []
                 for i in range(n):
                     if RT[i] == "text":
@@ -422,28 +427,27 @@ def render_main(conn, sheet_link, user, role):
 
                 resolved = {}
                 for pos, r in runs:
-                    c = None
-                    toks = list(r)
-                    if len(toks) >= 2 and toks[0].upper() == toks[1].upper():
-                        c = toks[0]
-                        toks = toks[2:]
-                    resolved[pos] = (c, toks[-1] if toks else None)
+                    if len(r) >= 3:
+                        resolved[pos] = (r[-3], r[-2], r[-1])   # cat, div, grp
+                    elif len(r) == 2:
+                        resolved[pos] = (None, r[0], r[1])      # div, grp (cat unchanged)
+                    else:
+                        resolved[pos] = (None, None, r[0])      # grp only (cat+div unchanged)
 
                 records = []
-                cat = sub = ""
+                cat = div = grp = ""
                 bounds = sorted(resolved)
                 bi = 0
                 for i in range(n):
                     while bi < len(bounds) and i >= bounds[bi]:
-                        c, s = resolved[bounds[bi]]
-                        if c is not None:
-                            cat = proper(c); sub = ""
-                        if s is not None:
-                            sub = proper(s)
+                        c, d, g = resolved[bounds[bi]]
+                        if c is not None: cat = proper(c)
+                        if d is not None: div = proper(d)
+                        grp = proper(g)
                         bi += 1
                     if RT[i] != "item":
                         continue
-                    b = df.iloc[i, 1]
+                    b     = df.iloc[i, 1]
                     cdesc = df.iloc[i, 2] if df.shape[1] > 2 else None
                     dunit = df.iloc[i, 3] if df.shape[1] > 3 else None
                     product_code = proper(str(b))
@@ -451,8 +455,10 @@ def render_main(conn, sheet_link, user, role):
                     count_unit   = proper(str(dunit)) if not _e(dunit) else ""
                     if not item_name:
                         continue
-                    low = f"{product_code}|{item_name}|{cat}|{sub}".lower()
+                    low = f"{product_code}|{item_name}|{cat}|{div}|{grp}".lower()
                     if low.startswith("xxx") or "|xxx" in low:
+                        continue
+                    if div.lower().startswith("delete") or grp.lower().startswith("delete"):
                         continue
                     records.append({
                         "client_name":  client,
@@ -460,8 +466,8 @@ def render_main(conn, sheet_link, user, role):
                         "location":     location,
                         "item_type":    "Inventory",
                         "category":     cat,
-                        "division":     None,
-                        "sub_category": sub,
+                        "division":     div,
+                        "sub_category": grp,
                         "product_code": product_code,
                         "item_name":    item_name,
                         "count_unit":   count_unit,
