@@ -340,7 +340,7 @@ def render_main(conn, sheet_link, user, role):
                                 "client_name":  client,
                                 "outlet":       outlet,
                                 "location":     location,
-                                "item_type":    "Menu Item",
+                                "item_type":    "Menu Items",
                                 "category":     cat,
                                 "division":     div,
                                 "sub_category": grp,
