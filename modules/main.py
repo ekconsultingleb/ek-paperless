@@ -334,8 +334,6 @@ def render_main(conn, sheet_link, user, role):
                         excluded = (
                             low.startswith("xxx") or "|xxx" in low
                             or div.lower().startswith("delete") or grp.lower().startswith("delete")
-                            or div.lower().startswith("remarks") or grp.lower().startswith("remarks")
-                            or grp.lower() == "doneness"
                         )
                         if not excluded:
                             records.append({
